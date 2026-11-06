@@ -122,13 +122,18 @@ export interface ParsedBody {
   blocks: Map<PMNode, { src: string; index: number }>;
 }
 
-export function parseBody(text: string): ParsedBody {
-  const doc = parser.parse(text);
-  const blocks = new Map<PMNode, { src: string; index: number }>();
-  const starts = md
+// The line each top-level block starts on (one per top-level node the parser makes).
+export function blockStarts(text: string): number[] {
+  return md
     .parse(text, {})
     .filter((t) => t.level === 0 && t.nesting !== -1 && t.block && t.map)
     .map((t) => t.map![0]);
+}
+
+export function parseBody(text: string): ParsedBody {
+  const doc = parser.parse(text);
+  const blocks = new Map<PMNode, { src: string; index: number }>();
+  const starts = blockStarts(text);
   if (!starts.length || starts.length !== doc.childCount) return { doc, lead: '', blocks };
   const lineStart = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') lineStart.push(i + 1);

@@ -29,6 +29,14 @@ export interface GitStatus {
   ahead: number;
   behind: number;
   changes: GitChange[];
+  merging: boolean; // getting the latest stopped on conflicts, to resolve in Trace
+}
+
+// A file both you and the server changed: before, yours, the server's (null: not there).
+export interface ConflictVersions {
+  base: string | null;
+  ours: string | null;
+  theirs: string | null;
 }
 
 export interface Branches {
@@ -42,6 +50,13 @@ export interface FileCommit {
   author: string;
   date: string; // ISO 8601
   message: string;
+  path: string; // the file's name in that commit
+}
+
+// Who last changed each line of a file as it is on disk.
+export interface Blame {
+  lines: { commit: string | null; text: string }[]; // commit null: not committed yet
+  commits: Record<string, { author: string; date: string; message: string }>;
 }
 
 // A commit in the code's history, with the files it changed.
@@ -106,12 +121,18 @@ export interface Api {
   gitIdentity(repo: string): Promise<Identity | null>;
   gitCommit(repo: string, message: string, paths: string[], author: Identity | null): Promise<void>;
   gitFetch(repo: string): Promise<void>;
-  gitPull(repo: string): Promise<string>;
+  // 'conflicts' when it stopped on them (GitStatus.merging). author: for a merge commit.
+  gitPull(repo: string, author?: Identity | null): Promise<string>;
+  gitConflict(repo: string, path: string): Promise<ConflictVersions>;
+  gitResolve(repo: string, path: string, text: string | null): Promise<void>; // the merged file; null deletes it
+  gitFinishMerge(repo: string, author: Identity | null): Promise<void>;
+  gitAbortMerge(repo: string): Promise<void>;
   gitPush(repo: string): Promise<string>;
   gitBranches(repo: string): Promise<Branches>;
   gitCheckout(repo: string, branch: string, create: boolean): Promise<void>;
   gitLog(repo: string, path: string): Promise<FileCommit[]>;
   gitShow(repo: string, commit: string, path: string): Promise<string | null>;
+  gitBlame(repo: string, path: string): Promise<Blame | null>; // null: not in git yet
   // The code repository's history: newest first, on `branch` (the server's copy when
   // there is one); [] if it isn't a repository.
   gitCommits(repo: string, limit: number, branch: string | null): Promise<Commit[]>;
@@ -151,11 +172,16 @@ export const API_METHODS: ApiMethod[] = [
   'gitCommit',
   'gitFetch',
   'gitPull',
+  'gitConflict',
+  'gitResolve',
+  'gitFinishMerge',
+  'gitAbortMerge',
   'gitPush',
   'gitBranches',
   'gitCheckout',
   'gitLog',
   'gitShow',
+  'gitBlame',
   'gitCommits',
   'findRepoByRemote',
   'gitTags',

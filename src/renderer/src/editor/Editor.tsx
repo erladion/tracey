@@ -8,6 +8,7 @@ import type { Command } from 'prosemirror-state';
 import { schema } from '../../../core/markdown/schema';
 import { parser } from '../../../core/markdown/markdown';
 import { createEditorState, refsKey, type RefTarget } from './setup';
+import { gitMarksKey, type GitMarks } from './gitmarks';
 import {
   blockStyle,
   codeBlock,
@@ -35,15 +36,16 @@ interface Props {
   refs: Map<string, RefTarget>;
   onOpenRef: (id: string) => void;
   resolveImage: (src: string) => string;
+  gitMarks: GitMarks; // changes since the last commit, and who changed what
 }
 
-export function Editor({ doc, onChange, refs, onOpenRef, resolveImage }: Props) {
+export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [, setTick] = useState(0);
   const [linkDialog, setLinkDialog] = useState<{ href: string } | null>(null);
-  const latest = useRef({ onChange, onOpenRef, resolveImage });
-  latest.current = { onChange, onOpenRef, resolveImage };
+  const latest = useRef({ onChange, onOpenRef, resolveImage, gitMarks });
+  latest.current = { onChange, onOpenRef, resolveImage, gitMarks };
 
   useEffect(() => {
     const view = new EditorView(host.current!, {
@@ -74,7 +76,7 @@ export function Editor({ doc, onChange, refs, onOpenRef, resolveImage }: Props) 
       },
     });
     viewRef.current = view;
-    view.dispatch(view.state.tr.setMeta(refsKey, refs).setMeta('addToHistory', false));
+    view.dispatch(view.state.tr.setMeta(refsKey, refs).setMeta(gitMarksKey, latest.current.gitMarks).setMeta('addToHistory', false));
     setTick((t) => t + 1);
     return () => {
       view.destroy();
@@ -88,6 +90,11 @@ export function Editor({ doc, onChange, refs, onOpenRef, resolveImage }: Props) 
     const view = viewRef.current;
     if (view) view.dispatch(view.state.tr.setMeta(refsKey, refs).setMeta('addToHistory', false));
   }, [refs]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (view) view.dispatch(view.state.tr.setMeta(gitMarksKey, gitMarks).setMeta('addToHistory', false));
+  }, [gitMarks]);
 
   const view = viewRef.current;
   const run = (cmd: Command) => () => {

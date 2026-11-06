@@ -184,6 +184,24 @@ export function addCases(text: string, cases: { id: string; reason: string[] }[]
   return doc.toString({ lineWidth: 0, flowCollectionPadding: false });
 }
 
+// Replaces top-level fields and whole cases (null removes), keeping everything else as
+// written. For merging.
+export function patchRun(text: string, top: Record<string, unknown>, cases: Record<string, Record<string, unknown> | null>): string {
+  const doc = parseDocument(text);
+  for (const [k, v] of Object.entries(top)) {
+    if (v === undefined || v === null) doc.delete(k);
+    else doc.set(k, doc.createNode(v));
+  }
+  if (Object.keys(cases).length && !isMap(doc.get('cases', true))) doc.set('cases', doc.createNode({}));
+  for (const [id, c] of Object.entries(cases)) {
+    if (c == null) doc.deleteIn(['cases', id]);
+    else doc.setIn(['cases', id], doc.createNode(c));
+  }
+  flowLists(doc);
+  spaceCases(doc);
+  return doc.toString({ lineWidth: 0, flowCollectionPadding: false });
+}
+
 export function removeCase(text: string, id: string): string {
   const doc = parseDocument(text);
   doc.deleteIn(['cases', id]);

@@ -1,7 +1,7 @@
 // Git through the system's own `git`, which brings HTTPS and SSH, the user's keys
 // and their credential helpers. Never prompts: a question git would ask fails instead.
 import { execFile } from 'node:child_process';
-import type { Branches, ChangeKind, Commit, FileCommit, GitStatus, Identity } from '../shared/api';
+import type { Blame, Branches, ChangeKind, Commit, FileCommit, GitStatus, Identity } from '../shared/api';
 
 // No `ext::` transport (it runs arbitrary commands); paths printed as they are.
 const SAFE = ['-c', 'protocol.ext.allow=never', '-c', 'core.quotepath=false'];
@@ -118,7 +118,8 @@ export const git = {
   async status(root: string): Promise<GitStatus | null> {
     if (!(await git.isRepo(root))) return null;
     const out = await checked(['--no-optional-locks', 'status', '--porcelain=v2', '--branch', '-z', '--untracked-files=all'], root);
-    const status: GitStatus = { branch: null, upstream: null, hasRemote: false, head: null, ahead: 0, behind: 0, changes: [] };
+    const status: GitStatus = { branch: null, upstream: null, hasRemote: false, head: null, ahead: 0, behind: 0, changes: [], merging: false };
+    status.merging = await git.merging(root);
     const head = await run(['rev-parse', '--verify', '--quiet', 'HEAD'], root);
     status.head = head.code === 0 ? head.stdout.trim() : null;
     status.hasRemote = (await run(['remote'], root)).stdout.trim() !== '';
@@ -160,14 +161,50 @@ export const git = {
     await checked(['fetch', '--prune', '--quiet'], root);
   },
 
-  async pull(root: string): Promise<string> {
-    const r = await run(['pull', '--rebase', '--autostash'], root);
-    if (r.code !== 0) {
-      // Leave the repository as it was rather than mid-rebase.
-      await run(['rebase', '--abort'], root);
-      throw new GitError(explain(r.stderr || r.stdout), r.stderr);
-    }
-    return (r.stdout + r.stderr).trim();
+  async merging(root: string): Promise<boolean> {
+    return (await run(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], root)).code === 0;
+  },
+
+  // Your commits on top of the server's. If they overlap, merge instead and stop there
+  // (status.merging) for the conflicts to be resolved, once, in Trace.
+  async pull(root: string, author: Identity | null = null): Promise<string> {
+    const who = author ? ['-c', `user.name=${author.name}`, '-c', `user.email=${author.email}`] : [];
+    const r = await run(['pull', '--rebase', '--autostash'], root, who);
+    if (r.code === 0) return (r.stdout + r.stderr).trim();
+    await run(['rebase', '--abort'], root);
+    if (!/CONFLICT/.test(r.stdout + r.stderr)) throw new GitError(explain(r.stderr || r.stdout), r.stderr);
+    const m = await run(['merge', '--autostash', '--no-edit', '@{upstream}'], root, who);
+    if (m.code === 0) return 'Merged the server’s changes with yours.';
+    if (await git.merging(root)) return 'conflicts';
+    await run(['merge', '--abort'], root);
+    throw new GitError(explain(m.stderr || m.stdout), m.stderr);
+  },
+
+  // A conflicted file as it was before (base), yours (ours) and the server's (theirs);
+  // null where it doesn't exist (added or deleted on one side).
+  async conflict(root: string, path: string): Promise<{ base: string | null; ours: string | null; theirs: string | null }> {
+    const stage = async (n: number) => {
+      const r = await run(['show', `:${n}:${path}`], root);
+      return r.code === 0 ? r.stdout : null;
+    };
+    const [base, ours, theirs] = await Promise.all([stage(1), stage(2), stage(3)]);
+    return { base, ours, theirs };
+  },
+
+  async markResolved(root: string, path: string): Promise<void> {
+    await checked(['add', '-A', '--', path], root);
+  },
+
+  async finishMerge(root: string, author: Identity | null): Promise<void> {
+    const s = await git.status(root);
+    const left = s?.changes.filter((c) => c.kind === 'conflicted').length ?? 0;
+    if (left) throw new GitError(`${left} file${left === 1 ? ' still has' : 's still have'} conflicts.`);
+    const who = author ? ['-c', `user.name=${author.name}`, '-c', `user.email=${author.email}`] : [];
+    await checked(['commit', '--no-edit', '-q'], root, who);
+  },
+
+  async abortMerge(root: string): Promise<void> {
+    await checked(['merge', '--abort'], root);
   },
 
   async push(root: string): Promise<string> {
@@ -200,17 +237,25 @@ export const git = {
     await checked(create ? ['switch', '-c', branch] : ['switch', branch], root);
   },
 
+  // The file's commits, newest first, each with the file's name then (it may have moved).
   async log(root: string, path: string): Promise<FileCommit[]> {
-    const r = await run(['log', '--follow', '-n', '100', '--format=%H%x1f%an%x1f%aI%x1f%s%x1e', '--', path], root);
+    const r = await run(['log', '--follow', '-n', '100', '--name-only', '--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f', '--', path], root);
     if (r.code !== 0) return [];
     return r.stdout
       .split('\x1e')
-      .map((l) => l.trim())
-      .filter(Boolean)
+      .filter((l) => l.trim())
       .map((l) => {
-        const [commit, author, date, message] = l.split('\x1f');
-        return { commit, author, date, message };
+        const [commit, author, date, message, names = ''] = l.split('\x1f');
+        const name = names.split('\n').map((n) => n.trim()).filter(Boolean).pop() ?? path;
+        return { commit, author, date, message, path: name };
       });
+  },
+
+  // Who last changed each line of the file as it is now (null: not committed yet).
+  async blame(root: string, path: string): Promise<Blame | null> {
+    const r = await run(['blame', '--porcelain', '--', path], root);
+    if (r.code !== 0) return null;
+    return parseBlame(r.stdout);
   },
 
   async remoteUrl(root: string): Promise<string | null> {
@@ -261,6 +306,30 @@ export const git = {
     return r.code === 0 ? r.stdout : null;
   },
 };
+
+const NOT_COMMITTED = /^0{40}$/;
+
+export function parseBlame(out: string): Blame {
+  const blame: Blame = { lines: [], commits: {} };
+  let hash = '';
+  let info: { author: string; date: string; message: string } | null = null;
+  for (const line of out.split('\n')) {
+    if (line.startsWith('\t')) {
+      blame.lines.push({ commit: NOT_COMMITTED.test(hash) ? null : hash, text: line.slice(1).replace(/\r$/, '') });
+      continue;
+    }
+    const head = /^([0-9a-f]{40}) \d+ \d+/.exec(line);
+    if (head) {
+      hash = head[1];
+      info = NOT_COMMITTED.test(hash) || blame.commits[hash] ? null : (blame.commits[hash] = { author: '', date: '', message: '' });
+    } else if (info) {
+      if (line.startsWith('author ')) info.author = line.slice(7);
+      else if (line.startsWith('author-time ')) info.date = new Date(Number(line.slice(12)) * 1000).toISOString();
+      else if (line.startsWith('summary ')) info.message = line.slice(8);
+    }
+  }
+  return blame;
+}
 
 const LOG_FORMAT = '--format=%x1e%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1f';
 

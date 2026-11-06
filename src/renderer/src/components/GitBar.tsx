@@ -7,6 +7,7 @@ import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
 import { load, save } from '../storage';
+import { ResolveDialog } from './Resolve';
 
 const FETCH_EVERY = 5 * 60_000;
 
@@ -15,6 +16,17 @@ export function GitBar({ project }: { project: Project }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [commitOpen, setCommitOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const conflicts = git?.changes.filter((c) => c.kind === 'conflicted').length ?? 0;
+
+  const pull = () =>
+    run('pull', async () => {
+      const r = await api.gitPull(repo.id, load<Identity>('trace.author'));
+      if (r === 'conflicts') {
+        notify('You and the server changed the same things. Choose what to keep.', 'info');
+        setResolveOpen(true);
+      } else notify('Up to date with the server.', 'success');
+    });
 
   // Check the server now and then, so "↓ 2" shows up.
   useEffect(() => {
@@ -52,12 +64,18 @@ export function GitBar({ project }: { project: Project }) {
           <button type="button" className="bar-button" onClick={() => setBranchOpen(true)} title="Switch branch">
             <Icon name="branch" size={14} /> {git.branch ?? '(detached)'}
           </button>
-          <button type="button" className={`bar-button${git.changes.length ? ' strong' : ''}`} onClick={() => setCommitOpen(true)} disabled={!git.changes.length} title="Commit changes">
-            <Icon name="dot" size={14} /> {git.changes.length ? `${git.changes.length} change${git.changes.length === 1 ? '' : 's'} to commit` : 'No changes'}
-          </button>
+          {git.merging ? (
+            <button type="button" className="bar-button strong warn-text" onClick={() => setResolveOpen(true)} title="Getting the latest stopped on conflicts">
+              <Icon name="warn" size={14} /> {conflicts ? `Resolve conflicts (${conflicts})` : 'Finish merging'}
+            </button>
+          ) : (
+            <button type="button" className={`bar-button${git.changes.length ? ' strong' : ''}`} onClick={() => setCommitOpen(true)} disabled={!git.changes.length} title="Commit changes">
+              <Icon name="dot" size={14} /> {git.changes.length ? `${git.changes.length} change${git.changes.length === 1 ? '' : 's'} to commit` : 'No changes'}
+            </button>
+          )}
           {git.upstream ? (
             <>
-              <button type="button" className="bar-button" onClick={() => run('pull', () => api.gitPull(repo.id), 'Up to date with the server.')} disabled={!!busy} title="Get the latest from the server (your commits go on top)">
+              <button type="button" className="bar-button" onClick={() => void pull()} disabled={!!busy || git.merging} title="Get the latest from the server (your commits go on top)">
                 <Icon name="down" size={14} /> {busy === 'pull' ? 'Getting latest…' : `Get latest${git.behind ? ` (${git.behind})` : ''}`}
               </button>
               <button type="button" className="bar-button" onClick={() => run('push', () => api.gitPush(repo.id), 'Pushed.')} disabled={!!busy || !git.ahead} title="Send your commits to the server">
@@ -104,6 +122,7 @@ export function GitBar({ project }: { project: Project }) {
           }}
         />
       )}
+      {resolveOpen && git?.merging && <ResolveDialog project={project} onClose={() => setResolveOpen(false)} />}
       {branchOpen && <BranchDialog project={project} onClose={() => setBranchOpen(false)} onSwitch={(b, create) => {
         setBranchOpen(false);
         void run('branch', () => api.gitCheckout(repo.id, b, create), create ? `Started ${b}.` : `Switched to ${b}.`);
@@ -114,19 +133,21 @@ export function GitBar({ project }: { project: Project }) {
 
 const KIND_LABEL: Record<GitChange['kind'], string> = { modified: 'changed', added: 'new', deleted: 'deleted', renamed: 'renamed', conflicted: 'conflict' };
 
-function CommitDialog({
+export function CommitDialog({
   project,
   changes,
+  initialMessage = '',
   onClose,
   onCommit,
 }: {
   project: Project;
   changes: GitChange[];
+  initialMessage?: string;
   onClose: () => void;
   onCommit: (message: string, paths: string[], author: Identity | null, push: boolean) => void;
 }) {
   const [chosen, setChosen] = useState(() => new Set(changes.map((c) => c.path)));
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(initialMessage);
   const [identity, setIdentity] = useState<Identity | null | undefined>(undefined);
   const [author, setAuthor] = useState<Identity>(() => load<Identity>('trace.author') ?? { name: '', email: '' });
   useEffect(() => {

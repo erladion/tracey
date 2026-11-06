@@ -111,6 +111,38 @@ edited paragraphs keep their line wrapping, so diffs and reviews stay small. Fil
 by themselves (Ctrl+S saves at once); committing is a separate, deliberate step in the
 status bar.
 
+### Git in the editor
+
+A bar above the text says whether the item changed since the last commit, and what
+(text, Status, Verifies…):
+
+- **Show changes** marks changed blocks in the margin (blue: changed, green: new) and
+  where blocks were removed (point at the marker to see what was there).
+- **Compare** opens the item's versions side by side as formatted text: changed fields,
+  removed and added blocks, and word-level changes inside a paragraph. Pick any version
+  from its history, compare it with now or see what that commit changed, and
+  **Restore this version**. History entries in the side panel open the same view.
+- **Discard…** puts the item back as it was in the last commit.
+- **Commit…** commits just this item.
+- **Who changed what**: point at a paragraph, list or table to see who last changed it,
+  when, and in which commit (from `git blame`).
+
+### Conflicts
+
+**Get latest** puts your commits on top of the server's. When you and the server
+changed the same file, Trace merges instead and resolves what it can by itself:
+
+- a requirement or test case field by field (lists like Verifies as sets, so additions
+  on both sides are kept) and its text paragraph by paragraph;
+- a test run case by case, so two testers' results never conflict unless both recorded
+  the same case;
+- any other file as a whole.
+
+What both sides changed differently opens in **Resolve conflicts** (also in the status
+bar): yours and the server's side by side, with what each changed highlighted. Choose
+one (or, for text, both), then **Finish** to record the merge, or **Finish and push**.
+**Cancel getting the latest** puts everything back as it was.
+
 ## Jira
 
 Issues link to requirements and test cases from either side; every link remembers

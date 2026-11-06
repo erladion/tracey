@@ -14,6 +14,15 @@ import { ChipInput } from './bits';
 import { TracePanel } from './TracePanel';
 import { Dialog } from './Dialog';
 import { Icon } from '../icons';
+import { api } from '../api';
+import { notify } from '../notify';
+import { load as loadSetting, save as saveSetting } from '../storage';
+import type { Blame, FileCommit, GitChange } from '../../../shared/api';
+import { bodyBlocks, readVersion, whatChanged } from '../../../core/diff';
+import { NO_MARKS, type GitMarks } from '../editor/gitmarks';
+import { CompareDialog } from './Compare';
+import { CommitDialog } from './GitBar';
+import { timeAgo } from './bits';
 
 interface Props {
   project: Project;
@@ -38,6 +47,41 @@ function load(raw: string): Loaded {
 }
 
 const BODY_DELAY = 250;
+
+// A setting kept in this browser.
+function useSetting(key: string, initial: boolean): [boolean, (v: boolean) => void] {
+  const [v, setV] = useState(() => loadSetting<boolean>(key) ?? initial);
+  return [
+    v,
+    (next) => {
+      setV(next);
+      saveSetting(key, next);
+    },
+  ];
+}
+
+const shorten = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+// Who last changed each block of the text, from git blame of the file on disk.
+function blameLabels(b: Blame): NonNullable<GitMarks['blame']> {
+  const v = readVersion(b.lines.map((l) => l.text).join('\n'));
+  const blocks = bodyBlocks(v.body);
+  const labels = blocks.map((bl) => {
+    if (bl.from < 0) return '';
+    const lines = b.lines.slice(v.bodyLine + bl.from, v.bodyLine + bl.to).filter((l) => l.text.trim());
+    if (lines.some((l) => !l.commit)) return 'Not committed yet';
+    const latest = lines
+      .map((l) => ({ hash: l.commit!, ...b.commits[l.commit!] }))
+      .filter((c) => c.date)
+      .sort((x, y) => y.date.localeCompare(x.date))[0];
+    return latest ? `${latest.author} · ${timeAgo(latest.date)} · ${shorten(latest.message, 70)} (${latest.hash.slice(0, 7)})` : '';
+  });
+  return {
+    blocks: blocks.map((x) => x.key),
+    labels,
+    uncommitted: 'Not committed yet',
+  };
+}
 
 export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, onDeleted }: Props) {
   const raw = project.texts.get(path) ?? '';
@@ -129,6 +173,107 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
     [dir, project.repo.id],
   );
 
+  // ---- Git: what changed since the last commit, who changed what ----
+  const git = project.git;
+  const repoId = project.repo.id;
+  const gitKey = git ? `${git.head}:${git.changes.length}` : '';
+  const [head, setHead] = useState<{
+    path: string;
+    text: string | null;
+  } | null>(null); // the committed version
+  const [log, setLog] = useState<FileCommit[]>([]);
+  const [showChanges, setShowChanges] = useSetting('trace.showChanges', true);
+  const [showBlame, setShowBlame] = useSetting('trace.showBlame', false);
+  const [blame, setBlame] = useState<GitMarks['blame']>(null);
+  const [comparing, setComparing] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [committing, setCommitting] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    if (!git?.head) {
+      setHead({ path, text: null });
+      return;
+    }
+    api.gitShow(repoId, git.head, path).then(
+      (text) => live && setHead({ path, text }),
+      () => live && setHead({ path, text: null }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [repoId, git?.head, path]);
+
+  useEffect(() => {
+    let live = true;
+    if (!git) return setLog([]);
+    api.gitLog(repoId, path).then(
+      (l) => live && setLog(l),
+      () => live && setLog([]),
+    );
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repoId, path, gitKey]);
+
+  // Blame reads the file on disk: ask again once a change is saved.
+  useEffect(() => {
+    if (!showBlame || !git) return setBlame(null);
+    let live = true;
+    const t = setTimeout(() => {
+      api.gitBlame(repoId, path).then(
+        (b) => live && setBlame(b ? blameLabels(b) : { blocks: [], labels: [], uncommitted: 'Not committed yet' }),
+        () => live && setBlame(null),
+      );
+    }, 500);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showBlame, repoId, path, gitKey, project.saving]);
+
+  const committed = head && head.path === path ? head.text : undefined; // undefined: loading; null: not committed
+  const changes = useMemo(() => (committed ? whatChanged(committed, raw) : []), [committed, raw]);
+  const base = useMemo(() => (committed ? bodyBlocks(readVersion(committed).body).map((b) => b.key) : null), [committed]);
+  const conflicted = !!git?.changes.some((c) => c.path === path && c.kind === 'conflicted');
+  const fileState = !git || committed === undefined ? 'unknown' : conflicted ? 'conflicted' : committed === null ? 'new' : changes.length ? 'changed' : 'clean';
+  const gitMarks = useMemo<GitMarks>(
+    () =>
+      git
+        ? {
+            base: showChanges && fileState === 'changed' ? base : null,
+            blame: showBlame ? blame : null,
+          }
+        : NO_MARKS,
+    [git, showChanges, fileState, base, showBlame, blame],
+  );
+
+  const discard = () => {
+    if (committed == null) return;
+    setConfirmDiscard(false);
+    clearTimeout(timer.current);
+    latestDoc.current = null;
+    setText(path, committed);
+    notify(`Your changes to ${item?.id ?? path} are discarded.`, 'success');
+  };
+
+  const commitItem = async (message: string, paths: string[], author: Parameters<typeof api.gitCommit>[3], push: boolean) => {
+    setCommitting(false);
+    try {
+      if (flushBody()) compose();
+      await project.flush();
+      await api.gitCommit(repoId, message, paths, author);
+      if (push) await api.gitPush(repoId);
+      notify(push ? 'Committed and pushed.' : 'Committed.', 'success');
+    } catch (e) {
+      notify((e as Error).message, 'error');
+    } finally {
+      await project.reload();
+    }
+  };
+
   if (!item) {
     const { error } = readFrontMatter(splitFrontMatter(decodeText(raw).text).front);
     return (
@@ -205,9 +350,99 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
             {path}
           </div>
         </header>
-        <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} />
+        {git && fileState !== 'unknown' && (
+          <div className={`git-strip ${fileState}`}>
+            <span className="git-strip-text">
+              {fileState === 'conflicted' ? (
+                <span className="warn-text">You and the server both changed this file: resolve it with “Resolve conflicts” in the bottom bar.</span>
+              ) : fileState === 'new' ? (
+                <>
+                  <span className="chg-dot new" /> New: not committed yet
+                </>
+              ) : fileState === 'changed' ? (
+                <>
+                  <span className="chg-dot" /> Changed since the last commit: {changes.join(', ')}
+                </>
+              ) : (
+                <span className="muted">{log[0] ? `No changes since the last commit · last changed by ${log[0].author}, ${timeAgo(log[0].date)}` : 'No changes since the last commit'}</span>
+              )}
+            </span>
+            <span className="git-strip-actions">
+              {fileState === 'changed' && (
+                <>
+                  <button
+                    type="button"
+                    className={`button small toggle${showChanges ? ' on' : ''}`}
+                    aria-pressed={showChanges}
+                    onClick={() => setShowChanges(!showChanges)}
+                    title="Mark changed blocks in the text"
+                  >
+                    Show changes
+                  </button>
+                  {log.length > 0 && (
+                    <button type="button" className="button small" onClick={() => setComparing(true)}>
+                      Compare
+                    </button>
+                  )}
+                  <button type="button" className="button small" onClick={() => setConfirmDiscard(true)}>
+                    Discard…
+                  </button>
+                </>
+              )}
+              {(fileState === 'changed' || fileState === 'new') && (
+                <button type="button" className="button small primary" onClick={() => setCommitting(true)}>
+                  Commit…
+                </button>
+              )}
+              <button
+                type="button"
+                className={`button small toggle${showBlame ? ' on' : ''}`}
+                aria-pressed={showBlame}
+                onClick={() => setShowBlame(!showBlame)}
+                title="Point at a paragraph to see who last changed it"
+              >
+                Who changed what
+              </button>
+            </span>
+          </div>
+        )}
+        <div className={`editor-wrap${showBlame && git ? ' blame-on' : ''}`}>
+          <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} gitMarks={gitMarks} />
+        </div>
       </article>
       <TracePanel project={project} item={item} onOpenId={onOpenId} onNewTest={onNewTest} onShowInGraph={onShowInGraph} />
+      {comparing && log.length > 0 && <CompareDialog project={project} item={item} log={log} start={0} against="now" onClose={() => setComparing(false)} />}
+      {confirmDiscard && (
+        <Dialog title={`Discard your changes to ${item.id}?`} onClose={() => setConfirmDiscard(false)}>
+          <div className="dialog-body">
+            <p>
+              {item.id} goes back to the last commit
+              {log[0] ? ` (${log[0].commit.slice(0, 7)}, ${log[0].author})` : ''}. Changed: {changes.join(', ')}. This can’t be undone.
+            </p>
+            <div className="dialog-actions">
+              <span className="tool-spacer" />
+              <button type="button" className="button" onClick={() => setConfirmDiscard(false)}>
+                Cancel
+              </button>
+              <button type="button" className="button danger" onClick={discard}>
+                Discard changes
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+      {committing && git && (
+        <CommitDialog
+          project={project}
+          changes={((): GitChange[] => {
+            const mine = git.changes.filter((c) => c.path === path);
+            return mine.length ? mine : [{ path, kind: fileState === 'new' ? 'added' : 'modified' }];
+          })()}
+          initialMessage={`${item.id}: `}
+          onClose={() => setCommitting(false)}
+          onCommit={(message, paths, author, push) => void commitItem(message, paths, author, push)}
+        />
+      )}
       {confirmDelete && (
         <Dialog title={`Delete ${item.id}?`} onClose={() => setConfirmDelete(false)}>
           <div className="dialog-body">

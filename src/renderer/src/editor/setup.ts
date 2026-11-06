@@ -13,6 +13,7 @@ import { columnResizing, goToNextCell, tableEditing } from 'prosemirror-tables';
 import type { MarkType, Node as PMNode } from 'prosemirror-model';
 import { schema } from '../../../core/markdown/schema';
 import { codeBlock, heading, paragraph, toggleCode, toggleEm, toggleList, toggleStrike, toggleStrong } from './commands';
+import { gitMarksPlugin } from './gitmarks';
 
 const { nodes, marks } = schema;
 
@@ -159,6 +160,7 @@ export function createEditorState(doc: PMNode, onOpenRef: (id: string) => void):
       gapCursor(),
       placeholder,
       refsPlugin(onOpenRef),
+      gitMarksPlugin(),
     ],
   });
 }

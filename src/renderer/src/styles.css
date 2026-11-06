@@ -2209,3 +2209,289 @@ h3 {
   padding: 0 5px;
 }
 .stack.tight { gap: 6px; }
+
+/* ---- git in the editor ---- */
+
+.editor-wrap {
+  display: contents;
+}
+.git-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 32px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: 12.5px;
+  min-height: 40px;
+}
+.git-strip.changed,
+.git-strip.new {
+  background: var(--accent-soft);
+}
+.git-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.git-strip-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.chg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
+.chg-dot.new {
+  background: var(--ok);
+}
+.button.toggle.on {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-fg);
+}
+
+/* Changed blocks: a bar in the margin. */
+.prose > .chg {
+  position: relative;
+}
+.prose > .chg::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 3px;
+  bottom: 3px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.prose > .chg-added::before {
+  background: var(--ok);
+}
+.prose > .chg-removed {
+  position: relative;
+  margin: 2px 0 2px -16px;
+  padding-left: 13px;
+  border-left: 3px solid var(--warn-line);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--warn);
+  cursor: help;
+  white-space: normal;
+  user-select: none;
+}
+
+/* Who changed what: the block under the pointer says. */
+.blame-on .prose > [data-blame] {
+  position: relative;
+  border-radius: 4px;
+}
+.blame-on .prose > [data-blame]:hover {
+  background: var(--surface-2);
+  box-shadow: 0 0 0 4px var(--surface-2);
+}
+.blame-on .prose > [data-blame]:hover::after {
+  content: attr(data-blame);
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 4px);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font: 12px/1.6 var(--font-ui);
+  font-weight: 400;
+  font-style: normal;
+  color: var(--fg-2);
+  pointer-events: none;
+  z-index: 3;
+}
+
+/* Tables and code scroll sideways, which would hide a label above them: put it inside. */
+.blame-on .prose > .tableWrapper[data-blame]:hover::after,
+.blame-on .prose > pre[data-blame]:hover::after {
+  bottom: auto;
+  top: 4px;
+  right: 4px;
+  max-width: calc(100% - 8px);
+}
+
+/* Comparing versions. */
+.compare-controls {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.compare-controls .field {
+  flex: 1;
+  min-width: 240px;
+}
+.compare ins,
+.cmp-fields ins {
+  background: var(--ok-soft);
+  color: var(--ok);
+  text-decoration: none;
+  border-radius: 3px;
+}
+.compare del,
+.cmp-fields del {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 3px;
+}
+.cmp-fields {
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.cmp-fields td {
+  padding: 3px 14px 3px 0;
+  vertical-align: top;
+}
+.cmp-fields td:first-child {
+  color: var(--muted);
+}
+.cmp-text {
+  max-height: 55vh;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 20px;
+}
+.cmp-block.prose {
+  padding: 2px 0 2px 12px;
+  min-height: 0;
+  max-width: none;
+  font-size: 14.5px;
+  border-left: 3px solid transparent;
+  white-space: normal;
+}
+.cmp-block.cmp-same {
+  color: var(--fg-2);
+}
+.cmp-block.cmp-add {
+  border-left-color: var(--ok);
+  background: color-mix(in srgb, var(--ok-soft) 60%, transparent);
+}
+.cmp-block.cmp-del {
+  border-left-color: var(--warn-line);
+  background: color-mix(in srgb, var(--warn-soft) 60%, transparent);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--warn) 50%, transparent);
+}
+.cmp-block.cmp-chg {
+  border-left: 3px solid var(--accent);
+  padding: 6px 0 6px 12px;
+  margin: 8px 0;
+  white-space: pre-wrap;
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+.cmp-skipped {
+  padding: 4px 12px;
+  font-style: italic;
+}
+
+/* Resolving conflicts. */
+.resolve-file {
+  margin: 8px 0 0;
+  font-size: 16px;
+}
+.ok-text {
+  color: var(--ok);
+}
+.conflict {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.conflict-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.conflict-foot {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+.choice:hover {
+  border-color: var(--accent-line);
+}
+.choice.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+  background: color-mix(in srgb, var(--accent-soft) 40%, var(--surface));
+}
+.choice-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.choice.on .choice-label {
+  color: var(--accent);
+}
+.choice .cmp-block.cmp-chg {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 14px;
+}
+.resolve ins {
+  background: var(--ok-soft);
+  color: var(--ok);
+  text-decoration: none;
+  border-radius: 3px;
+}
+.resolve del {
+  background: var(--warn-soft);
+  color: var(--warn);
+  border-radius: 3px;
+}
+.choice .source-view {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+}
+.resolve {
+  max-height: 80vh;
+  overflow-y: auto;
+}

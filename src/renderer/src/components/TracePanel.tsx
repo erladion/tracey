@@ -10,6 +10,7 @@ import { api } from '../api';
 import { Icon } from '../icons';
 import { LinkBadge, StatusPill, timeAgo } from './bits';
 import { Dialog } from './Dialog';
+import { CompareDialog } from './Compare';
 
 interface Props {
   project: Project;
@@ -190,7 +191,7 @@ function Commits({ project, item }: { project: Project; item: Item }) {
 
 function History({ project, item }: { project: Project; item: Item }) {
   const [log, setLog] = useState<FileCommit[] | null>(null);
-  const [shown, setShown] = useState<{ commit: FileCommit; text: string | null } | null>(null);
+  const [shown, setShown] = useState<number | null>(null); // a version, compared with the one before it
   // Look again after a commit, a branch switch or getting the latest.
   const gitKey = project.git ? `${project.git.branch}:${project.git.ahead}:${project.git.behind}:${project.git.changes.length}` : '';
   useEffect(() => {
@@ -219,7 +220,7 @@ function History({ project, item }: { project: Project; item: Item }) {
         <ul className="history">
           {log.slice(0, 12).map((c) => (
             <li key={c.commit}>
-              <button type="button" className="history-row" onClick={async () => setShown({ commit: c, text: await api.gitShow(project.repo.id, c.commit, item.path) })}>
+              <button type="button" className="history-row" onClick={() => setShown(log.indexOf(c))} title="See what this commit changed">
                 <span className="history-msg">{c.message}</span>
                 <span className="muted small">
                   {c.author} · {timeAgo(c.date)} · <span className="mono">{c.commit.slice(0, 7)}</span>
@@ -229,16 +230,7 @@ function History({ project, item }: { project: Project; item: Item }) {
           ))}
         </ul>
       )}
-      {shown && (
-        <Dialog title={`${item.id} at ${shown.commit.commit.slice(0, 7)}`} onClose={() => setShown(null)} wide>
-          <div className="dialog-body">
-            <p className="muted small">
-              {shown.commit.message} · {shown.commit.author} · {new Date(shown.commit.date).toLocaleString()}
-            </p>
-            <pre className="source-view">{shown.text ?? 'This version of the file couldn’t be read (it may have had another name then).'}</pre>
-          </div>
-        </Dialog>
-      )}
+      {shown != null && log && <CompareDialog project={project} item={item} log={log} start={shown} against="previous" onClose={() => setShown(null)} />}
     </section>
   );
 }

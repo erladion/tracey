@@ -136,11 +136,29 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
     gitIdentity: async (repo) => git.identity(await root(repo)),
     async gitCommit(repo, message, paths, author: Identity | null) {
       const r = await root(repo);
+      if (await git.merging(r)) throw new Error('Getting the latest stopped on conflicts: resolve them (or cancel) first.');
       for (const p of paths) safePath(r, p);
       await git.commit(r, message, paths, author && author.name && author.email ? author : null);
     },
     gitFetch: async (repo) => git.fetch(await root(repo)),
-    gitPull: async (repo) => git.pull(await root(repo)),
+    gitPull: async (repo, author) => git.pull(await root(repo), author && author.name && author.email ? author : null),
+    async gitConflict(repo, path) {
+      const r = await root(repo);
+      safePath(r, path);
+      return git.conflict(r, path);
+    },
+    async gitResolve(repo, path, text) {
+      const r = await root(repo);
+      const full = safePath(r, path);
+      if (text == null) await fs.rm(full, { force: true });
+      else {
+        await fs.mkdir(dirname(full), { recursive: true });
+        await fs.writeFile(full, text);
+      }
+      await git.markResolved(r, path);
+    },
+    gitFinishMerge: async (repo, author) => git.finishMerge(await root(repo), author && author.name && author.email ? author : null),
+    gitAbortMerge: async (repo) => git.abortMerge(await root(repo)),
     gitPush: async (repo) => git.push(await root(repo)),
     gitBranches: async (repo) => git.branches(await root(repo)),
     gitCheckout: async (repo, branch, create) => git.checkout(await root(repo), branch, create),
@@ -173,6 +191,11 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
         }
       }
       return null;
+    },
+    async gitBlame(repo, path) {
+      const r = await root(repo);
+      safePath(r, path);
+      return git.blame(r, path);
     },
     async gitShow(repo, commit, path) {
       const r = await root(repo);
