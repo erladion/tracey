@@ -33,7 +33,8 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
   const keep = (i: Item) => (o.obsolete || i.status !== 'obsolete') && (!o.component || i.components.includes(o.component));
   const reqs = index.items.filter((i) => i.kind === 'requirement' && keep(i));
   const tests = index.items.filter((i) => i.kind === 'testcase' && keep(i));
-  const cov = coverage(index);
+  // Only links between items in the document.
+  const suspect = coverage(index).suspect.filter((l) => keep(l.req) && keep(l.test));
   const anchor = (id: string) => `i-${id.replace(/[^\w-]/g, '_')}`;
   const ref = (id: string) => (index.byId.get(id) && keep(index.byId.get(id)!) ? `<a class="mono" href="#${anchor(id)}">${esc(id)}</a>` : `<span class="mono">${esc(id)}</span>`);
   const fields = (it: Item) => {
@@ -83,7 +84,7 @@ h3{font-size:16px;margin:0 0 8px}
 <table class="meta">${[...o.meta, ['Generated', generated.toLocaleString()] as [string, string]].map(([k, v]) => `<tr><td>${esc(k)}</td><td${/commit/i.test(k) ? ' class="mono"' : ''}>${esc(v)}</td></tr>`).join('')}</table>
 <h2>Summary</h2>
 <p>${live.length} requirements, ${tested.length} of them verified by a test case (${live.length ? Math.round((tested.length / live.length) * 100) : 0}%); ${tests.length} test cases.
-${cov.suspect.length ? ` ${cov.suspect.length} link${cov.suspect.length === 1 ? '' : 's'} changed since review.` : ''}${o.component ? ` Only items in the component “${esc(index.config.components.find((c) => c.key === o.component)?.name ?? o.component)}”.` : ''}</p>
+${suspect.length ? ` ${suspect.length} link${suspect.length === 1 ? '' : 's'} changed since review.` : ''}${o.component ? ` Only items in the component “${esc(index.config.components.find((c) => c.key === o.component)?.name ?? o.component)}”.` : ''}</p>
 ${toc ? `<h2>Contents</h2><ol class="toc">${toc}</ol>` : ''}
 </div>
 ${o.requirements && reqs.length ? `<h2 id="requirements">Requirements</h2>${reqs.map(section).join('\n')}` : ''}

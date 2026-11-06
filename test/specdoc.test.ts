@@ -27,6 +27,19 @@ describe('specification document', () => {
     expect(html).toContain('src="trace-file://repo/r/requirements/REQ-50-x.md|img/flow.png"');
   });
 
+  it('counts only the suspect links between items in the document', () => {
+    const changed = buildIndex(
+      [
+        ...files,
+        { path: 'requirements/REQ-60-a.md', text: '---\nid: REQ-60\ntitle: Audit trail\nstatus: approved\ncomponents: [audit]\n---\nChanged.\n' },
+        { path: 'testcases/TC-160-a.md', text: '---\nid: TC-160\ntitle: Audit check\nstatus: ready\ncomponents: [audit]\nverifies: [REQ-60]\nreviewed: { REQ-60: deadbeef }\n---\n' },
+      ],
+      projectFiles(true)['trace.yml'],
+    );
+    expect(specHtml(changed, { ...opts, component: 'audit' })).toContain('1 link changed since review.');
+    expect(specHtml(changed, { ...opts, component: 'billing' })).not.toContain('changed since review');
+  });
+
   it('filters by component', () => {
     const html = specHtml(index, { ...opts, component: 'billing' });
     expect(html).toContain('REQ-12');
