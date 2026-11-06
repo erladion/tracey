@@ -7,7 +7,7 @@ export interface Split {
   body: string;
 }
 
-const OPEN = /^﻿?---[ \t]*\n/;
+const OPEN = /^\uFEFF?---[ \t]*\n/;
 
 // Expects \n line endings (see document.ts).
 export function splitFrontMatter(text: string): Split {

@@ -202,6 +202,15 @@ Expand a case to read its steps while testing. **Report (HTML)** downloads a sta
 page (print it to PDF), **Report (Markdown)** a text version; **Save report to
 repository** puts the Markdown next to the run, to commit with it.
 
+## PDF
+
+**Coverage → Export PDF** makes a specification document: every requirement and test
+case with its text and links, a traceability matrix and a coverage summary, optionally
+for one component and with or without obsolete items. **Test runs → Report (PDF)** does
+the same for a run's report. The desktop app writes the PDF itself (A4, page numbers)
+and asks where to save it; in a browser the print dialog opens with the document, and
+"Save as PDF" makes the file.
+
 ## Traceability graph
 
 Columns of commits → Jira issues → requirements → test cases → components, linked by:
@@ -233,6 +242,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   impact.ts       which test cases a range of commits calls for, and why
   runs.ts         test run files: read, create, record results
   report.ts       a run's report as Markdown or HTML
+  specdoc.ts      the specification document (HTML, printed to PDF)
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end

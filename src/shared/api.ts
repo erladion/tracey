@@ -120,6 +120,10 @@ export interface Api {
   // The commits in `to` that aren't in `from` (tags, branches or commits), and the commit `to` is.
   gitRange(repo: string, from: string, to: string): Promise<{ commits: Commit[]; to: string }>;
 
+  // A document (HTML) as a PDF file, saved where the user chooses: the file's path, or
+  // null if cancelled. Desktop only: the web version prints from the browser.
+  exportPdf(html: string, fileName: string): Promise<string | null>;
+
   // Jira
   jiraStatus(server: JiraServer): Promise<JiraStatus>;
   jiraSetToken(server: JiraServer, token: string, email: string | null): Promise<void>; // desktop; '' removes it
@@ -154,6 +158,7 @@ export const API_METHODS: ApiMethod[] = [
   'findRepoByRemote',
   'gitTags',
   'gitRange',
+  'exportPdf',
   'jiraStatus',
   'jiraSetToken',
   'jiraSearch',

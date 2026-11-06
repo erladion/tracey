@@ -12,6 +12,7 @@ import { addCases, newRunText, removeCase, runPath, setCase, summarize, today, R
 import { reportHtml, reportMarkdown } from '../../../core/report';
 import { slug } from '../../../core/model';
 import { api } from '../api';
+import { savePdf } from '../pdf';
 import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
@@ -172,6 +173,9 @@ function RunDetail({ project, run, onOpenId, onDeleted }: { project: Project; ru
           {run.error && <p className="warn-text">This file can’t be read: {run.error}</p>}
         </div>
         <div className="dialog-actions">
+          <button type="button" className="button" onClick={() => void savePdf(reportHtml(run, index), `${reportName}-report.pdf`)}>
+            <Icon name="download" /> Report (PDF)
+          </button>
           <button type="button" className="button" onClick={() => download(`${reportName}-report.html`, reportHtml(run, index), 'text/html')}>
             <Icon name="download" /> Report (HTML)
           </button>

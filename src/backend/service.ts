@@ -67,7 +67,13 @@ export async function readProjectFiles(root: string): Promise<ProjectFiles> {
   const files = [];
   for (const p of paths) {
     const text = await fs.readFile(p, 'utf8');
-    if (/^﻿?---[ \t]*\r?\n/.test(text)) files.push({ path: relative(root, p).split(sep).join('/'), text });
+    if (/^\uFEFF?---[ \t]*\r?\n/.test(text)) files.push({ path: relative(root, p).split(sep).join('/'), text });
+  }
+  // Test runs: YAML files in their own folder.
+  const runsDir = join(root, cfg.runs.dir);
+  if (cfg.runs.dir && existsSync(runsDir)) {
+    for (const e of await fs.readdir(runsDir, { withFileTypes: true }))
+      if (e.isFile() && /\.ya?ml$/i.test(e.name)) files.push({ path: `${cfg.runs.dir}/${e.name}`, text: await fs.readFile(join(runsDir, e.name), 'utf8') });
   }
   return { config, files };
 }
@@ -146,6 +152,9 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
     async gitCommits(repo, limit, branch) {
       const r = await root(repo);
       return (await git.isRepo(r)) ? git.commits(r, limit, branch) : [];
+    },
+    async exportPdf() {
+      throw new Error('PDFs are made by the browser here: use its print dialog and choose “Save as PDF”.');
     },
     jiraStatus: (server) => jira.status(server),
     jiraSetToken: (server, token, email) => jira.setToken(server, token, email),

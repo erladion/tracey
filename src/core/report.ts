@@ -96,23 +96,8 @@ export function reportMarkdown(run: TestRun, index: ProjectIndex, generated = ne
   return out.join('\n');
 }
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-
-export function reportHtml(run: TestRun, index: ProjectIndex, generated = new Date()): string {
-  const s = summarize(run);
-  const pill = (r: Result) => `<span class="pill ${r}">${LABEL[r]}</span>`;
-  const bad = run.cases.filter((c) => c.result === 'failed' || c.result === 'blocked');
-  const g = run.gaps;
-  const gaps = [
-    g.requirementsWithoutTests.length ? `<li>Requirements affected but with no test cases: ${esc(g.requirementsWithoutTests.join(', '))}</li>` : '',
-    g.componentsWithoutTests.length ? `<li>Components changed but with no test cases: ${esc(g.componentsWithoutTests.join(', '))}</li>` : '',
-    g.issuesWithoutRequirement.length ? `<li>Jira issues in this release linked to no requirement or test case: ${esc(g.issuesWithoutRequirement.join(', '))}</li>` : '',
-  ].join('');
-  const bar = (n: number, cls: string) => (n ? `<span class="${cls}" style="flex:${n}"></span>` : '');
-  return `<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Test report: ${esc(run.name)}</title>
-<style>
+// Styles shared by the report and the specification document, on screen and on paper.
+export const DOC_CSS = `
 :root{--fg:#1a1a1a;--muted:#5c5c58;--line:#e4e4df;--accent:#2453c7;--ok:#0f6e56;--okbg:#dff3ec;--bad:#8a3b00;--badbg:#fdebd8;--warnbg:#fff4cc;--warn:#7a5a00}
 body{margin:0;background:#fff;color:var(--fg);font:14px/1.5 system-ui,-apple-system,'Segoe UI',sans-serif}
 main{max-width:980px;margin:0 auto;padding:40px 24px 64px}
@@ -128,8 +113,27 @@ th{font-size:12px;color:var(--muted);font-weight:600}
 .pill.passed{background:var(--okbg);color:var(--ok)}.pill.failed{background:var(--badbg);color:var(--bad)}
 .pill.blocked{background:var(--warnbg);color:var(--warn)}.pill.not-run{background:#f0f0ec;color:var(--muted)}
 .muted{color:var(--muted)}.nowrap{white-space:nowrap}ul{padding-left:20px}
-@media print{main{padding:0}h2{break-after:avoid}tr{break-inside:avoid}}
-</style></head><body><main>
+@page{size:A4;margin:16mm 14mm 18mm;@bottom-center{content:counter(page) " / " counter(pages);font:9px system-ui,sans-serif;color:#888}}
+@media print{main{padding:0;max-width:none}h1,h2,h3{break-after:avoid}tr,.tile,.keep{break-inside:avoid}a{color:inherit;text-decoration:none}}
+`;
+
+export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+export function reportHtml(run: TestRun, index: ProjectIndex, generated = new Date()): string {
+  const s = summarize(run);
+  const pill = (r: Result) => `<span class="pill ${r}">${LABEL[r]}</span>`;
+  const bad = run.cases.filter((c) => c.result === 'failed' || c.result === 'blocked');
+  const g = run.gaps;
+  const gaps = [
+    g.requirementsWithoutTests.length ? `<li>Requirements affected but with no test cases: ${esc(g.requirementsWithoutTests.join(', '))}</li>` : '',
+    g.componentsWithoutTests.length ? `<li>Components changed but with no test cases: ${esc(g.componentsWithoutTests.join(', '))}</li>` : '',
+    g.issuesWithoutRequirement.length ? `<li>Jira issues in this release linked to no requirement or test case: ${esc(g.issuesWithoutRequirement.join(', '))}</li>` : '',
+  ].join('');
+  const bar = (n: number, cls: string) => (n ? `<span class="${cls}" style="flex:${n}"></span>` : '');
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test report: ${esc(run.name)}</title>
+<style>${DOC_CSS}</style></head><body><main>
 <h1>Test report: ${esc(run.name)}</h1>
 <table class="meta">${header(run)
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td${/commit/i.test(k) ? ' class="mono"' : ''}>${esc(v)}</td></tr>`)

@@ -5,6 +5,7 @@ import { coverage, linksOf, type Link } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { LinkBadge, StatusPill } from './bits';
+import { ExportDialog } from './ExportDialog';
 
 interface Props {
   project: Project;
@@ -18,6 +19,7 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
   const { index } = project;
   const cov = useMemo(() => coverage(index), [index]);
   const [filter, setFilter] = useState<Filter>('all');
+  const [exporting, setExporting] = useState(false);
   const live = cov.requirements.filter((r) => r.status !== 'obsolete');
   const pct = live.length ? Math.round((cov.tested.length / live.length) * 100) : 0;
   const errors = cov.problems.filter((p) => p.severity === 'error');
@@ -44,12 +46,16 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
 
   return (
     <div className="dashboard">
-      <div className="dash-head">
+      <div className="dash-head graph-head">
         <div>
           <h1>Coverage</h1>
           <p className="muted">Requirements, the test cases that verify them, and links to check, in this branch’s files as they are now.</p>
         </div>
+        <button type="button" className="button" onClick={() => setExporting(true)}>
+          <Icon name="download" /> Export PDF
+        </button>
       </div>
+      {exporting && <ExportDialog project={project} onClose={() => setExporting(false)} />}
 
       <div className="tiles">
         <div className="tile">

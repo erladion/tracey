@@ -106,7 +106,31 @@ const desktopJira: JiraCredentials = {
   },
 };
 
-const backend = createBackend(desktopHost, desktopJira);
+const backend: Api = { ...createBackend(desktopHost, desktopJira), exportPdf };
+
+// Renders the document in a hidden window (no scripts, nothing but the page) and saves
+// it as a PDF where the user chooses.
+async function exportPdf(html: string, fileName: string): Promise<string | null> {
+  if (typeof html !== 'string' || html.length > 50_000_000) throw new Error('Nothing to export.');
+  const name = String(fileName || 'document.pdf').replace(/[\\/:*?"<>|]+/g, '-').replace(/(\.pdf)?$/i, '.pdf');
+  const r = await dialog.showSaveDialog(win!, { title: 'Save as PDF', defaultPath: join(app.getPath('documents'), name), filters: [{ name: 'PDF', extensions: ['pdf'] }] });
+  if (r.canceled || !r.filePath) return null;
+  const tmp = join(app.getPath('temp'), `trace-export-${process.pid}-${Date.now()}.html`);
+  await fs.writeFile(tmp, html);
+  const view = new BrowserWindow({ show: false, webPreferences: { javascript: false, sandbox: true, contextIsolation: true } });
+  view.webContents.on('will-navigate', (e) => e.preventDefault());
+  view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  try {
+    await view.loadFile(tmp);
+    const pdf = await view.webContents.printToPDF({ printBackground: true, pageSize: 'A4', preferCSSPageSize: true, generateDocumentOutline: true });
+    await fs.writeFile(r.filePath, pdf);
+    void shell.openPath(r.filePath);
+    return r.filePath;
+  } finally {
+    view.destroy();
+    await fs.rm(tmp, { force: true });
+  }
+}
 
 ipcMain.handle('api', async (_e, method: string, args: unknown[]) => {
   if (!(API_METHODS as string[]).includes(method)) throw new Error(`No such call: ${method}`);
