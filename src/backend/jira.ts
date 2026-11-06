@@ -5,13 +5,15 @@ import type { JiraIssue, JiraServer, JiraStatus } from '../shared/api';
 export interface JiraAuth {
   token: string;
   email: string | null; // Cloud only
+  shared?: boolean; // the web server's own token, used by everyone without one
 }
 
-// Where tokens come from: the desktop app keeps each user's, encrypted; the web server
-// has one in its environment. Both accept TRACE_JIRA_URL + TRACE_JIRA_TOKEN
-// (+ TRACE_JIRA_EMAIL for Cloud).
+// Where tokens come from: the desktop app keeps each user's, encrypted on their computer;
+// the web server keeps each user's in their browser (webjira.ts). Both also accept
+// TRACE_JIRA_URL + TRACE_JIRA_TOKEN (+ TRACE_JIRA_EMAIL for Cloud).
 export interface JiraCredentials {
   canStore: boolean;
+  storedIn: 'computer' | 'browser';
   allowed(url: string): boolean; // whether requests may go to this server at all
   get(url: string): Promise<JiraAuth | null>;
   set(url: string, auth: JiraAuth | null): Promise<void>;
@@ -39,7 +41,7 @@ export function createJira(creds: JiraCredentials) {
 
   async function request<T>(server: JiraServer, path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
     const base = check(server);
-    if (!creds.allowed(server.url)) throw new JiraError(`This server is set up for another Jira; it won't send requests to ${server.url}.`);
+    if (!creds.allowed(server.url)) throw new JiraError(`This server only sends requests to the Jira in its TRACE_JIRA_URL, and ${server.url} isn't it.`);
     const auth = await creds.get(server.url);
     if (!auth) throw new JiraError(creds.canStore ? 'No Jira token yet: add one under Settings → Jira.' : 'The server has no Jira token: set TRACE_JIRA_URL and TRACE_JIRA_TOKEN where it runs.');
     const headers: Record<string, string> = { Accept: 'application/json' };
@@ -90,13 +92,14 @@ export function createJira(creds: JiraCredentials) {
 
   return {
     async status(server: JiraServer): Promise<JiraStatus> {
-      const hasToken = !!(await creds.get(server.url).catch(() => null));
-      if (!hasToken) return { hasToken, canStore: creds.canStore, user: null, error: null };
+      const auth = await creds.get(server.url).catch(() => null);
+      const base = { hasToken: !!auth, shared: !!auth?.shared, canStore: creds.canStore, storedIn: creds.storedIn };
+      if (!auth) return { ...base, user: null, error: null };
       try {
         const me = await request<{ displayName?: string; name?: string; emailAddress?: string }>(server, '/myself');
-        return { hasToken, canStore: creds.canStore, user: me.displayName ?? me.name ?? me.emailAddress ?? '?', error: null };
+        return { ...base, user: me.displayName ?? me.name ?? me.emailAddress ?? '?', error: null };
       } catch (e) {
-        return { hasToken, canStore: creds.canStore, user: null, error: (e as Error).message };
+        return { ...base, user: null, error: (e as Error).message };
       }
     },
 

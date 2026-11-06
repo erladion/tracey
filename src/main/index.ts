@@ -81,6 +81,7 @@ async function readTokens(): Promise<Record<string, string>> {
 }
 const desktopJira: JiraCredentials = {
   canStore: true,
+  storedIn: 'computer',
   allowed: () => true,
   async get(url) {
     const env = envAuth(url);

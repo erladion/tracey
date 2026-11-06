@@ -5,14 +5,18 @@
 //
 // Repositories are the folders in the workspace (default ./repos), plus any given with
 // --repo. Set TRACE_TOKEN to require a token: open the app once as /?token=… .
-// Jira: TRACE_JIRA_URL and TRACE_JIRA_TOKEN (+ TRACE_JIRA_EMAIL for Cloud).
+// Jira: TRACE_JIRA_URL (comma-separated for several) says which Jira the server may talk
+// to; each person adds their own token in Settings → Jira, kept encrypted in their
+// browser. TRACE_JIRA_TOKEN (+ TRACE_JIRA_EMAIL for Cloud) is an optional shared token
+// for those who haven't. TRACE_SECRET: the key for those cookies (default: one made
+// once and kept in <workspace>/.trace-secret).
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { existsSync, promises as fs, statSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createBackend, readProjectFiles, safePath, type RepoHost } from '../backend/service';
-import { envAuth, normalizeUrl } from '../backend/jira';
+import { createVault, jiraCookies, webJiraCredentials } from '../backend/webjira';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 import { buildIndex, coverage } from '../core/model';
 
@@ -80,16 +84,24 @@ const webHost: RepoHost = {
   },
 };
 
-// Jira: one token for everyone, from the environment, and only for that Jira; repository
-// files can't point the server at another address.
-const backend = createBackend(webHost, {
-  canStore: false,
-  allowed: (url) => !!process.env.TRACE_JIRA_URL && normalizeUrl(url) === normalizeUrl(process.env.TRACE_JIRA_URL),
-  get: async (url) => envAuth(url),
-  set: async () => {
-    throw new Error('Set TRACE_JIRA_TOKEN where the server runs.');
-  },
-});
+// The key that encrypts the Jira tokens kept in browsers. Kept across restarts so
+// people don't have to enter their tokens again.
+async function secret(): Promise<string> {
+  if (process.env.TRACE_SECRET) return process.env.TRACE_SECRET;
+  const p = join(workspace, '.trace-secret');
+  try {
+    return (await fs.readFile(p, 'utf8')).trim();
+  } catch {
+    const s = randomBytes(32).toString('hex');
+    await fs.writeFile(p, s, { mode: 0o600 });
+    return s;
+  }
+}
+
+// Jira: only the addresses in TRACE_JIRA_URL, so a repository's trace.yml can't point
+// the server (or anyone's token) somewhere else.
+const jiraUrls = (process.env.TRACE_JIRA_URL ?? '').split(',').map((u) => u.trim()).filter(Boolean);
+const backend = createBackend(webHost, webJiraCredentials(createVault(await secret()), jiraUrls));
 
 // ---- HTTP --------------------------------------------------------------------------------
 
@@ -134,18 +146,23 @@ function cookie(req: IncomingMessage, name: string): string | null {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
+// Behind a proxy that ends HTTPS, it says so in X-Forwarded-Proto.
+const secure = (req: IncomingMessage) => 'encrypted' in req.socket || /^https\b/i.test(String(req.headers['x-forwarded-proto'] ?? ''));
+
 const same = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 function authorized(req: IncomingMessage, res: ServerResponse, url: URL): boolean {
   if (!token) return true;
   const given = url.searchParams.get('token');
   if (given && same(given, token)) {
-    res.setHeader('Set-Cookie', `trace_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/`);
+    res.appendHeader('Set-Cookie', `trace_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/${secure(req) ? '; Secure' : ''}`);
     return true;
   }
   const c = cookie(req, 'trace_token');
   return !!c && same(c, token);
 }
+
+const JIRA_COOKIE = 'trace_jira';
 
 async function handleApi(req: IncomingMessage, res: ServerResponse, method: string) {
   if (req.method !== 'POST') return send(res, 405, '{"error":"POST only"}');
@@ -156,7 +173,16 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, method: stri
     const params = JSON.parse((await readBody(req)) || '[]');
     if (!Array.isArray(params)) throw new Error('Arguments must be a list.');
     const fn = backend[method as keyof Api] as (...a: unknown[]) => Promise<unknown>;
-    const value = await fn(...params);
+    // This person's Jira tokens: an encrypted cookie only the API sees.
+    const jar = {
+      get: () => cookie(req, JIRA_COOKIE),
+      set: (v: string | null) =>
+        res.appendHeader(
+          'Set-Cookie',
+          `${JIRA_COOKIE}=${v ?? ''}; HttpOnly; SameSite=Strict; Path=/api/; Max-Age=${v ? 180 * 24 * 3600 : 0}${secure(req) ? '; Secure' : ''}`,
+        ),
+    };
+    const value = await jiraCookies.run(jar, () => fn(...params));
     send(res, 200, JSON.stringify({ value: value ?? null }));
   } catch (e) {
     send(res, 200, JSON.stringify({ error: (e as Error).message || String(e) }));

@@ -140,12 +140,18 @@ Trace reads the projects' issues (or `jql`'s) plus every key named in front matt
 commits, and only reads; it never changes Jira. Remote links take one request per
 issue, for up to 500 issues. Keys that don't exist in Jira are listed in Settings.
 
-Tokens: in the desktop app, **Settings → Jira** stores your own token encrypted with the
-system keychain (Windows, macOS, or Linux with a keyring; without one it refuses and
-asks for the environment variables instead). The web server uses one token from its
-environment, `TRACE_JIRA_URL` and `TRACE_JIRA_TOKEN` (+ `TRACE_JIRA_EMAIL` for Cloud),
-and sends requests only to that address, whatever a repository's trace.yml says. The
-same variables work for the desktop app.
+Tokens: everyone uses their own, so Jira shows what each person may see.
+
+- **Desktop app:** **Settings → Jira** keeps your token encrypted with the system
+  keychain (Windows, macOS, or Linux with a keyring; without one it refuses, and
+  `TRACE_JIRA_URL` + `TRACE_JIRA_TOKEN` in the environment work instead).
+- **Web version:** **Settings → Jira** keeps your token in your browser, as a cookie the
+  server encrypts with its secret (`TRACE_SECRET`, or one it makes once and keeps in
+  `<workspace>/.trace-secret`). The server stores no one's token; page scripts can't read
+  the cookie. The server only talks to the Jira in `TRACE_JIRA_URL` (comma-separated for
+  several), whatever a repository's trace.yml says. `TRACE_JIRA_TOKEN` (+
+  `TRACE_JIRA_EMAIL` for Cloud) is an optional shared token for people who haven't added
+  their own; Settings says when it's in use.
 
 With Jira connected, issues show their summary, status and fix versions, and a test
 run can cover a **fix version** (alone, or with a range of code versions).

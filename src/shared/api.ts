@@ -75,7 +75,9 @@ export interface JiraServer {
 
 export interface JiraStatus {
   hasToken: boolean;
-  canStore: boolean; // a token can be entered here (desktop); on the web it's the server's
+  shared: boolean; // the token is the web server's, used by everyone who hasn't added their own
+  canStore: boolean; // a token can be entered here
+  storedIn: 'computer' | 'browser'; // where an entered token is kept (encrypted)
   user: string | null; // who the token signs in as
   error: string | null;
 }

@@ -31,6 +31,7 @@ export function JiraCard({ project }: { project: Project }) {
       </section>
     );
 
+  const own = !!jira.status?.hasToken && !jira.status.shared; // a token of the user's own is saved
   const server = jira.server ?? { url: cfg.jiraUrl, api: cfg.jira.api };
   const save = async (t: string) => {
     setBusy(true);
@@ -77,7 +78,8 @@ export function JiraCard({ project }: { project: Project }) {
         ) : jira.status?.user ? (
           <>
             <span>
-              Signed in as <span className="strong">{jira.status.user}</span>. {jira.read} issues read.
+              Signed in as <span className="strong">{jira.status.user}</span>
+              {jira.status.shared ? <span className="muted"> (the server's shared token: add your own below to read Jira as yourself)</span> : ''}. {jira.read} issues read.
             </span>
             <span className="muted small">
               Links found:{' '}
@@ -89,7 +91,7 @@ export function JiraCard({ project }: { project: Project }) {
             </span>
           </>
         ) : jira.status && !jira.status.hasToken ? (
-          <span className="muted">{jira.status.canStore ? 'No token yet.' : 'The server has no Jira token (TRACE_JIRA_URL and TRACE_JIRA_TOKEN where it runs).'}</span>
+          <span className="muted">No token yet: add your own below.</span>
         ) : (
           <span className="muted">Not read yet.</span>
         )}
@@ -110,13 +112,13 @@ export function JiraCard({ project }: { project: Project }) {
             </label>
           )}
           <label className="field grow">
-            <span>{cfg.jira.api === 3 ? 'API token' : 'Personal access token'} (kept encrypted on this computer)</span>
-            <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={jira.status?.hasToken ? '•••••••• (saved)' : ''} />
+            <span>{cfg.jira.api === 3 ? 'API token' : 'Personal access token'} (kept encrypted {jira.status?.storedIn === 'browser' ? 'in this browser' : 'on this computer'})</span>
+            <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={own ? '•••••••• (saved)' : ''} />
           </label>
           <button type="submit" className="button primary" disabled={busy || !token.trim() || (cfg.jira.api === 3 && !email.trim())}>
             Save token
           </button>
-          {jira.status?.hasToken && (
+          {own && (
             <button type="button" className="button" disabled={busy} onClick={() => void save('')}>
               Remove
             </button>
