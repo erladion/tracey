@@ -1,11 +1,22 @@
 // Small shared pieces: status pills, link-state badges, chip inputs.
 import { useState, type KeyboardEvent } from 'react';
 import type { LinkState } from '../../../core/model';
+import type { Result } from '../../../core/runs';
 import { Icon } from '../icons';
 
 export function StatusPill({ status }: { status: string }) {
   if (!status) return <span className="pill muted-pill">no status</span>;
   return <span className={`pill status-${status.replace(/[^\w-]/g, '')}`}>{status}</span>;
+}
+
+export const RESULT_LABEL: Record<Result, string> = { passed: 'Passed', failed: 'Failed', blocked: 'Blocked', 'not-run': 'Not run' };
+
+export function ResultPill({ result, title }: { result: Result; title?: string }) {
+  return (
+    <span className={`result-pill ${result}`} title={title}>
+      {RESULT_LABEL[result]}
+    </span>
+  );
 }
 
 export function LinkBadge({ state }: { state: LinkState }) {

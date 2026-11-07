@@ -234,3 +234,29 @@ export function today(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+export interface CaseResult {
+  run: TestRun;
+  case: RunCase;
+}
+
+// Every run a test case is in, as the runs are listed (newest first).
+export function resultsFor(runs: TestRun[], id: string): CaseResult[] {
+  const out: CaseResult[] = [];
+  for (const run of runs) {
+    const c = run.cases.find((x) => x.id === id);
+    if (c) out.push({ run, case: c });
+  }
+  return out;
+}
+
+// The last time a test case was run: the newest recorded result, by the date it was
+// recorded (or the run's date), not counting runs where it hasn't been run yet.
+export function lastResult(runs: TestRun[], id: string): CaseResult | null {
+  let best: CaseResult | null = null;
+  for (const r of resultsFor(runs, id)) {
+    if (r.case.result === 'not-run') continue;
+    if (!best || (r.case.date || r.run.created) > (best.case.date || best.run.created)) best = r;
+  }
+  return best;
+}

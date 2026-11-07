@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import type { Api, Identity, ProjectFiles, RepoEntry } from '../shared/api';
 import { CONFIG_FILES, parseConfig } from '../core/config';
 import { projectFiles } from '../core/sample';
+import { looksLike, MAX_IMAGE_BYTES } from '../core/images';
 import { git, GitError, remoteKey } from './git';
 import { createJira, type JiraCredentials } from './jira';
 
@@ -126,6 +127,26 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
       const tmp = `${full}.${process.pid}.tmp`;
       await fs.writeFile(tmp, text);
       await fs.rename(tmp, full);
+    },
+
+    async addImage(repo, path, data) {
+      const r = await root(repo);
+      const m = typeof path === 'string' ? /^(.*?)(\.(png|jpe?g|gif|webp))$/i.exec(path) : null;
+      if (!m) throw new Error('Only PNG, JPEG, GIF and WebP images can be added.');
+      if (typeof data !== 'string' || data.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 4) throw new Error('The image is too large (10 MB at most).');
+      const bytes = Buffer.from(data, 'base64');
+      if (!looksLike(m[3].toLowerCase(), bytes)) throw new Error('That file isn’t the image its name says.');
+      for (let i = 1; ; i++) {
+        const rel = i === 1 ? path : `${m[1]}-${i}${m[2]}`;
+        const full = safePath(r, rel);
+        await fs.mkdir(dirname(full), { recursive: true });
+        try {
+          await fs.writeFile(full, bytes, { flag: 'wx' }); // never over an existing file
+          return rel;
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== 'EEXIST' || i > 999) throw e;
+        }
+      }
     },
 
     async deleteFile(repo, path) {

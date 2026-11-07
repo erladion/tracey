@@ -11,7 +11,7 @@ import { ItemView } from './components/ItemView';
 import { CoverageView } from './components/CoverageView';
 import { SettingsView } from './components/SettingsView';
 import { GraphView } from './components/GraphView';
-import { RunsView } from './components/RunsView';
+import { RunsView, type RunFocus } from './components/RunsView';
 import { GitBar } from './components/GitBar';
 import { NewItemDialog, type NewItemRequest } from './components/NewItemDialog';
 import { notify } from './notify';
@@ -68,6 +68,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
   const [selected, setSelectedState] = useState<string | null>(() => load<string>(selKey));
   const [newItem, setNewItem] = useState<NewItemRequest | null>(null);
   const [graphFocus, setGraphFocus] = useState<string | null>(null);
+  const [runFocus, setRunFocus] = useState<RunFocus | null>(null);
 
   const select = useCallback(
     (path: string | null) => {
@@ -135,7 +136,10 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                 ['settings', 'Settings'],
               ] as const
             ).map(([v, label]) => (
-              <button key={v} type="button" className={`view-tab${view === v ? ' current' : ''}`} aria-current={view === v ? 'page' : undefined} onClick={() => setView(v)}>
+              <button key={v} type="button" className={`view-tab${view === v ? ' current' : ''}`} aria-current={view === v ? 'page' : undefined} onClick={() => {
+                  setView(v);
+                  setRunFocus(null);
+                }}>
                 {label}
                 {v === 'coverage' && index.problems.some((p) => p.severity === 'error') && <span className="tab-dot" aria-label="has errors" />}
               </button>
@@ -174,6 +178,10 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                     setGraphFocus(`${it.kind === 'requirement' ? 'req' : 'test'}:${it.id}`);
                     setView('graph');
                   }}
+                  onOpenRun={(f) => {
+                    setRunFocus(f);
+                    setView('runs');
+                  }}
                   onDeleted={() => select(null)}
                 />
               ) : (
@@ -201,7 +209,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
         ) : view === 'coverage' ? (
           <CoverageView project={project} onOpenId={openId} onOpenPath={openPath} />
         ) : view === 'runs' ? (
-          <RunsView project={project} onOpenId={openId} />
+          <RunsView key={runFocus ? `${runFocus.path}:${runFocus.caseId}` : ''} project={project} focus={runFocus} onOpenId={openId} />
         ) : view === 'graph' ? (
           <GraphView project={project} focus={graphFocus} onOpenId={openId} />
         ) : (

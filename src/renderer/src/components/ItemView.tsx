@@ -9,9 +9,9 @@ import { fingerprint, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Editor } from '../editor/Editor';
 import type { RefTarget } from '../editor/setup';
-import { fileUrl } from '../api';
 import { ChipInput } from './bits';
 import { TracePanel } from './TracePanel';
+import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
 import { Icon } from '../icons';
 import { api } from '../api';
@@ -19,8 +19,9 @@ import { notify } from '../notify';
 import { load as loadSetting, save as saveSetting } from '../storage';
 import type { Blame, FileCommit, GitChange } from '../../../shared/api';
 import { bodyBlocks, readVersion, whatChanged } from '../../../core/diff';
+import { imagesIn, MAX_IMAGE_BYTES, newImagePath } from '../../../core/images';
 import { NO_MARKS, type GitMarks } from '../editor/gitmarks';
-import { CompareDialog } from './Compare';
+import { CompareDialog, imageResolver } from './Compare';
 import { CommitDialog } from './GitBar';
 import { timeAgo } from './bits';
 
@@ -30,6 +31,7 @@ interface Props {
   onOpenId: (id: string) => void;
   onNewTest: (req: Item) => void;
   onShowInGraph: (item: Item) => void;
+  onOpenRun: (focus: RunFocus) => void;
   onDeleted: () => void;
 }
 
@@ -47,6 +49,12 @@ function load(raw: string): Loaded {
 }
 
 const BODY_DELAY = 250;
+
+function toBase64(bytes: Uint8Array): string {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
 
 // A setting kept in this browser.
 function useSetting(key: string, initial: boolean): [boolean, (v: boolean) => void] {
@@ -83,7 +91,7 @@ function blameLabels(b: Blame): NonNullable<GitMarks['blame']> {
   };
 }
 
-export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, onDeleted }: Props) {
+export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, onOpenRun, onDeleted }: Props) {
   const raw = project.texts.get(path) ?? '';
   const item = project.index.byPath.get(path);
   const { index, setText } = project;
@@ -95,6 +103,8 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
   const latestDoc = useRef<PMNode | null>(null); // edited, not serialized yet
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const idRef = useRef('');
+  idRef.current = item?.id || path.replace(/^.*\//, '').replace(/\.md$/i, '');
 
   const compose = useCallback(() => {
     const s = state.current;
@@ -161,16 +171,34 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
     return m;
   }, [index]);
 
-  const dir = path.includes('/') ? path.slice(0, path.lastIndexOf('/') + 1) : '';
-  const resolveImage = useCallback(
-    (src: string) => {
-      if (/^(https?:|data:)/.test(src)) return src;
-      const parts = (src.startsWith('/') ? src.slice(1) : dir + src).split('/');
-      const out: string[] = [];
-      for (const p of parts) p === '..' ? out.pop() : p !== '.' && out.push(p);
-      return fileUrl(project.repo.id, out.join('/'));
-    },
-    [dir, project.repo.id],
+  const resolveImage = useMemo(() => imageResolver(project.repo.id, path), [project.repo.id, path]);
+
+  // Pasted or dropped images go in images/ beside the item, named after it.
+  const addImages = useCallback(
+    (files: File[]) =>
+      Promise.all(
+        files.map(async (f) => {
+          const where = newImagePath(path, idRef.current, f.name, f.type);
+          if (!where) {
+            notify(`${f.name || 'That image'} can’t be added: use PNG, JPEG, GIF or WebP.`, 'error');
+            return null;
+          }
+          if (f.size > MAX_IMAGE_BYTES) {
+            notify(`${f.name || 'The image'} is too large (10 MB at most).`, 'error');
+            return null;
+          }
+          try {
+            const saved = await api.addImage(project.repo.id, where.path, toBase64(new Uint8Array(await f.arrayBuffer())));
+            void project.refreshGit();
+            const name = f.name.replace(/\.[^.]*$/, '');
+            return { src: where.src.replace(/[^/]*$/, saved.slice(saved.lastIndexOf('/') + 1)), alt: name && !/^image$/i.test(name) ? name : null };
+          } catch (e) {
+            notify(`Couldn’t add ${f.name || 'the image'}: ${(e as Error).message}`, 'error');
+            return null;
+          }
+        }),
+      ),
+    [path, project],
   );
 
   // ---- Git: what changed since the last commit, who changed what ----
@@ -407,10 +435,10 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
           </div>
         )}
         <div className={`editor-wrap${showBlame && git ? ' blame-on' : ''}`}>
-          <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} gitMarks={gitMarks} />
+          <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} gitMarks={gitMarks} onAddImages={addImages} />
         </div>
       </article>
-      <TracePanel project={project} item={item} onOpenId={onOpenId} onNewTest={onNewTest} onShowInGraph={onShowInGraph} />
+      <TracePanel project={project} item={item} onOpenId={onOpenId} onNewTest={onNewTest} onShowInGraph={onShowInGraph} onOpenRun={onOpenRun} />
       {comparing && log.length > 0 && <CompareDialog project={project} item={item} log={log} start={0} against="now" onClose={() => setComparing(false)} />}
       {confirmDiscard && (
         <Dialog title={`Discard your changes to ${item.id}?`} onClose={() => setConfirmDiscard(false)}>
@@ -435,8 +463,11 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
         <CommitDialog
           project={project}
           changes={((): GitChange[] => {
-            const mine = git.changes.filter((c) => c.path === path);
-            return mine.length ? mine : [{ path, kind: fileState === 'new' ? 'added' : 'modified' }];
+            // The item, and new or changed images it shows.
+            const images = new Set(imagesIn(path, raw));
+            const mine = git.changes.filter((c) => c.path === path || images.has(c.path));
+            if (!mine.some((c) => c.path === path)) mine.unshift({ path, kind: fileState === 'new' ? 'added' : 'modified' });
+            return mine;
           })()}
           initialMessage={`${item.id}: `}
           onClose={() => setCommitting(false)}

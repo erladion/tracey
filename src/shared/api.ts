@@ -115,6 +115,8 @@ export interface Api {
   loadFiles(repo: string): Promise<ProjectFiles>;
   writeFile(repo: string, path: string, text: string): Promise<void>;
   deleteFile(repo: string, path: string): Promise<void>;
+  // An image (base64): saved at `path`, or beside it with -2, -3… if that's taken. The path used.
+  addImage(repo: string, path: string, data: string): Promise<string>;
 
   // Git
   gitStatus(repo: string): Promise<GitStatus | null>; // null: not a git repository
@@ -167,6 +169,7 @@ export const API_METHODS: ApiMethod[] = [
   'loadFiles',
   'writeFile',
   'deleteFile',
+  'addImage',
   'gitStatus',
   'gitIdentity',
   'gitCommit',

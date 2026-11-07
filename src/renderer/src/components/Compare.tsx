@@ -7,6 +7,7 @@ import type { FileCommit } from '../../../shared/api';
 import type { Item } from '../../../core/model';
 import { blockChanges, blockText, bodyBlocks, fieldChanges, readVersion, wordDiff } from '../../../core/diff';
 import type { Project } from '../project';
+import { imagePath } from '../../../core/images';
 import { api, fileUrl } from '../api';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
@@ -21,13 +22,13 @@ export function versionLabel(c: FileCommit): string {
   return `${c.commit.slice(0, 7)} · ${c.message} · ${c.author}, ${timeAgo(c.date)}`;
 }
 
+// Where the browser loads an item's image from: web images as they are, the
+// repository's through Trace.
 export function imageResolver(repo: string, itemPath: string) {
-  const dir = itemPath.includes('/') ? itemPath.slice(0, itemPath.lastIndexOf('/') + 1) : '';
   return (src: string) => {
-    if (/^(https?:|data:)/.test(src)) return src;
-    const out: string[] = [];
-    for (const p of (src.startsWith('/') ? src.slice(1) : dir + src).split('/')) p === '..' ? out.pop() : p !== '.' && out.push(p);
-    return fileUrl(repo, out.join('/'));
+    if (/^(https?:|data:)/i.test(src)) return src;
+    const p = imagePath(itemPath, src);
+    return p ? fileUrl(repo, p) : '';
   };
 }
 

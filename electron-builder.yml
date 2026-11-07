@@ -1,0 +1,31 @@
+# Desktop installers: npm run dist (this computer's system), or dist:win / dist:mac / dist:linux.
+# Output goes to dist/.
+appId: com.erladion.trace
+productName: Trace
+copyright: Copyright © 2026 erladion
+directories:
+  output: dist
+  buildResources: build
+# The main process bundles what it needs, so only the build output ships (no node_modules).
+files:
+  - out/main/**
+  - out/preload/**
+  - out/renderer/**
+  - package.json
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+publish: null
+win:
+  target: [nsis]
+nsis:
+  oneClick: false
+  perMachine: false # installs for the current user, no administrator rights needed
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+mac:
+  target: [dmg]
+  category: public.app-category.developer-tools
+linux:
+  target: [AppImage]
+  category: Development
+  syncDesktopName: true
+  synopsis: Requirements and test cases in git, with traceability

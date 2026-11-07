@@ -4,7 +4,7 @@ import { EditorView } from 'prosemirror-view';
 import { Slice, type Node as PMNode } from 'prosemirror-model';
 import { undo, redo } from 'prosemirror-history';
 import { addColumnAfter, addRowAfter, deleteColumn, deleteRow, deleteTable } from 'prosemirror-tables';
-import type { Command } from 'prosemirror-state';
+import { TextSelection, type Command, type Transaction } from 'prosemirror-state';
 import { schema } from '../../../core/markdown/schema';
 import { parser } from '../../../core/markdown/markdown';
 import { createEditorState, refsKey, type RefTarget } from './setup';
@@ -37,15 +37,69 @@ interface Props {
   onOpenRef: (id: string) => void;
   resolveImage: (src: string) => string;
   gitMarks: GitMarks; // changes since the last commit, and who changed what
+  // Saves pasted or dropped image files: what to link for each (null: not saved).
+  onAddImages?: (files: File[]) => Promise<({ src: string; alt: string | null } | null)[]>;
 }
 
-export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks }: Props) {
+// Images go in paragraphs of their own, after the one the cursor is in (before it at
+// its start, in place of it when empty); in a table cell, where only text fits, inline.
+function placeImages(tr: Transaction, images: PMNode[]): Transaction {
+  const { $from } = tr.selection;
+  const parent = $from.parent;
+  if (parent.type !== schema.nodes.paragraph || !tr.selection.empty) {
+    for (const n of images) tr.replaceSelectionWith(n, false);
+    return tr;
+  }
+  const paras = images.map((n) => schema.nodes.paragraph.create(null, n));
+  if (!parent.content.size) return tr.replaceWith($from.before(), $from.after(), paras);
+  // Spaces and line breaks around the cursor would be left dangling by a split.
+  const start = $from.start();
+  const end = $from.end();
+  const breaks = [schema.nodes.soft_break, schema.nodes.hard_break];
+  const space = (at: number) => /\s/.test(tr.doc.textBetween(at, at + 1, undefined, (leaf) => (breaks.includes(leaf.type) ? '\n' : '\ufffc')));
+  let from = $from.pos;
+  let to = $from.pos;
+  while (from > start && space(from - 1)) from--;
+  while (to < end && space(to)) to++;
+  if (from === start) tr.insert($from.before(), paras);
+  else if (to === end) tr.insert($from.after(), paras);
+  else {
+    tr.delete(from, to);
+    tr.split(from);
+    tr.insert(from + 1, paras); // between the two halves
+  }
+  return tr;
+}
+
+const imageFiles = (list: FileList | null | undefined) => [...(list ?? [])].filter((f) => f.type.startsWith('image/'));
+
+export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks, onAddImages }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [, setTick] = useState(0);
   const [linkDialog, setLinkDialog] = useState<{ href: string } | null>(null);
-  const latest = useRef({ onChange, onOpenRef, resolveImage, gitMarks });
-  latest.current = { onChange, onOpenRef, resolveImage, gitMarks };
+  const latest = useRef({ onChange, onOpenRef, resolveImage, gitMarks, onAddImages });
+  latest.current = { onChange, onOpenRef, resolveImage, gitMarks, onAddImages };
+
+  // Save the files, then put the images where they were pasted or dropped (`at`), or at
+  // the cursor if the text changed while saving.
+  const insertImages = (files: File[], at: number | null) => {
+    const add = latest.current.onAddImages;
+    const view = viewRef.current;
+    if (!add || !view) return;
+    const start = view.state.doc;
+    void add(files).then((saved) => {
+      if (viewRef.current !== view) return; // another item is open now
+      const nodes = saved.filter((s) => s != null).map((s) => schema.nodes.image.create({ src: s.src, alt: s.alt }));
+      if (!nodes.length) return;
+      const tr = view.state.tr;
+      if (at != null && view.state.doc === start) tr.setSelection(TextSelection.near(tr.doc.resolve(at)));
+      view.dispatch(placeImages(tr, nodes).scrollIntoView());
+      view.focus();
+    });
+  };
+  const insertRef = useRef(insertImages);
+  insertRef.current = insertImages;
 
   useEffect(() => {
     const view = new EditorView(host.current!, {
@@ -62,6 +116,22 @@ export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks 
       },
       // Plain text pasted from elsewhere is read as Markdown. (ProseMirror pastes into
       // code blocks as-is without asking.)
+      // Images pasted or dropped from files or screenshots are saved into the repository.
+      handlePaste(_view, event) {
+        const files = imageFiles(event.clipboardData?.files);
+        if (!files.length || !latest.current.onAddImages) return false;
+        event.preventDefault();
+        insertRef.current(files, null);
+        return true;
+      },
+      handleDrop(view, event) {
+        const files = imageFiles(event.dataTransfer?.files);
+        if (!files.length || !latest.current.onAddImages) return false;
+        event.preventDefault();
+        const at = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos ?? null;
+        insertRef.current(files, at);
+        return true;
+      },
       clipboardTextParser(text) {
         const doc = parser.parse(text);
         // One paragraph: paste its text inline rather than as a new block.

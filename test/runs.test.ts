@@ -7,7 +7,7 @@ import { buildIndex } from '../src/core/model';
 import { projectFiles } from '../src/core/sample';
 import { linkCommits } from '../src/core/commits';
 import { impact, reasonText } from '../src/core/impact';
-import { addCases, newRunText, readRun, removeCase, setCase, summarize } from '../src/core/runs';
+import { addCases, lastResult, newRunText, readRun, removeCase, resultsFor, setCase, summarize } from '../src/core/runs';
 import { reportHtml, reportMarkdown } from '../src/core/report';
 
 const files = Object.entries(projectFiles(true))
@@ -102,5 +102,23 @@ describe('test runs', () => {
     const html = reportHtml(run, index);
     expect(html).toContain('<h1>Test report: Release 2.4.0</h1>');
     expect(html).not.toContain('<script');
+  });
+});
+
+describe('a test case’s results', () => {
+  const run = (path: string, created: string, cases: string) => readRun(path, `name: ${path}\ncreated: ${created}\ncases:\n${cases}`);
+  const runs = [
+    run('new.yml', '2026-11-06', '  TC-1: { result: not-run }\n  TC-2: { result: passed, tester: Ana, date: 2026-11-06 }\n'),
+    run('old.yml', '2026-10-01', '  TC-1: { result: failed, tester: Erik, date: 2026-10-02 }\n'),
+    run('older.yml', '2026-09-01', '  TC-1: { result: passed }\n'),
+  ];
+  it('lists every run it is in, newest first', () => {
+    expect(resultsFor(runs, 'TC-1').map((r) => `${r.run.path}:${r.case.result}`)).toEqual(['new.yml:not-run', 'old.yml:failed', 'older.yml:passed']);
+    expect(resultsFor(runs, 'TC-9')).toEqual([]);
+  });
+  it('knows the last time it was run, skipping runs where it is still to do', () => {
+    expect(lastResult(runs, 'TC-1')).toMatchObject({ run: { path: 'old.yml' }, case: { result: 'failed', tester: 'Erik' } });
+    expect(lastResult(runs, 'TC-2')?.case.result).toBe('passed');
+    expect(lastResult(runs, 'TC-9')).toBeNull();
   });
 });

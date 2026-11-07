@@ -16,6 +16,22 @@ npm start            # desktop app, built
 npm run start:web -- --workspace ./repos --port 5180
 ```
 
+### Desktop installers
+
+```sh
+npm run dist         # an installer for this computer's system, in dist/
+npm run dist:win     # Windows: Trace-<version>-win-x64.exe (installs per user, no admin rights)
+npm run dist:mac     # macOS: a .dmg (build it on a Mac)
+npm run dist:linux   # Linux: an .AppImage (make it executable and run it)
+```
+
+Settings are in `electron-builder.yml`, the icon in `build/`. The installers aren't
+code-signed, so Windows SmartScreen and macOS Gatekeeper warn on first start (*More info
+→ Run anyway*, or right-click → *Open*). Signing needs the company's certificate: set
+`CSC_LINK` and `CSC_KEY_PASSWORD` (and on macOS notarization credentials) before
+building. Building for Windows on Linux needs Wine; a Windows machine or CI runner is
+simpler.
+
 The web server's repositories are the folders in its workspace (default `./repos`),
 plus any given with `--repo /path/to/repo` (repeatable). It listens on 127.0.0.1 by
 default. To let other machines in, use `--host 0.0.0.0` **and** set `TRACE_TOKEN`;
@@ -105,6 +121,13 @@ The text is edited as formatted text (ProseMirror, after Wysette's editor): head
 lists, tables, quotes, code, links, images, with Markdown shortcuts as you type
 (`## `, `- `, `1. `, `**bold**`, `` `code` ``) and Markdown pasted as formatting.
 Item IDs in the text (`REQ-22`) are highlighted; Ctrl+click opens them.
+
+Paste a screenshot or drop image files into the text to add them. They're saved in an
+`images` folder beside the item, named after it (`requirements/images/REQ-07.png`,
+`REQ-07-login-form.png` for a file called "Login form"), and linked by a relative path,
+so they also show on Bitbucket and in any Markdown viewer. An image goes in a paragraph
+of its own where the cursor is (inline in a table cell). PNG, JPEG, GIF and WebP, up to
+10 MB. **Commit…** above the text takes the item's new images along.
 
 Only what you change is rewritten: blocks you didn't touch are saved byte for byte, and
 edited paragraphs keep their line wrapping, so diffs and reviews stay small. Files save
@@ -236,6 +259,10 @@ commits, and per test case its result (passed, failed, blocked, not run), tester
 and note. Commit it like anything else. Each case is a separate block, so testers
 recording different cases in the same run merge without conflicts.
 
+Results show beside the items too: a test case's side panel lists every run it's in,
+with result, tester, date and note, and a requirement's lists each test's last result.
+Click one to open that run at the case.
+
 Expand a case to read its steps while testing. **Report (HTML)** downloads a standalone
 page (print it to PDF), **Report (Markdown)** a text version; **Save report to
 repository** puts the Markdown next to the run, to commit with it.
@@ -278,7 +305,8 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   links.ts        Jira issue ↔ item links from every source
   commits.ts      commits → Jira keys, item IDs and components
   impact.ts       which test cases a range of commits calls for, and why
-  runs.ts         test run files: read, create, record results
+  runs.ts         test run files: read, create, record results; a test case's results
+  images.ts       images in an item's text, and where pasted ones go
   report.ts       a run's report as Markdown or HTML
   specdoc.ts      the specification document (HTML, printed to PDF)
   markdown/       schema, Markdown ↔ ProseMirror with source preservation

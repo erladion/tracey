@@ -2495,3 +2495,64 @@ h3 {
   max-height: 80vh;
   overflow-y: auto;
 }
+
+/* ---- test results beside an item ---- */
+.result-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px 1px 7px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--fg-2);
+}
+.result-pill::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--border-strong);
+}
+.result-pill.passed::before {
+  background: var(--ok);
+}
+.result-pill.failed::before {
+  background: var(--warn-line);
+}
+.result-pill.blocked::before {
+  background: #c9a227;
+}
+.result-pill.not-run {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--muted);
+}
+.result-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.result-note {
+  color: var(--fg-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.last-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 4px 1px 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.last-run:hover .muted {
+  color: var(--fg);
+  text-decoration: underline;
+}

@@ -16,13 +16,11 @@ import { savePdf } from '../pdf';
 import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
-import { StatusPill } from './bits';
+import { RESULT_LABEL, StatusPill } from './bits';
 import { load, save } from '../storage';
 
 // Test steps are shown as formatted text; raw HTML in them is shown as text.
 const md = MarkdownIt('commonmark', { html: false }).enable(['table', 'strikethrough']);
-
-const RESULT_LABEL: Record<Result, string> = { passed: 'Passed', failed: 'Failed', blocked: 'Blocked', 'not-run': 'Not run' };
 
 function download(name: string, content: string, type: string) {
   const url = URL.createObjectURL(new Blob([content], { type }));
@@ -35,10 +33,16 @@ function download(name: string, content: string, type: string) {
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-export function RunsView({ project, onOpenId }: { project: Project; onOpenId: (id: string) => void }) {
+// A run to open, and the case to show in it.
+export interface RunFocus {
+  path: string;
+  caseId: string;
+}
+
+export function RunsView({ project, focus, onOpenId }: { project: Project; focus?: RunFocus | null; onOpenId: (id: string) => void }) {
   const { runs } = project;
   const key = `trace.run.${project.repo.id}`;
-  const [selected, setSelected] = useState<string | null>(() => load<string>(key));
+  const [selected, setSelected] = useState<string | null>(() => focus?.path ?? load<string>(key));
   const [creating, setCreating] = useState(false);
   useEffect(() => save(key, selected), [key, selected]);
   const run = runs.find((r) => r.path === selected) ?? null;
@@ -73,7 +77,7 @@ export function RunsView({ project, onOpenId }: { project: Project; onOpenId: (i
       </aside>
       <main className="main">
         {run ? (
-          <RunDetail key={run.path} project={project} run={run} onOpenId={onOpenId} onDeleted={() => setSelected(null)} />
+          <RunDetail key={run.path} project={project} run={run} focusCase={focus?.path === run.path ? focus.caseId : null} onOpenId={onOpenId} onDeleted={() => setSelected(null)} />
         ) : (
           <div className="empty-state">
             <h2>Test runs</h2>
@@ -117,11 +121,26 @@ function ProgressBar({ s }: { s: ReturnType<typeof summarize> }) {
 
 type Filter = 'all' | 'todo' | 'problems' | 'passed';
 
-function RunDetail({ project, run, onOpenId, onDeleted }: { project: Project; run: TestRun; onOpenId: (id: string) => void; onDeleted: () => void }) {
+function RunDetail({
+  project,
+  run,
+  focusCase,
+  onOpenId,
+  onDeleted,
+}: {
+  project: Project;
+  run: TestRun;
+  focusCase: string | null;
+  onOpenId: (id: string) => void;
+  onDeleted: () => void;
+}) {
   const { index } = project;
   const s = summarize(run);
   const [filter, setFilter] = useState<Filter>('all');
-  const [open, setOpen] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(focusCase);
+  useEffect(() => {
+    if (focusCase) document.querySelector(`[data-case="${CSS.escape(focusCase)}"]`)?.scrollIntoView({ block: 'center' });
+  }, [focusCase]);
   const [adding, setAdding] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tester, setTester] = useState(() => load<string>('trace.tester') ?? load<{ name: string }>('trace.author')?.name ?? '');
@@ -254,7 +273,7 @@ function RunDetail({ project, run, onOpenId, onDeleted }: { project: Project; ru
             const item = index.byId.get(c.id);
             const expanded = open === c.id;
             return (
-              <li key={c.id} className={`run-case ${c.result}`}>
+              <li key={c.id} className={`run-case ${c.result}`} data-case={c.id}>
                 <div className="run-case-row">
                   <button type="button" className="run-case-main" onClick={() => setOpen(expanded ? null : c.id)} aria-expanded={expanded}>
                     <span className={`caret${expanded ? ' open' : ''}`} aria-hidden="true">

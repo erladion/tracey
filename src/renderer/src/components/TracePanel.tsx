@@ -8,7 +8,9 @@ import type { FileCommit } from '../../../shared/api';
 import type { Project } from '../project';
 import { api } from '../api';
 import { Icon } from '../icons';
-import { LinkBadge, StatusPill, timeAgo } from './bits';
+import { lastResult, resultsFor, type CaseResult } from '../../../core/runs';
+import { LinkBadge, ResultPill, StatusPill, timeAgo } from './bits';
+import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
 import { CompareDialog } from './Compare';
 
@@ -18,9 +20,10 @@ interface Props {
   onOpenId: (id: string) => void;
   onNewTest: (req: Item) => void;
   onShowInGraph: (item: Item) => void;
+  onOpenRun: (focus: RunFocus) => void;
 }
 
-export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph }: Props) {
+export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph, onOpenRun }: Props) {
   const { index } = project;
   const links = linksOf(index, item);
   const problems = index.problems.filter((p) => p.path === item.path);
@@ -57,6 +60,7 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph }
                   <div className="link-meta">
                     <StatusPill status={other.status} />
                     <LinkBadge state={l.state} />
+                    {item.kind === 'requirement' && <LastRun result={lastResult(project.runs, other.id)} onOpenRun={onOpenRun} />}
                   </div>
                   {l.state !== 'ok' && (
                     <div className="link-actions">
@@ -79,6 +83,8 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph }
           <p className="warn-text small">Not found: {item.verifies.filter((v) => !index.byId.has(v)).join(', ')}</p>
         )}
       </section>
+
+      {item.kind === 'testcase' && <Results project={project} item={item} onOpenRun={onOpenRun} />}
 
       {components.length > 0 && (
         <section>
@@ -231,6 +237,55 @@ function History({ project, item }: { project: Project; item: Item }) {
         </ul>
       )}
       {shown != null && log && <CompareDialog project={project} item={item} log={log} start={shown} against="previous" onClose={() => setShown(null)} />}
+    </section>
+  );
+}
+
+const runWhen = (r: CaseResult) => [r.case.tester, r.case.date || r.run.created].filter(Boolean).join(', ');
+
+// A test's last result, beside it under "Verified by".
+function LastRun({ result, onOpenRun }: { result: CaseResult | null; onOpenRun: (focus: RunFocus) => void }) {
+  if (!result) return <span className="muted small">Never run</span>;
+  return (
+    <button type="button" className="last-run" onClick={() => onOpenRun({ path: result.run.path, caseId: result.case.id })} title={`Last run in ${result.run.name} (${runWhen(result)})`}>
+      <ResultPill result={result.case.result} />
+      <span className="muted small">{result.run.name}</span>
+    </button>
+  );
+}
+
+function Results({ project, item, onOpenRun }: { project: Project; item: Item; onOpenRun: (focus: RunFocus) => void }) {
+  const [all, setAll] = useState(false);
+  const results = resultsFor(project.runs, item.id);
+  return (
+    <section>
+      <h3>Test results</h3>
+      {results.length === 0 ? (
+        <p className="muted small">Not in a test run yet.</p>
+      ) : (
+        <ul className="history">
+          {(all ? results : results.slice(0, 6)).map((r) => (
+            <li key={r.run.path}>
+              <button type="button" className="history-row" onClick={() => onOpenRun({ path: r.run.path, caseId: item.id })} title="Open this test run">
+                <span className="result-line">
+                  <ResultPill result={r.case.result} />
+                  <span className="history-msg">{r.run.name}</span>
+                </span>
+                <span className="muted small">
+                  {r.case.result === 'not-run' ? `To do · run created ${r.run.created}` : runWhen(r)}
+                  {r.run.to ? ` · code ${r.run.to}` : ''}
+                </span>
+                {r.case.note && <span className="small result-note">{r.case.note}</span>}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {results.length > 6 && (
+        <button type="button" className="link-button small" onClick={() => setAll(!all)}>
+          {all ? 'Show fewer' : `Show all ${results.length}`}
+        </button>
+      )}
     </section>
   );
 }
