@@ -2,7 +2,9 @@
 // one run, or the latest of each test case), each test case's result in them, and each
 // requirement's verdict from its test cases' results.
 import { linksOf, type Item, type Link, type ProjectIndex } from './model';
-import { lastResult, resultsFor, type CaseResult, type Result, type TestRun } from './runs';
+import { lastResult, releaseFrom, releaseOf, resultsFor, type CaseResult, type Result, type TestRun } from './runs';
+
+export { releaseOf };
 
 export type ResultSource = { kind: 'none' } | { kind: 'latest' } | { kind: 'release'; key: string } | { kind: 'run'; path: string };
 
@@ -32,21 +34,6 @@ export interface Release {
 // Versions match without a leading "v" and ignoring case: v2.4.0, V2.4.0 and 2.4.0 are one.
 export const versionKey = (v: string) => v.trim().replace(/^v(?=\d)/i, '').toLowerCase();
 
-// The code version a run tested counts as its release only when it's a tag: a branch
-// (main) moves, and a commit isn't a version. Runs from before that was recorded count
-// when it looks like a version: it has a digit and isn't a commit hash.
-function codeVersion(r: TestRun): string | null {
-  const to = r.to?.trim();
-  if (!to) return null;
-  if (r.toTag != null) return r.toTag ? to : null;
-  return /\d/.test(to) && !/^[0-9a-f]{7,40}$/i.test(to) ? to : null;
-}
-
-// The version a run belongs to: its code tag, or else its Jira fix version.
-export function releaseOf(r: TestRun): string | null {
-  return codeVersion(r) || r.fixVersion?.trim() || null;
-}
-
 const releaseKey = (r: TestRun) => {
   const v = releaseOf(r);
   return v ? versionKey(v) : null;
@@ -60,8 +47,9 @@ export function releases(runs: TestRun[]): Release[] {
     if (k) by.set(k, [...(by.get(k) ?? []), r]);
   }
   const newest = (rs: TestRun[]) => rs.reduce((m, r) => (r.created > m ? r.created : m), '');
-  // The name: a code tag as written if any run has one (the newest run's), else a fix version.
-  const name = (rs: TestRun[]) => rs.map(codeVersion).find(Boolean) ?? rs.map(releaseOf).find(Boolean)!;
+  // The name as written: set by hand, else a code tag, else a fix version (the newest run's).
+  const pick = (rs: TestRun[], from: string) => rs.map(releaseFrom).find((x) => x?.from === from)?.version;
+  const name = (rs: TestRun[]) => pick(rs, 'set') ?? pick(rs, 'code') ?? releaseOf(rs[0])!;
   return [...by].map(([key, rs]) => ({ key, name: name(rs), runs: rs })).sort((a, b) => newest(b.runs).localeCompare(newest(a.runs)) || b.key.localeCompare(a.key));
 }
 

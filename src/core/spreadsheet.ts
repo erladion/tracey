@@ -1,7 +1,7 @@
 // The repository as spreadsheet tables: requirements, test cases, the traceability
 // matrix, test runs and their results, and coverage over time.
 import { linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
-import { lastResult, summarize, type TestRun } from './runs';
+import { lastResult, releaseOf, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
 import { outcomeText, resultMatrix, VERDICT_LABEL, type Outcome, type Verdict } from './verdict';
 import type { Cell, Sheet, Tone } from './xlsx';
@@ -155,6 +155,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     columns: [
       { header: 'Run', width: 24 },
       { header: 'Created', width: 11 },
+      { header: 'Release', width: 10 },
       { header: 'From', width: 10 },
       { header: 'To', width: 10 },
       { header: 'Fix version', width: 11 },
@@ -169,7 +170,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     ],
     rows: o.runs.map((r) => {
       const s = summarize({ ...r, cases: runCases(r) });
-      return [r.name, r.created, r.from, r.to, r.fixVersion, r.variant ? (index.config.variants.find((v) => v.key === r.variant)?.name ?? r.variant) : null, s.total, s.passed, s.failed, s.blocked, s.notRun, s.total ? { pct: s.done / s.total } : null, r.path];
+      return [r.name, r.created, releaseOf(r), r.from, r.to, r.fixVersion, r.variant ? (index.config.variants.find((v) => v.key === r.variant)?.name ?? r.variant) : null, s.total, s.passed, s.failed, s.blocked, s.notRun, s.total ? { pct: s.done / s.total } : null, r.path];
     }),
   };
 

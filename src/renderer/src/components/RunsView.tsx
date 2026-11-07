@@ -8,7 +8,8 @@ import { linkCommits } from '../../../core/commits';
 import { buildIssueLinks, projectsOf } from '../../../core/links';
 import type { Commit, JiraIssue } from '../../../shared/api';
 import { impact, reasonText, type Impact } from '../../../core/impact';
-import { addCases, newRunText, removeCase, runPath, setCase, summarize, today, RESULTS, type Result, type RunCase, type TestRun } from '../../../core/runs';
+import { addCases, newRunText, releaseFrom, removeCase, runPath, setCase, setRelease as setRunRelease, summarize, today, RESULTS, type Result, type RunCase, type TestRun } from '../../../core/runs';
+import { releases } from '../../../core/verdict';
 import { reportHtml, reportMarkdown } from '../../../core/report';
 import { slug } from '../../../core/model';
 import { api } from '../api';
@@ -187,6 +188,7 @@ function RunDetail({
             )}
             created {run.created} · <span className="mono small">{run.path}</span>
           </p>
+          <ReleaseLine project={project} run={run} />
           {run.error && <p className="warn-text">This file can’t be read: {run.error}</p>}
         </div>
         <div className="dialog-actions">
@@ -440,6 +442,66 @@ function AddCasesDialog({ project, run, onClose }: { project: Project; run: Test
   );
 }
 
+// The release a run's results count toward, and changing it: say a run tested main and
+// the release was tagged afterwards.
+function ReleaseLine({ project, run }: { project: Project; run: TestRun }) {
+  const rel = releaseFrom(run);
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const known = useMemo(() => releases(project.runs).map((r) => r.name), [project.runs]);
+  const save = () => {
+    project.updateFile(run.path, (t) => setRunRelease(t, value));
+    setEditing(false);
+  };
+  if (editing)
+    return (
+      <form
+        className="release-edit"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save();
+        }}
+      >
+        <label htmlFor="run-release">Release</label>
+        <input id="run-release" list="run-release-list" value={value} onChange={(e) => setValue(e.target.value)} placeholder="v2.4.0" spellCheck={false} autoFocus />
+        <datalist id="run-release-list">
+          {known.map((r) => (
+            <option key={r} value={r} />
+          ))}
+        </datalist>
+        <button type="submit" className="button small primary">
+          Save
+        </button>
+        <button type="button" className="button small" onClick={() => setEditing(false)}>
+          Cancel
+        </button>
+        <span className="muted small">{run.to || run.fixVersion ? 'Empty: follow the code tag or Jira fix version again.' : 'Empty: no release.'}</span>
+      </form>
+    );
+  return (
+    <p className="muted release-line">
+      {rel ? (
+        <>
+          Release <strong>{rel.version}</strong>
+          {rel.from === 'code' ? ' (the code tag tested)' : rel.from === 'jira' ? ' (the Jira fix version)' : ''}
+        </>
+      ) : (
+        <>No release: its results count only as the latest results and as this run.</>
+      )}{' '}
+      <button
+        type="button"
+        className="link-button"
+        onClick={() => {
+          setValue(run.release ?? rel?.version ?? '');
+          setEditing(true);
+        }}
+      >
+        {rel ? 'Change' : 'Set release'}
+      </button>
+    </p>
+  );
+}
+
 // ---- a new run ------------------------------------------------------------------------
 
 function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClose: () => void; onCreated: (path: string) => void }) {
@@ -458,6 +520,10 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
   const [name, setName] = useState('');
   const [nameEdited, setNameEdited] = useState(false);
   const [fixVersion, setFixVersion] = useState('');
+  // The release its results count toward: the tag or fix version tested, or typed.
+  const [release, setRelease] = useState('');
+  const [releaseEdited, setReleaseEdited] = useState(false);
+  const knownReleases = useMemo(() => [...new Set([...releases(project.runs).map((r) => r.name), ...tags])], [project.runs, tags]);
   const [range, setRange] = useState<{ commits: Commit[]; to: string } | null>(null);
   const [fvIssues, setFvIssues] = useState<{ name: string; issues: JiraIssue[] } | null>(null);
   const [state, setState] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
@@ -476,11 +542,18 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
   }, [code.repo]);
 
   useEffect(() => {
+    if (!releaseEdited) setRelease(wantRange && tags.includes(to.trim()) ? to.trim() : fv);
+  }, [to, fv, wantRange, tags, releaseEdited]);
+
+  useEffect(() => {
     if (!nameEdited) {
       const v = (wantRange ? to : fv).replace(/^v(?=\d)/, '');
-      setName(scope === 'impact' && v ? `Release ${v}` : scope === 'all' ? `Full regression ${today()}` : `Test run ${today()}`);
+      const rel = release.trim().replace(/^v(?=\d)/, '');
+      setName(
+        scope === 'impact' && v ? `Release ${v}` : scope === 'all' ? `Full regression ${rel || today()}` : rel ? `Test run ${rel}` : `Test run ${today()}`,
+      );
     }
-  }, [to, fv, wantRange, scope, nameEdited]);
+  }, [to, fv, wantRange, scope, nameEdited, release]);
 
   // The commits between the versions, and the issues in the fix version, read when they change.
   useEffect(() => {
@@ -553,6 +626,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
       const text = newRunText({
         name: name.trim(),
         created: today(),
+        release: release.trim() || null,
         from: wantRange ? from.trim() : null,
         to: wantRange ? to.trim() : null,
         // Whether it's a tag (a release) or a branch or commit; unknown if the tags didn't load.
@@ -703,6 +777,30 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
           </ul>
         )}
         {scope === 'none' && <p className="muted small">The run starts empty; add test cases to it with “Add test cases”.</p>}
+
+        <label className="field">
+          <span>Release (optional)</span>
+          <input
+            list="release-list"
+            value={release}
+            onChange={(e) => {
+              setRelease(e.target.value);
+              setReleaseEdited(true);
+            }}
+            placeholder="v2.4.0"
+            spellCheck={false}
+          />
+          <datalist id="release-list">
+            {knownReleases.map((r) => (
+              <option key={r} value={r} />
+            ))}
+          </datalist>
+        </label>
+        <p className="muted small">
+          {release.trim()
+            ? `Its results count toward release ${release.trim()} in the traceability matrix.`
+            : 'Without one, its results count only as the latest results and as this run, not toward a release.'}
+        </p>
 
         <label className="field">
           <span>Name</span>

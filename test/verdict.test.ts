@@ -4,7 +4,7 @@ import { readRun } from '../src/core/runs';
 import { specHtml } from '../src/core/specdoc';
 import { tables } from '../src/core/spreadsheet';
 import { csv, xlsx } from '../src/core/xlsx';
-import { newRunText } from '../src/core/runs';
+import { newRunText, releaseFrom, setRelease } from '../src/core/runs';
 import { describeSource, outcome, releaseOf, releases, resultMatrix, sourceName, sourceRuns, verdictOf, verdictSummary, versionKey } from '../src/core/verdict';
 
 const req = (id: string, status = 'approved') => ({ path: `requirements/${id}.md`, text: `---\nid: ${id}\ntitle: Title of ${id}\nstatus: ${status}\n---\nText.\n` });
@@ -58,6 +58,25 @@ describe('result sources', () => {
     expect(releaseOf(run('{ to: v2.4.0 }'))).toBe('v2.4.0');
     expect(releaseOf(run('{ to: main }'))).toBeNull();
     expect(releaseOf(run('{ to: 3f2a9c1e }'))).toBeNull();
+  });
+  it('puts a run in the release set by hand before its tag or fix version', () => {
+    const full = readRun('f.yml', 'name: Full regression\ncreated: 2026-11-05\nrelease: 2.4.0\ncases:\n  TC-01: { result: passed }\n');
+    const branch = readRun('b.yml', 'name: B\ncreated: 2026-11-04\nrelease: v2.5\ncode: { to: main, tag: false }\njira: { fix-version: "2.4" }\n');
+    expect(releaseFrom(full)).toEqual({ version: '2.4.0', from: 'set' });
+    expect(releaseFrom(branch)).toEqual({ version: 'v2.5', from: 'set' });
+    expect(releaseFrom(readRun('t.yml', 'code: { to: v2.4.0, tag: true }\njira: { fix-version: "9" }\n'))).toEqual({ version: 'v2.4.0', from: 'code' });
+    expect(releaseFrom(readRun('j.yml', 'code: { to: main, tag: false }\njira: { fix-version: "2.4" }\n'))).toEqual({ version: '2.4', from: 'jira' });
+    // It joins the runs for the tag v2.4.0, named as set by hand.
+    const tagged = readRun('t.yml', 'name: T\ncreated: 2026-11-06\ncode: { to: v2.4.0, tag: true }\n');
+    expect(releases([tagged, full]).map((r) => [r.key, r.name, r.runs.map((x) => x.name)])).toEqual([['2.4.0', '2.4.0', ['T', 'Full regression']]]);
+  });
+  it('sets and clears a run’s release, after created and keeping the rest', () => {
+    const text = 'name: R\ncreated: 2026-11-07\ncode:\n  to: main\n  tag: false\ncases:\n\n  TC-01:\n    result: passed\n';
+    const set = setRelease(text, ' v2.4.0 ');
+    expect(set).toBe('name: R\ncreated: 2026-11-07\nrelease: v2.4.0\ncode:\n  to: main\n  tag: false\ncases:\n\n  TC-01:\n    result: passed\n');
+    expect(setRelease(set, 'v2.4.1')).toContain('release: v2.4.1\ncode:');
+    expect(setRelease(set, '')).toBe(text);
+    expect(newRunText({ name: 'R', created: '2026-11-07', release: 'v3', from: null, to: null, codeCommit: null, commitCount: null, requirementsCommit: null, issues: [], gaps: { requirementsWithoutTests: [], componentsWithoutTests: [], issuesWithoutRequirement: [] }, cases: [] })).toMatch(/^name: R\ncreated: 2026-11-07\nrelease: v3\n/);
   });
   it('records whether the code version is a tag', () => {
     const base = { name: 'R', created: '2026-11-07', from: 'v1', codeCommit: 'abc', commitCount: 3, requirementsCommit: null, issues: [], gaps: { requirementsWithoutTests: [], componentsWithoutTests: [], issuesWithoutRequirement: [] }, cases: [] };

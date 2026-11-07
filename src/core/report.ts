@@ -1,7 +1,7 @@
 // A test run's report, as Markdown (to keep in the repository) or as a standalone HTML
 // page (to send, or print to PDF).
 import type { Item, ProjectIndex } from './model';
-import { summarize, type Result, type RunCase, type TestRun } from './runs';
+import { releaseOf, summarize, type Result, type RunCase, type TestRun } from './runs';
 
 const LABEL: Record<Result, string> = { passed: 'Passed', failed: 'Failed', blocked: 'Blocked', 'not-run': 'Not run' };
 
@@ -37,6 +37,8 @@ function verdict(g: Group): Result {
 
 function header(run: TestRun, index?: ProjectIndex): [string, string][] {
   const rows: [string, string][] = [];
+  const release = releaseOf(run);
+  if (release) rows.push(['Release', release]);
   if (run.variant) rows.push(['Variant', index?.config.variants.find((v) => v.key === run.variant)?.name ?? run.variant]);
   if (run.from || run.to) rows.push(['Versions', `${run.from ?? '?'} → ${run.to ?? '?'}`]);
   if (run.fixVersion) rows.push(['Jira fix version', run.fixVersion]);

@@ -2,6 +2,7 @@
 //
 //   name: Release 2.4.0
 //   created: 2026-11-06
+//   release: v2.4.0                (optional: the release its results count toward)
 //   variant: pro                   (when the project has variants)
 //   code: { from: v2.3.0, to: v2.4.0, tag: true, commit: 3f2a…, commits: 42 }   (tag: `to` is a tag)
 //   requirements-commit: 9c1e…
@@ -44,6 +45,7 @@ export interface TestRun {
   path: string;
   name: string;
   created: string;
+  release: string | null; // the release it's for, when set by hand (see releaseOf)
   from: string | null;
   to: string | null;
   toTag: boolean | null; // whether `to` is a tag in the code repository; null: not recorded
@@ -67,6 +69,7 @@ export function readRun(path: string, text: string): TestRun {
     path,
     name: path.replace(/^.*\//, '').replace(/\.ya?ml$/i, ''),
     created: '',
+    release: null,
     from: null,
     to: null,
     toTag: null,
@@ -89,6 +92,7 @@ export function readRun(path: string, text: string): TestRun {
     ...run,
     name: str(o.name) || run.name,
     created: str(o.created),
+    release: str(o.release).trim() || null,
     from: code.from == null ? null : str(code.from),
     to: code.to == null ? null : str(code.to),
     toTag: typeof code.tag === 'boolean' ? code.tag : null,
@@ -120,6 +124,7 @@ export function readRun(path: string, text: string): TestRun {
 export interface NewRun {
   name: string;
   created: string;
+  release?: string | null;
   from: string | null;
   to: string | null;
   toTag?: boolean | null;
@@ -152,6 +157,7 @@ function spaceCases(doc: Document) {
 export function newRunText(r: NewRun): string {
   const doc = parseDocument('{}');
   const obj: Record<string, unknown> = { name: r.name, created: r.created };
+  if (r.release?.trim()) obj.release = r.release.trim();
   if (r.variant) obj.variant = r.variant;
   if (r.from || r.to) obj.code = { from: r.from, to: r.to, ...(r.to && r.toTag != null ? { tag: r.toTag } : {}), commit: r.codeCommit, commits: r.commitCount };
   if (r.requirementsCommit) obj['requirements-commit'] = r.requirementsCommit;
@@ -193,6 +199,36 @@ export function addCases(text: string, cases: { id: string; reason: string[] }[]
   spaceCases(doc);
   return doc.toString({ lineWidth: 0, flowCollectionPadding: false });
 }
+
+// Sets the release a run is for (empty: none set, so it follows its code tag or fix
+// version again). A new field goes after `created`, keeping the rest as written.
+export function setRelease(text: string, release: string): string {
+  const doc = parseDocument(text);
+  const v = release.trim();
+  if (!v) doc.delete('release');
+  else if (doc.has('release')) doc.set('release', v);
+  else if (isMap(doc.contents)) {
+    const items = (doc.contents as YAMLMap).items as Pair[];
+    const at = items.findIndex((p) => isScalar(p.key) && p.key.value === 'created');
+    items.splice(at < 0 ? items.findIndex((p) => isScalar(p.key) && p.key.value === 'name') + 1 : at + 1, 0, doc.createPair('release', v) as Pair);
+  }
+  return doc.toString({ lineWidth: 0, flowCollectionPadding: false });
+}
+
+// The release a run's results count toward: set by hand, or else the code version it
+// tested if that's a tag, or else its Jira fix version. A branch (main) moves and a
+// commit isn't a version, so neither is a release. Runs from before tags were recorded
+// count when it looks like a version: it has a digit and isn't a commit hash.
+export function releaseFrom(r: TestRun): { version: string; from: 'set' | 'code' | 'jira' } | null {
+  if (r.release) return { version: r.release, from: 'set' };
+  const to = r.to?.trim();
+  const tag = to && (r.toTag != null ? r.toTag : /\d/.test(to) && !/^[0-9a-f]{7,40}$/i.test(to));
+  if (tag) return { version: to, from: 'code' };
+  if (r.fixVersion?.trim()) return { version: r.fixVersion.trim(), from: 'jira' };
+  return null;
+}
+
+export const releaseOf = (r: TestRun): string | null => releaseFrom(r)?.version ?? null;
 
 // Replaces top-level fields and whole cases (null removes), keeping everything else as
 // written. For merging.

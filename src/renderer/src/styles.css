@@ -2860,3 +2860,25 @@ h3 {
 .variant-meter .meter {
   background: var(--accent-soft);
 }
+
+.release-line {
+  margin-top: 2px;
+}
+.release-edit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.release-edit input {
+  min-height: 30px;
+  width: 160px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+}
