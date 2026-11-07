@@ -8,7 +8,7 @@ import { api } from './api';
 
 const cache = new Map<string, Promise<ProjectIndex | null>>();
 
-function indexAt(repo: string, commit: string): Promise<ProjectIndex | null> {
+export function indexAt(repo: string, commit: string): Promise<ProjectIndex | null> {
   const key = `${repo}\n${commit}`;
   let p = cache.get(key);
   if (!p) {

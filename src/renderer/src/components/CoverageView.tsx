@@ -8,6 +8,7 @@ import type { Project } from '../project';
 import { Icon } from '../icons';
 import { LinkBadge, StatusPill } from './bits';
 import { ExportDialog } from './ExportDialog';
+import { ChangesDialog } from './ChangesDialog';
 import { CoverageLine, ResultColumns, TrendTable } from './TrendCharts';
 import { useTrend } from '../trend';
 import { load, save } from '../storage';
@@ -26,6 +27,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const cov = useMemo(() => coverage(index), [index]);
   const [filter, setFilter] = useState<Filter>('all');
   const [exporting, setExporting] = useState(false);
+  const [comparing, setComparing] = useState(false);
   const live = cov.requirements.filter((r) => r.status !== 'obsolete');
   const pct = live.length ? Math.round((cov.tested.length / live.length) * 100) : 0;
   const errors = cov.problems.filter((p) => p.severity === 'error');
@@ -94,10 +96,16 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
             .
           </p>
         </div>
-        <button type="button" className="button" onClick={() => setExporting(true)}>
-          <Icon name="download" /> Export…
-        </button>
+        <div className="dialog-actions">
+          <button type="button" className="button" onClick={() => setComparing(true)}>
+            What changed…
+          </button>
+          <button type="button" className="button" onClick={() => setExporting(true)}>
+            <Icon name="download" /> Export…
+          </button>
+        </div>
       </div>
+      {comparing && <ChangesDialog project={project} onOpenId={onOpenId} onClose={() => setComparing(false)} />}
       {exporting && <ExportDialog project={project} source={source} onClose={() => setExporting(false)} />}
 
       <div className="tiles">

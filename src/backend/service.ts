@@ -226,6 +226,7 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
     jiraRemoteLinks: (server, keys) => jira.remoteLinks(server, keys),
     gitTags: async (repo) => git.tags(await root(repo)),
     gitRange: async (repo, from, to) => git.range(await root(repo), from, to),
+    gitCommitOf: async (repo, ref) => git.verifyRef(await root(repo), String(ref)),
     async findRepoByRemote(url) {
       const want = remoteKey(url);
       for (const entry of await host.list()) {

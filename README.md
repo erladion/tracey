@@ -365,6 +365,15 @@ count. Each test case shows its result as a mark (✓ ✕ ! –) as well as a co
 The PDF and Excel/CSV exports can include the same: a verdict column and each test's
 result, with where the results came from.
 
+## What changed between two versions
+
+**Coverage → What changed…** compares the requirements and test cases between two
+versions: releases (the requirements a release's newest run recorded), tags in the
+requirements repository, or now. It lists what was added, removed and changed, with the
+changed fields and text word by word, and flags requirements whose text changed while
+none of their test cases did. Items are matched by ID, so a moved file is the same item.
+**Export PDF** makes a document of it.
+
 ## Variants
 
 When a product comes in variants, declare them in `trace.yml`:
@@ -440,6 +449,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   runs.ts         test run files: read, create, record results; a test case's results; releases
   verdict.ts      results in the matrix: where they come from, each requirement's verdict
   estimate.ts     test case time estimates and run totals
+  changes.ts      what changed between two versions, and its document
   images.ts       images in an item's text, and where pasted ones go
   report.ts       a run's report as Markdown or HTML
   specdoc.ts      the specification document (HTML, printed to PDF)

@@ -146,6 +146,8 @@ export interface Api {
   gitTags(repo: string): Promise<string[]>;
   // The commits in `to` that aren't in `from` (tags, branches or commits), and the commit `to` is.
   gitRange(repo: string, from: string, to: string): Promise<{ commits: Commit[]; to: string }>;
+  // A tag, branch or commit as the commit it is.
+  gitCommitOf(repo: string, ref: string): Promise<string>;
 
   // A document (HTML) as a PDF file, saved where the user chooses: the file's path, or
   // null if cancelled. Desktop only: the web version prints from the browser.
@@ -192,6 +194,7 @@ export const API_METHODS: ApiMethod[] = [
   'findRepoByRemote',
   'gitTags',
   'gitRange',
+  'gitCommitOf',
   'exportPdf',
   'jiraStatus',
   'jiraSetToken',

@@ -2897,3 +2897,55 @@ h3 {
 .estimate-field input[aria-invalid='true'] {
   border-color: var(--warn-line);
 }
+
+.changes-dialog .changes-section h3 {
+  font-size: 15px;
+  margin: 8px 0 6px;
+}
+.change-list.changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--border-soft);
+}
+.change-row {
+  border-bottom: 1px solid var(--border-soft);
+  padding: 6px 0;
+}
+.change-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.change-main {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.change-pill.added {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.change-pill.changed {
+  background: var(--purple-soft);
+  color: var(--purple);
+}
+.change-pill.removed {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.change-body {
+  padding: 6px 0 6px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
