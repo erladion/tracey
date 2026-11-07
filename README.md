@@ -273,6 +273,52 @@ Expand a case to read its steps while testing. **Report (HTML)** downloads a sta
 page (print it to PDF), **Report (Markdown)** a text version; **Save report to
 repository** puts the Markdown next to the run, to commit with it.
 
+## Importing from DOORS
+
+DOORS 9 and DOORS Next both export **ReqIF** (`.reqifz`, or `.reqif`). Export a
+baseline with its link modules, then:
+
+```sh
+npm run build
+npm run import-reqif -- payments.reqifz --init-map doors-map.yml        # 1. a map to check
+npm run import-reqif -- payments.reqifz --map doors-map.yml --into ../reqs --dry-run   # 2. the report
+npm run import-reqif -- payments.reqifz --map doors-map.yml --into ../reqs             # 3. the files
+npm run check -- ../reqs
+```
+
+The map (YAML, guessed from the export, with what was found listed at the end) says:
+
+- **modules**: per DOORS module, `requirement`, `testcase` or `skip`, its folder and its
+  ID prefix. An object's number (`ReqIF.ForeignID`, the absolute number) gets the prefix:
+  SYS-123. Modules with "test" or "verification" in the name are guessed as test cases.
+- **attributes**: which hold the ID, title, text, status, variants and components;
+  `keep` copies others (Priority…) into the front matter as they are.
+- **types**: object types that are headings, or information.
+- **values**: DOORS statuses, variants and components → Trace's.
+- **links**: link types meaning *verifies* (a test case and a requirement, whichever
+  way DOORS drew the link) and *refines* (between requirements: `refines: [STK-4]`).
+
+What comes across:
+
+- One Markdown file per requirement and test case: the text as Markdown (bold, lists,
+  tables, links), the status, variants, kept attributes, `section: 3.2 Payment`, and
+  `doors: {module, id}` pointing back at the DOORS object. A title is taken from the
+  first sentence when the object has none (DOORS requirements usually don't).
+- Test cases `verifies:` their requirements, already marked reviewed.
+- Pictures in the text are copied to `images/`; an OLE object comes across as its
+  picture, or as a note when the export has none.
+- Each module gets a `README.md` with its headings, information objects and order,
+  linking to the items, so the document structure is kept and shows on Bitbucket.
+- A report: counts per module, links left out (to modules not imported, or of types not
+  mapped), pictures missing, how statuses were mapped, and attributes not copied.
+- If the repository has no `trace.yml`, one is written; otherwise the matching
+  settings are printed to merge in.
+
+It never overwrites a file, and stops when an imported ID is already in the repository
+(`--force` imports anyway). History isn't imported: commit the import as the first
+version ("Imported from DOORS baseline 3.2"), keep the export file, and set the DOORS
+modules read-only.
+
 ## Export: PDF, Excel, CSV
 
 **Coverage → Export…**, then a format. Every format can be limited to one component, and
@@ -374,6 +420,8 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   specdoc.ts      the specification document (HTML, printed to PDF)
   spreadsheet.ts  the export tables; xlsx.ts writes them as Excel or CSV
   trend.ts        coverage and results at each test run
+  reqif.ts        ReqIF (DOORS exports); xml.ts reads XML, xhtml.ts turns its rich text into Markdown
+  doors.ts        the DOORS import: the map, the files, the report
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end

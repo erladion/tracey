@@ -2,6 +2,7 @@
 //
 //   node out/server/index.js [--workspace DIR] [--repo PATH]… [--port 5180] [--host 127.0.0.1]
 //   node out/server/index.js check [DIR]     validate a repository (for CI)
+//   node out/server/index.js import-reqif EXPORT.reqifz …   import from DOORS (see importcli.ts)
 //
 // Repositories are the folders in the workspace (default ./repos), plus any given with
 // --repo. Set TRACE_TOKEN to require a token: open the app once as /?token=… .
@@ -21,6 +22,16 @@ import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 import { buildIndex, coverage, forVariant } from '../core/model';
 
 const args = process.argv.slice(2);
+
+if (args[0] === 'import-reqif') {
+  const { importReqif } = await import('./importcli');
+  try {
+    process.exit(await importReqif(args));
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exit(1);
+  }
+}
 
 if (args[0] === 'check') {
   const dir = resolve(args[1] ?? '.');
