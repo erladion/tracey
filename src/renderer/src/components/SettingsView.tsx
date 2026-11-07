@@ -85,6 +85,24 @@ export function SettingsView({ project }: { project: Project }) {
             </dd>
             <dt>Variants</dt>
             <dd>{config.variants.length ? config.variants.map((v) => v.name).join(', ') : 'None'}</dd>
+            <dt>Fields</dt>
+            <dd>
+              {config.fields.length ? (
+                <ul className="plain-list">
+                  {config.fields.map((f) => (
+                    <li key={f.key}>
+                      <span className="strong">{f.name}</span>{' '}
+                      <span className="muted small">
+                        {f.type === 'choice' ? `one of ${f.values.join(', ')}` : f.type === 'choices' ? `any of ${f.values.join(', ')}` : f.type}
+                        {f.kinds.length === 1 ? (f.kinds[0] === 'requirement' ? ', requirements only' : ', test cases only') : ''}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                'None of your own: other fields in the files are shown read-only.'
+              )}
+            </dd>
             <dt>Jira</dt>
             <dd>{config.jiraUrl ?? 'Not set: Jira keys are shown as plain text.'}</dd>
           </dl>

@@ -5,6 +5,7 @@
 // one (REQ-, TC-), or a `type: requirement | testcase`. IDs are never derived from
 // file names, so files can be renamed or moved freely.
 import { parseDuration } from './estimate';
+import { fieldIssue } from './fields';
 import { parseConfig, type Component, type Kind, type TraceConfig, statusesFor } from './config';
 import { decodeText, readFrontMatter, splitFrontMatter } from './frontmatter';
 
@@ -36,7 +37,7 @@ export type Severity = 'error' | 'warning';
 
 export interface Problem {
   severity: Severity;
-  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch' | 'bad-estimate';
+  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch' | 'bad-estimate' | 'bad-field';
   message: string;
   path?: string;
   id?: string;
@@ -161,6 +162,10 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
         path: it.path,
         id: it.id,
       });
+    for (const f of config.fields) {
+      const issue = f.kinds.includes(it.kind) ? fieldIssue(f, it.data[f.key]) : null;
+      if (issue) problems.push({ severity: 'warning', code: 'bad-field', message: `${it.id} has ${f.name} ${issue}.`, path: it.path, id: it.id });
+    }
     for (const v of it.variants)
       if (!variantKeys.has(v))
         problems.push({

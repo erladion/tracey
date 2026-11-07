@@ -114,10 +114,14 @@ Payment fails with a retry-exhausted message after 3 attempts.
 - **`estimate: 30m`** on a test case: how long running it takes (`45`, `1h`, `1h 30m`,
   `1.5h`, `1:30`; a bare number is minutes). Test runs add them up.
 - **Status `obsolete`** leaves an item out of coverage.
-- **Other fields** (`priority`, `safety-level`, `doors`, from an import or written by
-  hand) are kept as they are and shown read-only under the item's own fields; change
-  them in the file. Search finds them too: any word searches every field, and
-  `field:value` one field (`priority:high`, `doors:payments`).
+- **Fields of your own** declared under `fields:` in `trace.yml` (below) are edited
+  above the text like the rest, checked (a priority that isn't one of the choices is
+  listed under Problems), filtered on in the list, and get a column in the Excel and
+  CSV export and a line in the PDF.
+- **Other fields** (`safety-level`, `doors`, from an import or written by hand) are
+  kept as they are and shown read-only under the item's own fields; declare them to
+  edit them. Search finds every field: any word searches them all, and `field:value`
+  one (`priority:high`, `doors:payments`).
 
 ### trace.yml
 
@@ -128,9 +132,17 @@ statuses: [draft, review, approved, obsolete]
 testcaseStatuses: [draft, ready, obsolete]
 components:
   payments: { name: Payments, paths: ["src/payments/**"] }
+fields:
+  priority: [Low, Medium, High]      # one of these
+  owner: text                        # also: number, date (2026-11-07), list
+  platforms: { values: [Linux, Windows], multiple: true }   # any of these
+  safety: { name: Safety level, values: [QM, ASIL A, ASIL B], for: requirement }
 jira:
   url: https://jira.example.com      # makes Jira keys links
 ```
+
+A field is for both kinds unless `for:` says `requirement` or `testcase`. Tracey's own
+fields (`status`, `components`…) can't be declared.
 
 With a `trace.yml`, only the two directories are read; without one, every Markdown file
 with front matter in the repository is.
@@ -462,7 +474,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   frontmatter.ts  front matter: read, and change fields keeping the rest as written
   model.ts        items, links, fingerprints, problems, coverage, new IDs, component globs
   graph.ts        the traceability graph: nodes, edges, gaps, filters, column order
-  fields.ts       front-matter fields without an editor: shown read-only, searched
+  fields.ts       declared fields (checked, parsed) and the others (read-only); search
   links.ts        Jira issue ↔ item links from every source
   commits.ts      commits → Jira keys, item IDs and components
   impact.ts       which test cases a range of commits calls for, and why

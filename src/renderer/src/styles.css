@@ -640,10 +640,11 @@ h3 {
 }
 .filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 .filters select {
-  flex: 1;
+  flex: 1 1 calc(50% - 4px);
   min-width: 0;
   height: 32px;
   padding: 0 8px;
@@ -3015,6 +3016,30 @@ h3 {
   font-size: 13px;
 }
 .estimate-field input[aria-invalid='true'] {
+  border-color: var(--warn-line);
+}
+.field-input,
+.field-select {
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.field-input {
+  width: 160px;
+}
+.field-input.number {
+  width: 90px;
+}
+.field-input.date {
+  width: 150px;
+}
+.field-input[aria-invalid='true'],
+.field-select[aria-invalid='true'] {
   border-color: var(--warn-line);
 }
 

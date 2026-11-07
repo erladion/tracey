@@ -6,6 +6,8 @@ import type { TrendPoint } from './trend';
 import { runEstimate } from './estimate';
 import { outcomeText, resultMatrix, VERDICT_LABEL, type Outcome, type Verdict } from './verdict';
 import type { Cell, Sheet, Tone } from './xlsx';
+import { fieldsFor } from './config';
+import { fieldText } from './fields';
 
 export interface TableOptions {
   obsolete: boolean; // include obsolete items
@@ -41,6 +43,10 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
   const componentNames = (it: Item) => it.components.map((c) => index.config.components.find((x) => x.key === c)?.name ?? c).join(', ');
   const last = (id: string) => lastResult(o.runs, id);
   // Runs: only the cases kept.
+  // Fields declared in trace.yml: a column each, before File.
+  const extra = (k: Item['kind']) => fieldsFor(index.config, k);
+  const extraColumns = (k: Item['kind']) => extra(k).map((f) => ({ header: f.name, width: Math.min(30, Math.max(10, f.name.length + 2, ...f.values.map((v) => v.length + 2))), wrap: f.type === 'list' || f.type === 'choices' || f.type === 'text' }));
+  const extraCells = (it: Item) => extra(it.kind).map((f) => (f.type === 'number' && typeof it.data[f.key] === 'number' ? (it.data[f.key] as number) : fieldText(it.data[f.key]) || null));
   const runCases = (r: TestRun) => r.cases.filter((c) => !index.byId.has(c.id) || keep(index.byId.get(c.id)!));
 
   const requirements: Sheet = {
@@ -56,6 +62,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Covered', width: 9 },
       { header: 'To review', width: 18, wrap: true },
       { header: 'Last results', width: 36, wrap: true },
+      ...extraColumns('requirement'),
       { header: 'File', width: 36 },
     ],
     rows: reqs.map((r) => {
@@ -80,6 +87,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
             return `${l.test.id}: ${res ? `${res.case.result} (${res.run.name})` : 'never run'}`;
           })
           .join('\n'),
+        ...extraCells(r),
         r.path,
       ];
     }),
@@ -102,6 +110,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Tester', width: 16 },
       { header: 'Date', width: 11 },
       { header: 'Note', width: 40, wrap: true },
+      ...extraColumns('testcase'),
       { header: 'File', width: 36 },
     ],
     rows: tests.map((t) => {
@@ -123,6 +132,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         res?.case.tester ?? '',
         res ? res.case.date || res.run.created : '',
         res?.case.note ?? '',
+        ...extraCells(t),
         t.path,
       ];
     }),

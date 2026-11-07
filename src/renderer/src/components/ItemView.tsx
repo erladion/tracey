@@ -25,7 +25,8 @@ import { NO_MARKS, type GitMarks } from '../editor/gitmarks';
 import { CompareDialog, imageResolver } from './Compare';
 import { CommitDialog } from './GitBar';
 import { timeAgo } from './bits';
-import { fieldText, otherFields } from '../../../core/fields';
+import { fieldInput, fieldIssue, fieldText, listValue, otherFields } from '../../../core/fields';
+import { fieldsFor, type FieldDef, type TraceConfig } from '../../../core/config';
 
 interface Props {
   project: Project;
@@ -386,8 +387,11 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
             )}
             {item.kind === 'testcase' && <EstimateField raw={item.data.estimate == null ? '' : String(item.data.estimate)} onChange={(estimate) => setField({ estimate })} />}
             <ChipInput label="Jira" mono values={item.jira} href={jira ? (k) => `${jira}/browse/${encodeURIComponent(k)}` : undefined} onChange={(v) => setField({ jira: v })} placeholder="PROJ-123" />
+            {fieldsFor(index.config, item.kind).map((f) => (
+              <DeclaredField key={f.key} def={f} value={item.data[f.key]} onChange={(v) => setField({ [f.key]: v })} />
+            ))}
           </div>
-          <OtherFields item={item} />
+          <OtherFields item={item} config={index.config} />
           <div className="item-path mono" title="File in the repository">
             {path}
           </div>
@@ -567,8 +571,8 @@ function EstimateField({ raw, onChange }: { raw: string; onChange: (v: string | 
 
 // Fields Tracey has no editor for (from an import, or written by hand): shown as they
 // are, read-only. Saving never touches them.
-function OtherFields({ item }: { item: Item }) {
-  const fields = otherFields(item);
+function OtherFields({ item, config }: { item: Item; config: TraceConfig }) {
+  const fields = otherFields(item, config);
   if (!fields.length) return null;
   return (
     <div className="other-fields" title="Read-only here: change these in the file itself.">
@@ -591,6 +595,76 @@ function OtherFields({ item }: { item: Item }) {
       <span className="other-fields-note">
         <Icon name="lock" size={12} /> read-only
       </span>
+    </div>
+  );
+}
+
+// A field trace.yml declares: a list of choices, chips, or a box for one value.
+export function DeclaredField({ def, value, onChange }: { def: FieldDef; value: unknown; onChange: (v: unknown) => void }) {
+  const issue = fieldIssue(def, value);
+  const id = `field-${def.key}`;
+  if (def.type === 'list' || def.type === 'choices')
+    return (
+      <ChipInput
+        label={def.name}
+        values={listValue(value)}
+        suggestions={def.values.map((v) => ({ value: v, label: v }))}
+        onChange={(v) => onChange(v.length ? v : undefined)}
+        placeholder={def.type === 'choices' ? 'Add' : 'Add…'}
+      />
+    );
+  if (def.type === 'choice') {
+    const current = value == null ? '' : fieldText(value);
+    return (
+      <div className="chip-field">
+        <label htmlFor={id} className="chip-label">
+          {def.name}
+        </label>
+        <select id={id} className="field-select" value={current} onChange={(e) => onChange(e.target.value || undefined)} aria-invalid={!!issue} title={issue ?? undefined}>
+          <option value="">—</option>
+          {current && !def.values.includes(current) && <option value={current}>{current} (not a choice)</option>}
+          {def.values.map((v) => (
+            <option key={v}>{v}</option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+  return <TextField def={def} id={id} raw={value == null ? '' : fieldText(value)} issue={issue} onChange={onChange} />;
+}
+
+function TextField({ def, id, raw, issue, onChange }: { def: FieldDef; id: string; raw: string; issue: string | null; onChange: (v: unknown) => void }) {
+  const [text, setText] = useState(raw);
+  useEffect(() => setText(raw), [raw]);
+  const commit = (t = text) => {
+    if (t.trim() !== raw) onChange(fieldInput(def, t));
+  };
+  return (
+    <div className="chip-field">
+      <label htmlFor={id} className="chip-label">
+        {def.name}
+      </label>
+      <input
+        id={id}
+        className={`field-input ${def.type}`}
+        type={def.type === 'date' ? 'date' : 'text'}
+        inputMode={def.type === 'number' ? 'decimal' : undefined}
+        value={text}
+        placeholder={def.type === 'number' ? '0' : '—'}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (def.type === 'date') commit(e.target.value);
+        }}
+        onBlur={() => commit()}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        aria-invalid={!!issue}
+        title={issue ? `Has ${issue}` : undefined}
+      />
     </div>
   );
 }

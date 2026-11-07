@@ -1,11 +1,13 @@
 // The list of requirements or test cases, with search and filters.
 import { useMemo, useState, type KeyboardEvent } from 'react';
-import type { Kind } from '../../../core/config';
+import { fieldsFor, type Kind } from '../../../core/config';
 import { linksOf, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill, VariantTag } from './bits';
-import { matchesSearch } from '../../../core/fields';
+import { listValue, matchesSearch } from '../../../core/fields';
+
+const NONE = '\u0000none';
 
 interface Props {
   project: Project;
@@ -21,6 +23,9 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
   const [component, setComponent] = useState('');
+  // Declared choice fields to filter on: key → value ('' any, NONE without one).
+  const [byField, setByField] = useState<Record<string, string>>({});
+  const choiceFields = useMemo(() => fieldsFor(index.config, kind).filter((f) => f.type === 'choice' || f.type === 'choices'), [index.config, kind]);
 
   const counts = useMemo(
     () => ({
@@ -43,9 +48,15 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
         i.kind === kind &&
         (!status || i.status === status) &&
         (!component || i.components.includes(component)) &&
-        matchesSearch(i, q),
+        matchesSearch(i, q) &&
+        choiceFields.every((f) => {
+          const want = byField[f.key];
+          if (!want) return true;
+          const have = listValue(i.data[f.key]);
+          return want === NONE ? !have.length : have.includes(want);
+        }),
     );
-  }, [index, kind, query, status, component]);
+  }, [index, kind, query, status, component, byField, choiceFields]);
 
   const move = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -84,6 +95,17 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
             <option key={c}>{c}</option>
           ))}
         </select>
+        {choiceFields.map((f) => (
+          <select key={f.key} value={byField[f.key] ?? ''} onChange={(e) => setByField({ ...byField, [f.key]: e.target.value })} aria-label={`Filter by ${f.name.toLowerCase()}`} className={byField[f.key] ? 'on' : ''}>
+            <option value="">Any {f.name.toLowerCase()}</option>
+            {f.values.map((v) => (
+              <option key={v} value={v}>
+                {f.name}: {v}
+              </option>
+            ))}
+            <option value={NONE}>No {f.name.toLowerCase()}</option>
+          </select>
+        ))}
       </div>
       <ul className="item-list" onKeyDown={move}>
         {items.map((it) => (

@@ -7,6 +7,9 @@
 //     payments: { name: Payments, paths: ["src/payments/**"] }
 //   variants:
 //     pro: { name: Pro }
+//   fields:
+//     priority: [Low, Medium, High]
+//     owner: text
 //   jira: { url: https://jira.example.com }
 import { isMap, isScalar, parse, parseDocument, stringify } from 'yaml';
 
@@ -41,6 +44,23 @@ export interface Variant {
   name: string;
 }
 
+// A front-matter field of the repository's own (priority, owner…), editable in Tracey.
+//   text: one line · number · date (2026-11-07) · list: free words
+//   choice: one of `values` · choices: any of `values`
+export type FieldType = 'text' | 'number' | 'date' | 'list' | 'choice' | 'choices';
+export const FIELD_TYPES: FieldType[] = ['text', 'number', 'date', 'list', 'choice', 'choices'];
+
+export interface FieldDef {
+  key: string; // as written in the front matter
+  name: string; // for people
+  type: FieldType;
+  values: string[]; // for choice and choices
+  kinds: Kind[]; // which items have it
+}
+
+// Fields Tracey has its own editor for; a declaration can't take them over.
+export const BUILT_IN_FIELDS = new Set(['id', 'type', 'title', 'status', 'components', 'variants', 'jira', 'verifies', 'estimate', 'reviewed']);
+
 export interface TraceConfig {
   requirements: KindConfig;
   testcases: KindConfig;
@@ -48,6 +68,7 @@ export interface TraceConfig {
   testcaseStatuses: string[];
   components: Component[];
   variants: Variant[];
+  fields: FieldDef[];
   jiraUrl: string | null;
   // Jira project keys (PROJ) to look for in commit messages. Empty: those used in
   // requirements' `jira:` fields.
@@ -67,6 +88,7 @@ export const DEFAULT_CONFIG: TraceConfig = {
   testcaseStatuses: ['draft', 'ready', 'obsolete'],
   components: [],
   variants: [],
+  fields: [],
   jiraUrl: null,
   jiraProjects: [],
   jira: { api: 2, jql: null, field: null, links: ISSUE_LINK_SOURCES, max: 2000 },
@@ -120,6 +142,7 @@ export function parseConfig(text: string | null): ConfigResult {
     for (const [key, v] of Object.entries(o.variants as Record<string, unknown>))
       variants.push({ key, name: typeof v === 'string' ? v : str((v as Record<string, unknown> | null)?.name, key) });
   const jira = (o.jira && typeof o.jira === 'object' ? o.jira : {}) as Record<string, unknown>;
+  const fields = o.fields && typeof o.fields === 'object' && !Array.isArray(o.fields) ? Object.entries(o.fields as Record<string, unknown>).map(([k, v]) => fieldDef(k, v)).filter((f): f is FieldDef => !!f) : [];
   const code = (o.code && typeof o.code === 'object' ? o.code : {}) as Record<string, unknown>;
   const commitCount = Number(code.commits);
   return {
@@ -130,6 +153,7 @@ export function parseConfig(text: string | null): ConfigResult {
       testcaseStatuses: strList(o.testcaseStatuses ?? o['testcase-statuses'], DEFAULT_CONFIG.testcaseStatuses),
       components,
       variants,
+      fields,
       jiraUrl: typeof jira.url === 'string' && jira.url ? jira.url.replace(/\/+$/, '') : null,
       jiraProjects: strList(jira.projects, []).map((p) => p.toUpperCase()),
       jira: {
@@ -176,6 +200,27 @@ export const variantKey = (name: string) =>
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 
+//   priority: [Low, Medium, High]                 a choice
+//   owner: text
+//   safety: { name: Safety level, values: [QM, ASIL A], for: requirement }
+//   platforms: { values: [Linux, Windows], multiple: true }
+function fieldDef(key: string, v: unknown): FieldDef | null {
+  if (BUILT_IN_FIELDS.has(key)) return null;
+  const o = (v && typeof v === 'object' && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const values = (Array.isArray(v) ? v : Array.isArray(o.values) ? o.values : []).map((x) => String(x).trim()).filter(Boolean);
+  const named = typeof v === 'string' ? v.trim().toLowerCase() : typeof o.type === 'string' ? o.type.trim().toLowerCase() : '';
+  let type: FieldType = (FIELD_TYPES as string[]).includes(named) ? (named as FieldType) : values.length ? 'choice' : 'text';
+  if (values.length && (o.multiple === true || type === 'list')) type = 'choices';
+  if ((type === 'choice' || type === 'choices') && !values.length) type = type === 'choice' ? 'text' : 'list';
+  const forList = strList(o.for, []).map((x) => x.toLowerCase().replace(/[\s_-]/g, ''));
+  const kinds: Kind[] = [];
+  if (!forList.length || forList.some((x) => x.startsWith('requirement'))) kinds.push('requirement');
+  if (!forList.length || forList.some((x) => x.startsWith('test'))) kinds.push('testcase');
+  return { key, name: str(o.name, key.charAt(0).toUpperCase() + key.slice(1).replace(/[-_]/g, ' ')), type, values: type === 'choice' || type === 'choices' ? values : [], kinds: kinds.length ? kinds : ['requirement', 'testcase'] };
+}
+
+export const fieldsFor = (config: TraceConfig, k: Kind) => config.fields.filter((f) => f.kinds.includes(k));
+
 export function statusesFor(config: TraceConfig, k: Kind): string[] {
   return k === 'requirement' ? config.statuses : config.testcaseStatuses;
 }
@@ -202,6 +247,12 @@ components:
 # variants:
 #   base: { name: Base }
 #   pro: { name: Pro }
+# Fields of your own, editable in Tracey (others in the files are shown read-only):
+# fields:
+#   priority: [Low, Medium, High]                     # one of these
+#   owner: text                                       # also: number, date, list
+#   platforms: { values: [Linux, Windows], multiple: true }
+#   safety: { name: Safety level, values: [QM, ASIL A, ASIL B], for: requirement }
 # jira:
 #   url: https://jira.example.com
 #   api: 2               # 2: Data Center / Server (personal access token); 3: Cloud

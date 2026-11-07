@@ -5,6 +5,8 @@ import { coverage, linksOf, variantNames, type Item, type ProjectIndex } from '.
 import { DOC_CSS, esc } from './report';
 import type { TestRun } from './runs';
 import { outcomeText, RESULT_MARK, resultMatrix, VERDICT_LABEL, VERDICT_MARK, verdictSummary } from './verdict';
+import { fieldsFor } from './config';
+import { fieldText } from './fields';
 
 // Raw HTML in the Markdown is shown as text, never run.
 const md = MarkdownIt('commonmark', { html: false }).enable(['table', 'strikethrough']);
@@ -47,6 +49,7 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
     if (it.components.length) rows.push(['Components', esc(it.components.map((c) => index.config.components.find((x) => x.key === c)?.name ?? c).join(', '))]);
     const issues = o.issues ? o.issues(it) : it.jira;
     if (issues.length) rows.push(['Jira', esc(issues.join(', '))]);
+    for (const f of fieldsFor(index.config, it.kind)) if (fieldText(it.data[f.key])) rows.push([esc(f.name), esc(fieldText(it.data[f.key]))]);
     if (it.kind === 'testcase') rows.push(['Verifies', it.verifies.map(ref).join(', ') || '<span class="muted">nothing</span>']);
     else {
       const t = linksOf(index, it);
