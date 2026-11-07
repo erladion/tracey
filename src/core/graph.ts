@@ -24,6 +24,7 @@ export interface GNode {
   issue?: JiraIssue; // what Jira says about it, when read
   status?: string;
   gap?: string; // why this node is a gap, if it is
+  tag?: string; // the gap in a word or two, shown on the node: "No tests"
   warn?: boolean; // a gap that's a problem now (suspect, broken), not just missing
 }
 
@@ -96,7 +97,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
     if (it.kind === 'requirement') {
       const tests = linksOf(index, it).filter((l) => !filter.hideObsolete || live(l.test));
       for (const l of tests) edges.push({ from: key, to: `test:${l.test.id}`, state: l.state });
-      if (live(it) && !tests.some((l) => live(l.test))) node.gap = 'No test case verifies this requirement.';
+      if (live(it) && !tests.some((l) => live(l.test))) [node.gap, node.tag] = ['No test case verifies this requirement.', 'No tests'];
     } else {
       for (const c of it.components) {
         usedComponents.add(c);
@@ -106,9 +107,9 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
         const links = linksOf(index, it);
         const missing = it.verifies.filter((v) => index.byId.get(v)?.kind !== 'requirement');
         const suspect = links.filter((l) => l.state === 'suspect').map((l) => l.req.id);
-        if (missing.length) [node.gap, node.warn] = [`Verifies ${missing.join(', ')}, which ${missing.length === 1 ? "doesn't" : "don't"} exist.`, true];
-        else if (suspect.length) [node.gap, node.warn] = [`${suspect.join(', ')} changed since this test case was reviewed.`, true];
-        else if (!it.verifies.length) node.gap = 'Verifies no requirement.';
+        if (missing.length) [node.gap, node.warn, node.tag] = [`Verifies ${missing.join(', ')}, which ${missing.length === 1 ? "doesn't" : "don't"} exist.`, true, 'Broken link'];
+        else if (suspect.length) [node.gap, node.warn, node.tag] = [`${suspect.join(', ')} changed since this test case was reviewed.`, true, 'Suspect'];
+        else if (!it.verifies.length) [node.gap, node.tag] = ['Verifies no requirement.', 'No requirement'];
       }
     }
   }
@@ -134,7 +135,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
   for (const j of [...issues].sort()) nodes.push(issueNode(j));
   // Issues that code changed for, but nothing links to a requirement or test case.
   for (const j of [...commitIssues].filter((j) => !issues.has(j)).sort())
-    nodes.push({ ...issueNode(j), gap: 'Commits name this issue, but it’s linked to no requirement or test case.' });
+    nodes.push({ ...issueNode(j), gap: 'Commits name this issue, but it’s linked to no requirement or test case.', tag: 'Not linked' });
   const testedComponents = new Set(items.filter((i) => i.kind === 'testcase' && live(i)).flatMap((i) => i.components));
   for (const key of new Set([...components.keys(), ...usedComponents])) {
     const c = components.get(key);
@@ -143,7 +144,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
       type: 'component',
       label: c?.name ?? key,
       sub: c ? c.paths.join(', ') || 'no paths' : 'not in trace.yml',
-      gap: testedComponents.has(key) ? undefined : 'No test case covers this component.',
+      ...(testedComponents.has(key) ? {} : { gap: 'No test case covers this component.', tag: 'No tests' }),
     });
   }
 

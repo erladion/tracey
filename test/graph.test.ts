@@ -22,6 +22,7 @@ describe('graph', () => {
     expect(g.byKey.get('req:REQ-19')!.gap).toMatch(/No test case/);
     expect(g.byKey.get('component:export')!.gap).toMatch(/No test case covers/);
     expect(g.byKey.get('req:REQ-07')!.gap).toBeUndefined();
+    expect([g.byKey.get('req:REQ-19')!.tag, g.byKey.get('component:export')!.tag, g.byKey.get('req:REQ-07')!.tag]).toEqual(['No tests', 'No tests', undefined]);
   });
 
   it('filters to what is connected', () => {

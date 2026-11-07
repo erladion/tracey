@@ -438,7 +438,10 @@ Columns of commits → Jira issues → requirements → test cases → component
 | test case → component | `components: [payments]` on the test case |
 | component → code | `paths:` of the component in `trace.yml` |
 
-Click a node to light up everything upstream and downstream of it; **Show gaps** lights
+Click a node to select it: it turns solid blue, what it traces to gets a blue border
+and blue links, and the rest fades. A node with something missing carries a tag on
+its top edge (**No tests**, **No requirement**, **Not linked**) and a dashed border; one
+that needs a look now (**Suspect**, **Broken link**) is orange. **Show gaps** lights
 up requirements without test cases, test cases that verify nothing or have suspect or
 broken links, components no test case covers, and Jira issues that commits name but no
 requirement does (work with no requirement behind it). Filter by component or search to

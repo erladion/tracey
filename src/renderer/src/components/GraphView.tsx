@@ -190,17 +190,20 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                 ))}
                 {graph.nodes.map((n) => {
                   const p = layout.pos.get(n.key)!;
+                  const isSel = sel?.key === n.key && mode === 'trace';
+                  const onPath = mode === 'trace' && !!sel && !isSel && (up.has(n.key) || down.has(n.key));
                   return (
                     <button
                       key={n.key}
                       type="button"
-                      className={`gnode ${n.type}${n.gap ? (n.warn ? ' warn' : ' gap') : ''}${n.status === 'obsolete' ? ' obsolete' : ''}${lit(n.key) ? '' : ' dim'}${sel?.key === n.key && mode === 'trace' ? ' selected' : ''}`}
+                      className={`gnode ${n.type}${n.gap ? (n.warn ? ' warn' : ' gap') : ''}${n.status === 'obsolete' ? ' obsolete' : ''}${lit(n.key) ? '' : ' dim'}${isSel ? ' selected' : ''}${onPath ? ' on-path' : ''}`}
                       style={{ left: p.x, top: p.y, width: W, height: H }}
                       aria-pressed={sel?.key === n.key}
                       onClick={() => pick(n.key)}
                       onDoubleClick={() => n.item && onOpenId(n.item.id)}
-                      title={n.item ? 'Double-click to open' : undefined}
+                      title={[n.gap, n.item ? 'Double-click to open.' : ''].filter(Boolean).join(' ') || undefined}
                     >
+                      {n.tag && <span className="gnode-tag">{n.tag}</span>}
                       <span className="gnode-title">{n.label}</span>
                       <span className="gnode-sub">{n.sub}</span>
                     </button>
@@ -227,12 +230,16 @@ export function GraphView({ project, focus, onOpenId }: Props) {
               Test case or component
             </span>
             <span>
-              <i className="swatch warn" />
-              Suspect or broken link
+              <i className="swatch selected" />
+              Selected
             </span>
             <span>
               <i className="swatch gap" />
-              Gap (no tests)
+              <span className="gnode-tag">No tests</span> Something missing
+            </span>
+            <span>
+              <i className="swatch warn" />
+              <span className="gnode-tag warn-tag">Suspect</span> Needs a look now
             </span>
           </div>
         </section>

@@ -15,6 +15,7 @@
   --accent-soft: #e6eefb;
   --accent-fg: #1e3f8f;
   --accent-line: #a9c0ee;
+  --on-accent: #ffffff;
   --warn: #8a3b00;
   --warn-soft: #fdebd8;
   --warn-line: #b85a1a;
@@ -52,6 +53,7 @@
     --accent-soft: #1d2a4a;
     --accent-fg: #b9cdff;
     --accent-line: #3b5590;
+    --on-accent: #0d1424;
     --warn: #ffb27a;
     --warn-soft: #3a2414;
     --warn-line: #c76a2a;
@@ -84,6 +86,7 @@
   --accent-soft: #1d2a4a;
   --accent-fg: #b9cdff;
   --accent-line: #3b5590;
+  --on-accent: #0d1424;
   --warn: #ffb27a;
   --warn-soft: #3a2414;
   --warn-line: #c76a2a;
@@ -1914,21 +1917,56 @@ h3 {
   color: var(--accent-fg);
 }
 .gnode.gap {
-  border: 1px dashed var(--warn-line);
+  border: 2px dashed var(--warn-line);
 }
 .gnode.warn {
   background: var(--warn-soft);
-  border-color: var(--warn-line);
+  border: 2px solid var(--warn-line);
   color: var(--warn);
+}
+/* What's missing, on the node's top edge: "No tests", "Suspect". */
+.gnode-tag {
+  position: absolute;
+  top: -10px;
+  right: 8px;
+  padding: 1px 7px;
+  border: 1px solid var(--warn-line);
+  border-radius: 999px;
+  background: var(--warn-soft);
+  color: var(--warn);
+  font: 600 11px/16px var(--font-ui);
+  white-space: nowrap;
+}
+.gnode.warn .gnode-tag {
+  background: var(--warn-line);
+  color: var(--on-accent);
 }
 .gnode.obsolete .gnode-title {
   text-decoration: line-through;
 }
-.gnode.selected {
-  box-shadow: 0 0 0 3px var(--accent);
+/* The selected node: filled, with a ring around it. Those it traces to: blue edges. */
+.gnode.selected,
+.gnode.selected:hover {
+  background: var(--accent);
+  border: 2px solid var(--accent);
+  color: var(--on-accent);
+  outline: 3px solid var(--accent);
+  outline-offset: 3px;
+  box-shadow: none;
+  z-index: 1;
+}
+.gnode.selected.selected .gnode-sub,
+.gnode.selected.selected .gnode-title {
+  color: var(--on-accent);
+}
+.gnode.on-path {
+  border: 2px solid var(--accent);
+}
+.gnode.on-path.warn {
+  border-color: var(--warn-line);
 }
 .gnode.dim {
-  opacity: 0.28;
+  opacity: 0.22;
 }
 .gnode-title,
 .gnode-sub {
@@ -1987,7 +2025,24 @@ h3 {
   border-color: var(--warn-line);
 }
 .swatch.gap {
-  border: 1px dashed var(--warn-line);
+  border: 2px dashed var(--warn-line);
+}
+.swatch.warn {
+  border-width: 2px;
+}
+.swatch.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  margin: 0 3px;
+}
+.legend .gnode-tag {
+  position: static;
+}
+.legend .gnode-tag.warn-tag {
+  background: var(--warn-line);
+  color: var(--on-accent);
 }
 .graph-side .sel-head {
   display: flex;
