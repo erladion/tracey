@@ -64,6 +64,9 @@ function assemble(nodes: GNode[], edges: GEdge[]): Graph {
   return { nodes, edges: kept, byKey, fwd, back };
 }
 
+// Only the given nodes, and the links between them.
+export const subgraph = (graph: Graph, keep: Set<string>): Graph => assemble(graph.nodes.filter((n) => keep.has(n.key)), graph.edges);
+
 export function walk(start: string, map: Map<string, string[]>): Set<string> {
   const seen = new Set<string>();
   const queue = [start];

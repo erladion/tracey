@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex } from '../src/core/model';
-import { buildGraph, columns, walk } from '../src/core/graph';
+import { buildGraph, columns, subgraph, walk } from '../src/core/graph';
+import { fit, graphSvg, xml } from '../src/core/graphsvg';
 import { projectFiles } from '../src/core/sample';
 
 const files = Object.entries(projectFiles(true))
@@ -74,3 +75,47 @@ describe('commits', () => {
     expect([...walk('commit:aaaa1111', g.fwd)]).toContain('test:TC-102');
   });
 });
+
+describe('graph picture', () => {
+  it('keeps only the given nodes and the links between them', () => {
+    const g = buildGraph(index);
+    const keep = new Set(['req:REQ-07', ...walk('req:REQ-07', g.fwd), ...walk('req:REQ-07', g.back)]);
+    const s = subgraph(g, keep);
+    expect(s.nodes.map((n) => n.key).sort()).toEqual([...keep].sort());
+    expect(s.edges.every((e) => keep.has(e.from) && keep.has(e.to))).toBe(true);
+    expect(s.fwd.get('req:REQ-07')).toEqual(['test:TC-101', 'test:TC-102']);
+  });
+
+  it('draws what is shown as a standalone SVG', () => {
+    const g = buildGraph(index);
+    const nodes = g.nodes.slice(0, 3).map((node, i) => ({ x: 0, y: 36 + i * 68, node, selected: i === 0, dim: i === 2 }));
+    const svg = graphSvg({ width: 210, height: 250, nodeW: 210, nodeH: 54, heads: [{ x: 0, label: 'Requirements & more', count: 3 }], nodes, edges: [{ d: 'M 0 0 L 1 1', hot: true }] });
+    expect(svg.startsWith('<svg xmlns="http://www.w3.org/2000/svg"')).toBe(true);
+    expect(svg).toContain('Requirements &amp; more');
+    expect(svg).toContain(nodes[0].node.label);
+    expect(svg).toContain('opacity="0.45"');
+    expect(svg).toContain('stroke-width="2.5"');
+    expect(new DOMParserLike(svg).ok).toBe(true);
+  });
+
+  it('cuts long text to fit', () => {
+    expect(fit('short', 100, 7)).toBe('short');
+    expect(fit('Payment fails with a retry-exhausted message', 70, 7)).toBe('Payment f…');
+    expect(xml('<a & "b">')).toBe('&lt;a &amp; &quot;b&quot;&gt;');
+  });
+});
+
+// Balanced tags, without a browser.
+class DOMParserLike {
+  ok: boolean;
+  constructor(svg: string) {
+    const stack: string[] = [];
+    let ok = true;
+    for (const m of svg.matchAll(/<(\/?)([a-zA-Z]+)[^>]*?(\/?)>/g)) {
+      if (m[3]) continue;
+      if (m[1]) ok &&= stack.pop() === m[2];
+      else stack.push(m[2]);
+    }
+    this.ok = ok && stack.length === 0;
+  }
+}

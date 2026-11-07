@@ -477,6 +477,11 @@ broken links, components no test case covers, and Jira issues that commits name 
 requirement does (work with no requirement behind it). Filter by component or search to
 narrow it down; double-click a requirement or test case to open it.
 
+On a large project the faded part gets in the way: **Hide what's faded** leaves out
+everything off the selected node's trace (or, under Show gaps, everything that isn't a
+gap). **Save as SVG** or **PNG** saves the graph as it's shown, selection and all, in
+the light colours, for a document or a slide.
+
 ## Code layout
 
 ```
@@ -485,6 +490,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   frontmatter.ts  front matter: read, and change fields keeping the rest as written
   model.ts        items, links, fingerprints, problems, coverage, new IDs, component globs
   graph.ts        the traceability graph: nodes, edges, gaps, filters, column order
+  graphsvg.ts     the graph as a standalone SVG picture
   fields.ts       declared fields (checked, parsed) and the others (read-only); search
   bulk.ts         one change to many items: what each file gets
   links.ts        Jira issue ↔ item links from every source

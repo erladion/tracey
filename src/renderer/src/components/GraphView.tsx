@@ -1,14 +1,18 @@
 // The traceability graph: issues → requirements → test cases → components. Click a
 // node to trace everything upstream and downstream of it; "Show gaps" lights up what's
-// missing or needs a look.
+// missing or needs a look. "Hide what's faded" leaves only that, for large projects;
+// what's shown saves as an SVG or PNG picture.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { buildGraph, columns, walk, type GNode, type NodeType } from '../../../core/graph';
+import { buildGraph, columns, subgraph, walk, type GNode, type NodeType } from '../../../core/graph';
+import { graphSvg, type GraphPicture } from '../../../core/graphsvg';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill } from './bits';
 import { load, save } from '../storage';
+import { download } from '../download';
+import { notify } from '../notify';
 
 interface Props {
   project: Project;
@@ -35,6 +39,8 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const [component, setComponent] = useState('');
   const [query, setQuery] = useState('');
   const [hideObsolete, setHideObsolete] = useState(true);
+  const [hideFaded, setHideFaded] = useState(() => load<boolean>('trace.graphHideFaded') ?? false);
+  useEffect(() => save('trace.graphHideFaded', hideFaded), [hideFaded]);
   const [commitCount, setCommitCount] = useState(() => load<number>('trace.graphCommits') ?? 30);
   useEffect(() => save('trace.graphCommits', commitCount), [commitCount]);
   const [zoom, setZoom] = useState(() => load<number>('trace.graphZoom') ?? 1);
@@ -50,7 +56,24 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     () => buildGraph(index, { component, query, hideObsolete, commits: commitCount }, project.commits, project.links),
     [index, component, query, hideObsolete, commitCount, project.commits, project.links],
   );
-  const cols = useMemo(() => columns(graph).filter((c) => c.nodes.length > 0), [graph]);
+
+  const sel = selected && graph.byKey.has(selected) ? graph.byKey.get(selected)! : null;
+  const up = useMemo(() => (sel ? walk(sel.key, graph.back) : new Set<string>()), [sel, graph]);
+  const down = useMemo(() => (sel ? walk(sel.key, graph.fwd) : new Set<string>()), [sel, graph]);
+  const gaps = graph.nodes.filter((n) => n.gap);
+
+  const lit = (key: string) => (mode === 'gaps' ? !!graph.byKey.get(key)?.gap : !sel || key === sel.key || up.has(key) || down.has(key));
+  const upPath = (k: string) => k === sel?.key || up.has(k);
+  const downPath = (k: string) => k === sel?.key || down.has(k);
+
+  // What's drawn: everything, or with "Hide what's faded" only the trace or the gaps.
+  const hiding = hideFaded && (mode === 'gaps' || !!sel);
+  const shown = useMemo(
+    () => (hiding ? subgraph(graph, new Set(mode === 'gaps' ? gaps.map((n) => n.key) : [sel!.key, ...up, ...down])) : graph),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [hiding, graph, mode, sel, up, down],
+  );
+  const cols = useMemo(() => columns(shown).filter((c) => c.nodes.length > 0), [shown]);
 
   // Spread the columns over the width there is; scroll (or zoom out) when it's not enough.
   const scroller = useRef<HTMLDivElement>(null);
@@ -61,7 +84,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     const ro = new ResizeObserver(() => setAvail(el.clientWidth));
     ro.observe(el);
     return () => ro.disconnect();
-  }, [graph.nodes.length > 0]);
+  }, [shown.nodes.length > 0]);
   const room = avail / zoom - 16; // a little room for the selection ring and a scrollbar
   const W = Math.max(MIN_W, Math.min(MAX_W, (room - (cols.length - 1) * MIN_GAP) / Math.max(1, cols.length)));
   const GAP = cols.length > 1 ? Math.max(MIN_GAP, Math.min(MAX_GAP, (room - cols.length * W) / (cols.length - 1))) : MIN_GAP;
@@ -77,15 +100,6 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     return { pos, width: Math.max(W, cols.length * (W + GAP) - GAP), height: TOP + maxRows * ROW };
   }, [cols, GAP, W]);
 
-  const sel = selected && graph.byKey.has(selected) ? graph.byKey.get(selected)! : null;
-  const up = useMemo(() => (sel ? walk(sel.key, graph.back) : new Set<string>()), [sel, graph]);
-  const down = useMemo(() => (sel ? walk(sel.key, graph.fwd) : new Set<string>()), [sel, graph]);
-  const gaps = graph.nodes.filter((n) => n.gap);
-
-  const lit = (key: string) => (mode === 'gaps' ? !!graph.byKey.get(key)?.gap : !sel || key === sel.key || up.has(key) || down.has(key));
-  const upPath = (k: string) => k === sel?.key || up.has(k);
-  const downPath = (k: string) => k === sel?.key || down.has(k);
-
   const curve = (a: string, b: string) => {
     const p = layout.pos.get(a)!;
     const q = layout.pos.get(b)!;
@@ -95,6 +109,33 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     const y2 = q.y + H / 2;
     return `M ${x1} ${y1} C ${x1 + GAP / 2} ${y1}, ${x2 - GAP / 2} ${y2}, ${x2} ${y2}`;
   };
+
+  // How each node and link is drawn, on screen and in the saved picture alike.
+  const nodeLook = (n: GNode) => {
+    const isSel = sel?.key === n.key && mode === 'trace';
+    return { dim: !lit(n.key), selected: isSel, onPath: mode === 'trace' && !!sel && !isSel && (up.has(n.key) || down.has(n.key)) };
+  };
+  const edgeLook = (e: { from: string; to: string; state?: string }) => {
+    const on = lit(e.from) && lit(e.to);
+    const hot = mode === 'trace' && !!sel && on && ((upPath(e.from) && upPath(e.to)) || (downPath(e.from) && downPath(e.to)));
+    return { dim: !on, hot, suspect: e.state === 'suspect' };
+  };
+
+  const picture = (): GraphPicture => ({
+    width: layout.width,
+    height: layout.height,
+    nodeW: W,
+    nodeH: H,
+    heads: cols.map((c) => ({ x: layout.pos.get(c.nodes[0].key)!.x, label: LABELS[c.type], count: c.nodes.length })),
+    nodes: shown.nodes.map((n) => ({ ...layout.pos.get(n.key)!, node: n, ...nodeLook(n) })),
+    edges: shown.edges.map((e) => ({ d: curve(e.from, e.to), ...edgeLook(e) })),
+  });
+  const fileName = `traceability-graph${hiding ? (sel && mode === 'trace' ? `-${sel.label.replace(/[^\w.-]+/g, '-')}` : '-gaps') : ''}`;
+  const saveSvg = () => download(`${fileName}.svg`, graphSvg(picture()), 'image/svg+xml');
+  const savePng = () =>
+    svgToPng(graphSvg(picture()))
+      .then((png) => download(`${fileName}.png`, png, 'image/png'))
+      .catch((e: Error) => notify(`Couldn’t make the picture: ${e.message}`, 'error'));
 
   const pick = (key: string) => {
     setSelected(key);
@@ -151,7 +192,20 @@ export function GraphView({ project, focus, onOpenId }: Props) {
           <input type="checkbox" checked={hideObsolete} onChange={(e) => setHideObsolete(e.target.checked)} />
           <span>Hide obsolete</span>
         </label>
+        <label className="check" title="Leave out what isn't on the selected node's trace, or isn't a gap">
+          <input type="checkbox" checked={hideFaded} onChange={(e) => setHideFaded(e.target.checked)} />
+          <span>Hide what’s faded</span>
+        </label>
         <span className="tool-spacer" />
+        <div className="graph-save" role="group" aria-label="Save the graph as a picture">
+          <span className="small muted">Save as</span>
+          <button type="button" className="button small" onClick={saveSvg} disabled={!shown.nodes.length} title="The graph as shown, for documents (scales without blurring)">
+            <Icon name="download" size={14} /> SVG
+          </button>
+          <button type="button" className="button small" onClick={() => void savePng()} disabled={!shown.nodes.length} title="The graph as shown, as an image">
+            <Icon name="download" size={14} /> PNG
+          </button>
+        </div>
         <div className="zoom" role="group" aria-label="Zoom">
           <button type="button" className="icon-button" aria-label="Zoom out" onClick={() => setZoom((z) => Math.max(0.4, +(z - 0.1).toFixed(2)))}>
             −
@@ -165,22 +219,15 @@ export function GraphView({ project, focus, onOpenId }: Props) {
 
       <div className="dash-columns">
         <section className="card grow graph-card" aria-label="Graph">
-          {graph.nodes.length === 0 ? (
-            <p className="muted">Nothing matches.</p>
+          {shown.nodes.length === 0 ? (
+            <p className="muted">{graph.nodes.length ? 'No gaps in what’s shown.' : 'Nothing matches.'}</p>
           ) : (
             <div className="graph-scroll" ref={scroller} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
               <div className="graph-canvas" style={{ width: layout.width, height: layout.height, zoom }} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
                 <svg width={layout.width} height={layout.height} className="graph-edges" aria-hidden="true">
-                  {graph.edges.map((e) => {
-                    const on = lit(e.from) && lit(e.to);
-                    const hot = mode === 'trace' && !!sel && on && ((upPath(e.from) && upPath(e.to)) || (downPath(e.from) && downPath(e.to)));
-                    return (
-                      <path
-                        key={`${e.from}>${e.to}`}
-                        d={curve(e.from, e.to)}
-                        className={`edge${hot ? ' hot' : ''}${e.state === 'suspect' ? ' suspect' : ''}${on ? '' : ' dim'}`}
-                      />
-                    );
+                  {shown.edges.map((e) => {
+                    const look = edgeLook(e);
+                    return <path key={`${e.from}>${e.to}`} d={curve(e.from, e.to)} className={`edge${look.hot ? ' hot' : ''}${look.suspect ? ' suspect' : ''}${look.dim ? ' dim' : ''}`} />;
                   })}
                 </svg>
                 {cols.map((c) => (
@@ -188,15 +235,14 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                     <span className="strong">{LABELS[c.type]}</span> <span className="muted">{c.nodes.length}</span>
                   </div>
                 ))}
-                {graph.nodes.map((n) => {
+                {shown.nodes.map((n) => {
                   const p = layout.pos.get(n.key)!;
-                  const isSel = sel?.key === n.key && mode === 'trace';
-                  const onPath = mode === 'trace' && !!sel && !isSel && (up.has(n.key) || down.has(n.key));
+                  const { dim, selected: isSel, onPath } = nodeLook(n);
                   return (
                     <button
                       key={n.key}
                       type="button"
-                      className={`gnode ${n.type}${n.gap ? (n.warn ? ' warn' : ' gap') : ''}${n.status === 'obsolete' ? ' obsolete' : ''}${lit(n.key) ? '' : ' dim'}${isSel ? ' selected' : ''}${onPath ? ' on-path' : ''}`}
+                      className={`gnode ${n.type}${n.gap ? (n.warn ? ' warn' : ' gap') : ''}${n.status === 'obsolete' ? ' obsolete' : ''}${dim ? ' dim' : ''}${isSel ? ' selected' : ''}${onPath ? ' on-path' : ''}`}
                       style={{ left: p.x, top: p.y, width: W, height: H }}
                       aria-pressed={sel?.key === n.key}
                       onClick={() => pick(n.key)}
@@ -211,6 +257,14 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                 })}
               </div>
             </div>
+          )}
+          {hiding && graph.nodes.length > 0 && (
+            <p className="small muted graph-hidden-note">
+              Showing {shown.nodes.length} of {graph.nodes.length} nodes: {mode === 'gaps' ? 'the gaps' : `${sel!.label}’s trace`}.{' '}
+              <button type="button" className="link-button small" onClick={() => setHideFaded(false)}>
+                Show all
+              </button>
+            </p>
           )}
           <div className="legend">
             <span>
@@ -356,4 +410,24 @@ function statusText(n: GNode, downstream: number, upstream: number): string {
   if (n.type === 'test') return `Verifies ${upstream} requirement${upstream === 1 ? '' : 's'}.`;
   if (n.type === 'issue') return `Linked to ${downstream} requirement${downstream === 1 ? '' : 's'} or test case${downstream === 1 ? '' : 's'}.`;
   return `Covered by ${upstream} test case${upstream === 1 ? '' : 's'}.`;
+}
+
+// A PNG of an SVG picture, at twice its size so it stays sharp on a slide.
+function svgToPng(svg: string): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth * scale;
+      canvas.height = img.naturalHeight * scale;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('no canvas'));
+      ctx.scale(scale, scale);
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('it is too large'))), 'image/png');
+    };
+    img.onerror = () => reject(new Error('the drawing could not be read'));
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
 }

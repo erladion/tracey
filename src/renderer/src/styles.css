@@ -3211,3 +3211,13 @@ h3 {
   flex-direction: column;
   gap: 8px;
 }
+
+/* Graph: saving it as a picture, and the note while faded nodes are hidden. */
+.graph-save {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.graph-hidden-note {
+  margin: 8px 0 0;
+}
