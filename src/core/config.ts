@@ -8,7 +8,7 @@
 //   variants:
 //     pro: { name: Pro }
 //   jira: { url: https://jira.example.com }
-import { parse } from 'yaml';
+import { isMap, isScalar, parse, parseDocument, stringify } from 'yaml';
 
 export type IssueLinkSource = 'labels' | 'field' | 'text' | 'remote-links';
 export const ISSUE_LINK_SOURCES: IssueLinkSource[] = ['labels', 'field', 'text', 'remote-links'];
@@ -149,6 +149,32 @@ export function parseConfig(text: string | null): ConfigResult {
     error: null,
   };
 }
+
+// trace.yml with its variants replaced. Only those lines change; the rest of the file
+// (comments, order, spacing) stays as written. None: the key is removed.
+export function setVariants(text: string | null, variants: Variant[]): string {
+  const src = text ?? SAMPLE_CONFIG;
+  const block = variants.length ? `variants:\n${variants.map((v) => `  ${v.key}: { name: ${stringify(v.name || v.key, { lineWidth: 0 }).trim()} }\n`).join('')}` : '';
+  const doc = parseDocument(src);
+  const pair = isMap(doc.contents) ? doc.contents.items.find((p) => isScalar(p.key) && p.key.value === 'variants') : undefined;
+  if (!pair || !isScalar(pair.key) || !pair.key.range) return block ? `${src}${src && !src.endsWith('\n') ? '\n' : ''}${block}` : src;
+  const value = pair.value as { range?: [number, number, number] } | null;
+  const from = src.lastIndexOf('\n', pair.key.range[0] - 1) + 1;
+  const last = Math.max(pair.key.range[2], value?.range?.[1] ?? 0);
+  // To the end of the value's last line, but not into a comment after it.
+  const lineEnd = src.indexOf('\n', Math.max(from, last - 1));
+  const to = lineEnd < 0 ? src.length : lineEnd + 1;
+  return src.slice(0, from) + block + src.slice(to);
+}
+
+// A variant key from its name: "Pro Max" → "pro-max".
+export const variantKey = (name: string) =>
+  name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 
 export function statusesFor(config: TraceConfig, k: Kind): string[] {
   return k === 'requirement' ? config.statuses : config.testcaseStatuses;

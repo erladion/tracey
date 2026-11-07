@@ -393,6 +393,10 @@ variants:
   pro: { name: Pro }
 ```
 
+or under **Settings → Variants**, which adds, renames and removes them, shows how many
+items each is named by, and changes only those lines of `trace.yml`. A variant's key
+is what items name, so it can't be changed there once made.
+
 An item limited to some variants lists them (`variants: [pro]`, also editable above
 the text); everything else applies to all variants, so most items need nothing.
 

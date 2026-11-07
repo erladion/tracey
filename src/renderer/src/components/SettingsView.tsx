@@ -5,6 +5,7 @@ import type { Project } from '../project';
 import { notify } from '../notify';
 import { CodeRepoCard } from './CodeRepoCard';
 import { JiraCard } from './JiraCard';
+import { VariantsCard } from './VariantsCard';
 
 export function SettingsView({ project }: { project: Project }) {
   const [text, setText] = useState(project.config ?? SAMPLE_CONFIG);
@@ -24,6 +25,7 @@ export function SettingsView({ project }: { project: Project }) {
       </div>
       <JiraCard project={project} />
       <CodeRepoCard project={project} />
+      <VariantsCard project={project} blocked={dirty} />
       <div className="dash-columns">
         <section className="card grow">
           <textarea className="config-editor" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label="trace.yml" />
@@ -81,6 +83,8 @@ export function SettingsView({ project }: { project: Project }) {
                 'None'
               )}
             </dd>
+            <dt>Variants</dt>
+            <dd>{config.variants.length ? config.variants.map((v) => v.name).join(', ') : 'None'}</dd>
             <dt>Jira</dt>
             <dd>{config.jiraUrl ?? 'Not set: Jira keys are shown as plain text.'}</dd>
           </dl>

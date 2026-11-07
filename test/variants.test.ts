@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { appliesTo, buildIndex, coverage, forVariant, linksOf, variantNames } from '../src/core/model';
-import { parseConfig } from '../src/core/config';
+import { parseConfig, setVariants, variantKey } from '../src/core/config';
 import { newRunText, readRun } from '../src/core/runs';
 import { trend } from '../src/core/trend';
 import { tables } from '../src/core/spreadsheet';
@@ -79,5 +79,32 @@ describe('variants', () => {
     const t = tables(index, { obsolete: false, component: null, runs: [run] });
     expect(t.runs.rows[0][t.runs.columns.findIndex((c) => c.header === 'Variant')]).toBe('Pro');
     expect(t.requirements.rows.find((r) => r[0] === 'REQ-03')![t.requirements.columns.findIndex((c) => c.header === 'Variants')]).toBe('Pro');
+  });
+});
+
+describe('editing the variants in trace.yml', () => {
+  const yml = '# Settings\nrequirements: { dir: reqs }\nstatuses: [draft, approved]\nvariants:\n  base: { name: Base }\n# Jira below\njira: { url: https://jira.example.com }\n';
+  it('replaces them, keeping the rest as written', () => {
+    const out = setVariants(yml, [
+      { key: 'base', name: 'Basic' },
+      { key: 'pro-max', name: 'Pro Max' },
+    ]);
+    expect(out).toContain('# Settings\nrequirements: { dir: reqs }\nstatuses: [draft, approved]\n');
+    expect(out).toContain('variants:\n  base: { name: Basic }\n  pro-max: { name: Pro Max }\n');
+    expect(out).toContain('variants:\n  base: { name: Basic }\n  pro-max: { name: Pro Max }\n# Jira below\njira: { url: https://jira.example.com }\n');
+    expect(parseConfig(out).config.variants).toEqual([
+      { key: 'base', name: 'Basic' },
+      { key: 'pro-max', name: 'Pro Max' },
+    ]);
+  });
+  it('removes the key when none are left, and starts from the sample without a trace.yml', () => {
+    expect(setVariants(yml, [])).toBe('# Settings\nrequirements: { dir: reqs }\nstatuses: [draft, approved]\n# Jira below\njira: { url: https://jira.example.com }\n');
+    expect(setVariants('a: 1\nvariants: [base, pro]\nb: 2', [{ key: 'pro', name: 'Pro' }])).toBe('a: 1\nvariants:\n  pro: { name: Pro }\nb: 2');
+    expect(setVariants('a: 1\nvariants:\n  - base\n  - pro\n', [{ key: 'x', name: 'Röd: "ny"' }])).toBe('a: 1\nvariants:\n  x: { name: \'Röd: "ny"\' }\n');
+    expect(setVariants('a: 1', [{ key: 'pro', name: 'Pro' }])).toBe('a: 1\nvariants:\n  pro: { name: Pro }\n');
+    expect(parseConfig(setVariants(null, [{ key: 'pro', name: 'Pro' }])).config.variants).toEqual([{ key: 'pro', name: 'Pro' }]);
+  });
+  it('makes a key from a name', () => {
+    expect(['Pro', 'Pro Max', 'Bas-version', 'Medicinsk (EU)', 'Ärlig'].map(variantKey)).toEqual(['pro', 'pro-max', 'bas-version', 'medicinsk-eu', 'arlig']);
   });
 });

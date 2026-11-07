@@ -1518,6 +1518,45 @@ h3 {
   font: 13px/1.6 var(--font-mono);
   resize: vertical;
 }
+.variants-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 4px 0 8px;
+}
+.variants-table th {
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+  padding: 4px 8px 6px 0;
+}
+.variants-table td {
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+  border-top: 1px solid var(--border-soft);
+}
+.variants-table td:first-child {
+  width: 40%;
+}
+.variants-table input {
+  width: 100%;
+  min-height: 34px;
+}
+.variants-table td code {
+  display: inline-block;
+  padding-top: 7px;
+}
+.variants-table td.muted {
+  padding-top: 11px;
+}
+.variants-table .row-actions {
+  width: 1%;
+  text-align: right;
+}
+.warn-text.block {
+  display: block;
+  margin-top: 2px;
+}
 .settings-summary {
   margin: 0;
   display: grid;
