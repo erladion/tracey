@@ -2031,7 +2031,7 @@ h3 {
   border-color: var(--warn-line);
 }
 .gnode.dim {
-  opacity: 0.22;
+  opacity: 0.45;
 }
 .gnode-title,
 .gnode-sub {
