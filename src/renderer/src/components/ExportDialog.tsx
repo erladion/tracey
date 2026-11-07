@@ -1,25 +1,60 @@
-// Export the requirements and test cases as a PDF document.
+// Export the requirements and test cases: a PDF document, an Excel workbook, or one
+// table as CSV.
 import { useState } from 'react';
 import type { Project } from '../project';
 import { specHtml } from '../../../core/specdoc';
-import { slug } from '../../../core/model';
+import { slug, type Item } from '../../../core/model';
+import { tables, TABLE_LABEL, type TableKey } from '../../../core/spreadsheet';
+import { csv, xlsx } from '../../../core/xlsx';
 import { imageUrl, savePdf } from '../pdf';
+import { download } from '../download';
+import { loadTrend } from '../trend';
+import { notify } from '../notify';
+import { load, save } from '../storage';
 import { Dialog } from './Dialog';
+
+type Format = 'pdf' | 'xlsx' | 'csv';
+
+const FORMATS: [Format, string][] = [
+  ['pdf', 'PDF document'],
+  ['xlsx', 'Excel workbook'],
+  ['csv', 'CSV'],
+];
+
+const SHEETS: TableKey[] = ['requirements', 'testcases', 'matrix', 'runs', 'results', 'trend'];
+
+const SHEET_HINT: Record<TableKey, string> = {
+  requirements: 'with their test cases, coverage and last results',
+  testcases: 'with what they verify and their last result',
+  matrix: 'requirements down, test cases across',
+  runs: 'one row per run, with its totals',
+  results: 'every result in every run',
+  trend: 'coverage and results at each run',
+};
 
 export function ExportDialog({ project, onClose }: { project: Project; onClose: () => void }) {
   const { index, repo, git } = project;
+  const [format, setFormatState] = useState<Format>(() => load<Format>('trace.exportFormat') ?? 'pdf');
   const [title, setTitle] = useState(`${repo.name}: requirements and test cases`);
   const [requirements, setRequirements] = useState(true);
   const [testcases, setTestcases] = useState(true);
   const [matrix, setMatrix] = useState(true);
+  const [sheets, setSheets] = useState<Set<TableKey>>(() => new Set(SHEETS));
+  const [csvTable, setCsvTable] = useState<TableKey>('requirements');
   const [obsolete, setObsolete] = useState(false);
   const [component, setComponent] = useState('');
   const [busy, setBusy] = useState(false);
   const components = [...new Set([...index.config.components.map((c) => c.key), ...index.items.flatMap((i) => i.components)])].sort();
   const uncommitted = (git?.changes ?? []).some((c) => index.byPath.has(c.path));
+  const issues = (item: Item) => (project.links.byItem.get(item.id) ?? []).map((l) => l.issue).sort();
+  const fileName = slug(title) || slug(repo.name) || 'trace';
 
-  const exportIt = async () => {
-    setBusy(true);
+  const setFormat = (f: Format) => {
+    setFormatState(f);
+    save('trace.exportFormat', f);
+  };
+
+  const exportPdf = async () => {
     const meta: [string, string][] = [['Repository', repo.name]];
     if (git?.branch) meta.push(['Branch', git.branch]);
     if (git?.head) meta.push(['Commit', git.head + (uncommitted ? ' (with uncommitted changes)' : '')]);
@@ -32,38 +67,104 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
       component: component || null,
       meta,
       image: (itemPath, src) => imageUrl(repo.id, itemPath, src),
-      issues: (item) => (project.links.byItem.get(item.id) ?? []).map((l) => l.issue).sort(),
+      issues,
     });
-    await savePdf(html, `${slug(title) || 'specification'}.pdf`);
-    setBusy(false);
-    onClose();
+    await savePdf(html, `${fileName}.pdf`);
   };
 
+  const exportTables = async () => {
+    const wanted = format === 'xlsx' ? SHEETS.filter((k) => sheets.has(k)) : [csvTable];
+    const trend = wanted.includes('trend') ? await loadTrend(project) : null;
+    const all = tables(index, { obsolete, component: component || null, runs: project.runs, issues, trend });
+    if (format === 'xlsx')
+      download(
+        `${fileName}.xlsx`,
+        xlsx(
+          wanted.map((k) => all[k]),
+          { title: title.trim() || repo.name },
+        ) as Uint8Array<ArrayBuffer>,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      );
+    else download(`${fileName}-${slug(TABLE_LABEL[csvTable])}.csv`, csv(all[csvTable]), 'text/csv;charset=utf-8');
+  };
+
+  const exportIt = async () => {
+    setBusy(true);
+    try {
+      await (format === 'pdf' ? exportPdf() : exportTables());
+      onClose();
+    } catch (e) {
+      notify(`Couldn’t export: ${(e as Error).message}`, 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const nothing = format === 'pdf' ? !(requirements || testcases || matrix) : format === 'xlsx' ? sheets.size === 0 : false;
+  const check = (label: string, on: boolean, set: (v: boolean) => void, hint?: string) => (
+    <label className="check">
+      <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
+      <span>
+        {label}
+        {hint && <span className="muted small"> · {hint}</span>}
+      </span>
+    </label>
+  );
+
   return (
-    <Dialog title="Export PDF" onClose={onClose}>
+    <Dialog title="Export" onClose={onClose}>
       <div className="dialog-body">
-        <label className="field">
-          <span>Title</span>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} />
-        </label>
-        <div className="stack tight">
-          <label className="check">
-            <input type="checkbox" checked={requirements} onChange={(e) => setRequirements(e.target.checked)} />
-            <span>Requirements, with their text</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={testcases} onChange={(e) => setTestcases(e.target.checked)} />
-            <span>Test cases, with their steps</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={matrix} onChange={(e) => setMatrix(e.target.checked)} />
-            <span>Traceability matrix</span>
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={obsolete} onChange={(e) => setObsolete(e.target.checked)} />
-            <span>Include obsolete items</span>
-          </label>
+        <div className="segmented" role="radiogroup" aria-label="Format">
+          {FORMATS.map(([f, label]) => (
+            <button key={f} type="button" role="radio" aria-checked={format === f} className={format === f ? 'on' : ''} onClick={() => setFormat(f)}>
+              {label}
+            </button>
+          ))}
         </div>
+        {format !== 'csv' && (
+          <label className="field">
+            <span>{format === 'pdf' ? 'Title' : 'Name'}</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </label>
+        )}
+        {format === 'pdf' && (
+          <div className="stack tight">
+            {check('Requirements, with their text', requirements, setRequirements)}
+            {check('Test cases, with their steps', testcases, setTestcases)}
+            {check('Traceability matrix', matrix, setMatrix)}
+          </div>
+        )}
+        {format === 'xlsx' && (
+          <div className="stack tight">
+            <span className="muted small">One sheet each:</span>
+            {SHEETS.map((k) =>
+              check(
+                TABLE_LABEL[k],
+                sheets.has(k),
+                (v) => {
+                  const next = new Set(sheets);
+                  if (v) next.add(k);
+                  else next.delete(k);
+                  setSheets(next);
+                },
+                SHEET_HINT[k],
+              ),
+            )}
+          </div>
+        )}
+        {format === 'csv' && (
+          <label className="field">
+            <span>Table</span>
+            <select value={csvTable} onChange={(e) => setCsvTable(e.target.value as TableKey)}>
+              {SHEETS.map((k) => (
+                <option key={k} value={k}>
+                  {TABLE_LABEL[k]}: {SHEET_HINT[k]}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="stack tight">{check('Include obsolete items', obsolete, setObsolete)}</div>
         {components.length > 0 && (
           <label className="field">
             <span>Component</span>
@@ -77,14 +178,14 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
             </select>
           </label>
         )}
-        {uncommitted && <p className="muted small">Some requirements or test cases have uncommitted changes; the document shows them as they are now.</p>}
+        {uncommitted && <p className="muted small">Some requirements or test cases have uncommitted changes; the export shows them as they are now.</p>}
         <div className="dialog-actions">
           <span className="tool-spacer" />
           <button type="button" className="button" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="button primary" disabled={busy || !(requirements || testcases || matrix)} onClick={exportIt}>
-            Export PDF
+          <button type="button" className="button primary" disabled={busy || nothing} onClick={exportIt}>
+            {busy ? 'Exporting…' : 'Export'}
           </button>
         </div>
       </div>

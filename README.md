@@ -90,7 +90,11 @@ Payment fails with a retry-exhausted message after 3 attempts.
 ```
 
 - **IDs** come from the front matter, never the file name. New items get the next free
-  number. Two branches can take the same number; Coverage and `check` report duplicates.
+  number, or the ID you type in the **New** dialog (it must be unused, and can't start
+  with the other kind's prefix). Two branches can take the same number; Coverage and
+  `check` report duplicates. IDs shaped like `TC-123` (capital letters, a dash, a number)
+  are also recognized in text, commit messages and Jira; other IDs only link through
+  fields such as `verifies`.
 - **Kind** comes from the ID prefix (`REQ-`, `TC-`), or `type: requirement | testcase`.
 - **`reviewed`** is written by Trace: for each verified requirement, a fingerprint of
   its title and text when the link was last reviewed. When the requirement's text
@@ -267,14 +271,42 @@ Expand a case to read its steps while testing. **Report (HTML)** downloads a sta
 page (print it to PDF), **Report (Markdown)** a text version; **Save report to
 repository** puts the Markdown next to the run, to commit with it.
 
-## PDF
+## Export: PDF, Excel, CSV
 
-**Coverage → Export PDF** makes a specification document: every requirement and test
-case with its text and links, a traceability matrix and a coverage summary, optionally
-for one component and with or without obsolete items. **Test runs → Report (PDF)** does
-the same for a run's report. The desktop app writes the PDF itself (A4, page numbers)
-and asks where to save it; in a browser the print dialog opens with the document, and
-"Save as PDF" makes the file.
+**Coverage → Export…**, then a format. Every format can be limited to one component, and
+leaves out obsolete items unless asked.
+
+- **PDF document**: a specification document. Every requirement and test case with its
+  text and links, a traceability matrix and a coverage summary. **Test runs → Report
+  (PDF)** does the same for a run's report. The desktop app writes the PDF itself (A4,
+  page numbers) and asks where to save it. In a browser, the print dialog opens with the
+  document, and "Save as PDF" makes the file.
+- **Excel workbook** (.xlsx): one sheet each, pick which.
+  - **Requirements**, with test cases, coverage, links to review and last results.
+  - **Test cases**, with what they verify and their last result.
+  - **The traceability matrix**: requirements down, test cases across.
+  - **Test runs**, with their totals.
+  - **Every result in every run.**
+  - **Coverage over time.**
+
+  Headers are frozen and filterable. Trace writes the file itself, with no library and
+  no macros.
+- **CSV**: one of those tables, as UTF-8 that Excel opens correctly. A cell that starts
+  with `=`, `+`, `-` or `@` gets a leading `'`, so it can't run as a formula.
+
+## Coverage over time
+
+**Coverage** shows two charts across the test runs, oldest first, ending with now:
+
+- the share of requirements verified by a test case;
+- each run's results.
+
+Coverage at a run is counted from the requirements as they were when the run was
+created (the `requirements-commit` the run records, read from git). A requirement added
+later doesn't lower an old run's number. Point at a run for its numbers, or switch to
+**Table** for all of them, including how many requirements had a passing test and no
+failed or blocked one. A run that doesn't record a commit, or whose commit isn't in your
+copy, shows results only.
 
 ## Traceability graph
 
@@ -309,6 +341,8 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   images.ts       images in an item's text, and where pasted ones go
   report.ts       a run's report as Markdown or HTML
   specdoc.ts      the specification document (HTML, printed to PDF)
+  spreadsheet.ts  the export tables; xlsx.ts writes them as Excel or CSV
+  trend.ts        coverage and results at each test run
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end

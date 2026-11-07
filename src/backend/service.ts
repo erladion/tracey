@@ -79,6 +79,27 @@ export async function readProjectFiles(root: string): Promise<ProjectFiles> {
   return { config, files };
 }
 
+// The requirements and test cases as they were in a commit (no test runs: those are
+// read as they are now). null if the commit isn't in this copy of the repository.
+export async function readProjectFilesAt(root: string, commit: string): Promise<ProjectFiles | null> {
+  const tree = await git.tree(root, commit);
+  if (!tree) return null;
+  const configEntry = CONFIG_FILES.map((f) => tree.find((e) => e.path === f)).find(Boolean);
+  const config = configEntry ? (await git.blobs(root, [configEntry.id]))[0] : null;
+  const cfg = parseConfig(config).config;
+  const dirs = config != null ? [...new Set([cfg.requirements.dir, cfg.testcases.dir])] : [''];
+  const inDirs = (p: string) => dirs.some((d) => !d || p.startsWith(d.replace(/\/+$/, '') + '/'));
+  const wanted = tree
+    .filter((e) => /\.md$/i.test(e.path) && inDirs(e.path) && !e.path.split('/').some((s) => s.startsWith('.') || SKIP_DIRS.has(s)))
+    .slice(0, MAX_FILES);
+  const texts = await git.blobs(
+    root,
+    wanted.map((e) => e.id),
+  );
+  const files = wanted.map((e, i) => ({ path: e.path, text: texts[i] })).filter((f) => /^\uFEFF?---[ \t]*\r?\n/.test(f.text));
+  return { config, files };
+}
+
 export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
   const root = (repo: string) => host.resolve(repo);
   const jira = createJira(jiraCreds);
@@ -117,6 +138,10 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
 
     async loadFiles(repo) {
       return readProjectFiles(await root(repo));
+    },
+    async loadFilesAt(repo, commit) {
+      const r = await root(repo);
+      return (await git.isRepo(r)) ? readProjectFilesAt(r, String(commit)) : null;
     },
 
     async writeFile(repo, path, text) {

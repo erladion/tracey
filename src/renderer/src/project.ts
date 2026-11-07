@@ -8,7 +8,7 @@ import { linkCommits, type LinkedCommit } from '../../core/commits';
 import { readRun, type TestRun } from '../../core/runs';
 import { load, save } from './storage';
 import type { Kind } from '../../core/config';
-import { buildIndex, fingerprint, newItemPath, newItemText, nextId, type Item, type ProjectIndex } from '../../core/model';
+import { buildIndex, checkNewId, fingerprint, newItemPath, newItemText, nextId, type Item, type ProjectIndex } from '../../core/model';
 import { decodeText, encodeText, joinFrontMatter, setFields, splitFrontMatter } from '../../core/frontmatter';
 import { api } from './api';
 import { notify } from './notify';
@@ -39,7 +39,7 @@ export interface Project {
   updateFields(path: string, changes: Record<string, unknown>): void;
   markReviewed(test: Item, reqIds: string[]): void;
   writeConfig(text: string): Promise<void>;
-  createItem(kind: Kind, title: string, opts?: { verifies?: string[]; components?: string[] }): Promise<string>;
+  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; components?: string[] }): Promise<string>;
   deleteItem(path: string): Promise<void>; // any file: items and test runs
   runs: TestRun[];
   createFile(path: string, text: string): Promise<void>;
@@ -377,9 +377,15 @@ export function useProject(repo: RepoEntry): Project {
   );
 
   const createItem = useCallback(
-    async (kind: Kind, title: string, opts: { verifies?: string[]; components?: string[] } = {}) => {
+    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[] } = {}) => {
       const idx = indexRef.current;
-      const id = nextId(idx, kind);
+      // A chosen ID is checked again here: another change may have taken it meanwhile.
+      const id = opts.id?.trim() || nextId(idx, kind);
+      if (opts.id) {
+        const { error } = checkNewId(idx, kind, id);
+        if (error) throw new Error(error);
+      }
+      const prefix = (kind === 'requirement' ? idx.config.requirements : idx.config.testcases).prefix;
       const path = newItemPath(idx, kind, id, title);
       const reviewed: Record<string, string> = {};
       for (const r of opts.verifies ?? []) {
@@ -387,7 +393,7 @@ export function useProject(repo: RepoEntry): Project {
         if (req) reviewed[r] = fingerprint(req);
       }
       const status = (kind === 'requirement' ? idx.config.statuses : idx.config.testcaseStatuses)[0] ?? 'draft';
-      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, components: opts.components, reviewed });
+      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, components: opts.components, reviewed, type: !!prefix && !id.startsWith(prefix) });
       await api.writeFile(repo.id, path, text);
       const next = new Map(textsRef.current);
       next.set(path, text);

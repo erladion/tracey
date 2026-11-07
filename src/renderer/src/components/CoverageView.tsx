@@ -6,6 +6,9 @@ import type { Project } from '../project';
 import { Icon } from '../icons';
 import { LinkBadge, StatusPill } from './bits';
 import { ExportDialog } from './ExportDialog';
+import { CoverageLine, ResultColumns, TrendTable } from './TrendCharts';
+import { useTrend } from '../trend';
+import { load, save } from '../storage';
 
 interface Props {
   project: Project;
@@ -52,7 +55,7 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
           <p className="muted">Requirements, the test cases that verify them, and links to check, in this branch’s files as they are now.</p>
         </div>
         <button type="button" className="button" onClick={() => setExporting(true)}>
-          <Icon name="download" /> Export PDF
+          <Icon name="download" /> Export…
         </button>
       </div>
       {exporting && <ExportDialog project={project} onClose={() => setExporting(false)} />}
@@ -85,6 +88,8 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
           <span className="tile-sub">changed since review · {cov.unreviewed.length} never reviewed</span>
         </div>
       </div>
+
+      <TrendCard project={project} />
 
       <div className="dash-columns">
         <section className="card grow">
@@ -256,5 +261,58 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
         </aside>
       </div>
     </div>
+  );
+}
+
+function TrendCard({ project }: { project: Project }) {
+  const points = useTrend(project);
+  const [view, setView] = useState<'charts' | 'table'>(() => load<'charts' | 'table'>('trace.trendView') ?? 'charts');
+  const choose = (v: 'charts' | 'table') => {
+    setView(v);
+    save('trace.trendView', v);
+  };
+  const runs = points?.filter((p) => p.run) ?? [];
+  const unknown = runs.filter((p) => !p.coverage);
+  return (
+    <section className="card trend-card">
+      <div className="card-head">
+        <div>
+          <h2>Coverage over time</h2>
+          <p className="muted small">At each test run, with the requirements as they were when it was created, and now.</p>
+        </div>
+        {runs.length > 0 && (
+          <div className="segmented small" role="tablist" aria-label="Show as">
+            {(
+              [
+                ['charts', 'Charts'],
+                ['table', 'Table'],
+              ] as const
+            ).map(([v, label]) => (
+              <button key={v} type="button" role="tab" aria-selected={view === v} className={view === v ? 'on' : ''} onClick={() => choose(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {points === null ? (
+        <p className="muted small">Reading the requirements at each run…</p>
+      ) : runs.length === 0 ? (
+        <p className="muted small">This fills in as you make test runs: each one records the requirements it started from and its results.</p>
+      ) : view === 'charts' ? (
+        <div className="trend-charts">
+          <CoverageLine points={points} />
+          <ResultColumns points={points} />
+        </div>
+      ) : (
+        <TrendTable points={points} />
+      )}
+      {unknown.length > 0 && (
+        <p className="muted small">
+          Coverage isn’t known for {unknown.map((p) => p.label).join(', ')}: {unknown.length === 1 ? 'it doesn’t' : 'they don’t'} record a requirements commit, or that commit
+          isn’t in this copy (get the latest).
+        </p>
+      )}
+    </section>
   );
 }

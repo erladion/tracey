@@ -238,6 +238,25 @@ export function nextId(index: ProjectIndex, kind: Kind): string {
   return prefix + String(max + 1).padStart(digits, '0');
 }
 
+// An ID someone typed for a new item: an error stops it, a warning only informs.
+export function checkNewId(index: ProjectIndex, kind: Kind, raw: string): { error: string | null; warning: string | null } {
+  const id = raw.trim();
+  const own = (kind === 'requirement' ? index.config.requirements : index.config.testcases).prefix;
+  const other = (kind === 'requirement' ? index.config.testcases : index.config.requirements).prefix;
+  const ok = (warning: string | null = null) => ({ error: null, warning });
+  if (!id) return { error: 'Enter an ID.', warning: null };
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) return { error: 'Use letters, digits and . - _ only, without spaces.', warning: null };
+  if (id.length > 64) return { error: 'That ID is too long (64 characters at most).', warning: null };
+  const taken = index.items.find((i) => i.id.toLowerCase() === id.toLowerCase());
+  if (taken) return { error: `${taken.id} is already used by ${taken.path}.`, warning: null };
+  if (other && !other.startsWith(own) && id.startsWith(other))
+    return { error: `IDs starting with ${other} are ${kind === 'requirement' ? 'test cases' : 'requirements'}. Use one starting with ${own}.`, warning: null };
+  if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(id))
+    return ok(`Trace recognizes IDs in text, commit messages and Jira when they look like ${own || 'TC-'}123 (capital letters, a dash, a number). This one is only linked through fields such as Verifies.`);
+  if (own && !id.startsWith(own)) return ok(`It doesn’t start with ${own}, so the file says what it is (type: ${kind}).`);
+  return ok();
+}
+
 export function slug(title: string): string {
   return title
     .normalize('NFKD')
@@ -258,9 +277,15 @@ export function newItemPath(index: ProjectIndex, kind: Kind, id: string, title: 
   return path;
 }
 
-export function newItemText(kind: Kind, fields: { id: string; title: string; status: string; verifies?: string[]; components?: string[]; reviewed?: Record<string, string> }): string {
+export function newItemText(
+  kind: Kind,
+  fields: { id: string; title: string; status: string; verifies?: string[]; components?: string[]; reviewed?: Record<string, string>; type?: boolean },
+): string {
   const yamlString = (s: string) => (/^[\w .,()/-]*$/.test(s) && !/^[\s-]|:\s|\s$/.test(s) && s !== '' ? s : JSON.stringify(s));
-  const lines = [`id: ${fields.id}`, `title: ${yamlString(fields.title)}`, `status: ${fields.status}`];
+  const lines = [`id: ${yamlString(fields.id)}`];
+  // An ID without the kind's prefix: say what it is, rather than leave it to the folder.
+  if (fields.type) lines.push(`type: ${kind}`);
+  lines.push(`title: ${yamlString(fields.title)}`, `status: ${fields.status}`);
   if (fields.components?.length) lines.push(`components: [${fields.components.join(', ')}]`);
   if (kind === 'testcase') {
     lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);

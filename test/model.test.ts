@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex, coverage, fingerprint, globToRegExp, linkState, newItemPath, newItemText, nextId } from '../src/core/model';
+import { buildIndex, checkNewId, coverage, fingerprint, globToRegExp, linkState, newItemPath, newItemText, nextId } from '../src/core/model';
 import { setFields, splitFrontMatter } from '../src/core/frontmatter';
 
 const req = `---
@@ -59,6 +59,24 @@ describe('model', () => {
     const parsed = buildIndex([{ path: 'tests/a.md', text }], null).items[0];
     expect(parsed.title).toBe('A: b');
     expect(parsed.verifies).toEqual(['REQ-01']);
+  });
+
+  it('checks an ID chosen for a new item', () => {
+    const idx = buildIndex([{ path: 'requirements/REQ-01.md', text: '---\nid: REQ-01\ntitle: x\n---\n' }, { path: 'tests/TC-001.md', text: '---\nid: TC-001\ntitle: t\n---\n' }], null);
+    expect(checkNewId(idx, 'testcase', 'TC-205')).toEqual({ error: null, warning: null });
+    expect(checkNewId(idx, 'testcase', 'tc-001').error).toMatch(/TC-001 is already used by tests\/TC-001.md/);
+    expect(checkNewId(idx, 'testcase', 'REQ-50').error).toMatch(/requirements/);
+    expect(checkNewId(idx, 'testcase', 'TC 2').error).toMatch(/without spaces/);
+    expect(checkNewId(idx, 'testcase', '').error).toBe('Enter an ID.');
+    expect(checkNewId(idx, 'testcase', 'LOGIN-7').warning).toMatch(/type: testcase/);
+    expect(checkNewId(idx, 'testcase', 'TC-login').warning).toMatch(/recognizes IDs/);
+  });
+
+  it('says what a new item is when its ID has another prefix', () => {
+    const text = newItemText('testcase', { id: 'LOGIN-7', title: 'Log in', status: 'draft', verifies: ['REQ-01'], type: true });
+    expect(text).toContain('id: LOGIN-7\ntype: testcase\n');
+    // In the requirements folder, it's still a test case.
+    expect(buildIndex([{ path: 'requirements/LOGIN-7.md', text }], 'requirements: { dir: requirements }\ntestcases: { dir: tests }\n').items[0].kind).toBe('testcase');
   });
 
   it('matches component globs', () => {

@@ -113,6 +113,8 @@ export interface Api {
 
   // Files
   loadFiles(repo: string): Promise<ProjectFiles>;
+  // The requirements and test cases as they were in a commit; null if it isn't there.
+  loadFilesAt(repo: string, commit: string): Promise<ProjectFiles | null>;
   writeFile(repo: string, path: string, text: string): Promise<void>;
   deleteFile(repo: string, path: string): Promise<void>;
   // An image (base64): saved at `path`, or beside it with -2, -3… if that's taken. The path used.
@@ -167,6 +169,7 @@ export const API_METHODS: ApiMethod[] = [
   'cloneRepo',
   'createProject',
   'loadFiles',
+  'loadFilesAt',
   'writeFile',
   'deleteFile',
   'addImage',

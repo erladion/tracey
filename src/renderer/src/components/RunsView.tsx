@@ -13,6 +13,7 @@ import { reportHtml, reportMarkdown } from '../../../core/report';
 import { slug } from '../../../core/model';
 import { api } from '../api';
 import { savePdf } from '../pdf';
+import { download } from '../download';
 import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
@@ -21,17 +22,6 @@ import { load, save } from '../storage';
 
 // Test steps are shown as formatted text; raw HTML in them is shown as text.
 const md = MarkdownIt('commonmark', { html: false }).enable(['table', 'strikethrough']);
-
-function download(name: string, content: string, type: string) {
-  const url = URL.createObjectURL(new Blob([content], { type }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-}
 
 // A run to open, and the case to show in it.
 export interface RunFocus {

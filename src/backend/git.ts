@@ -1,6 +1,6 @@
 // Git through the system's own `git`, which brings HTTPS and SSH, the user's keys
 // and their credential helpers. Never prompts: a question git would ask fails instead.
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import type { Blame, Branches, ChangeKind, Commit, FileCommit, GitStatus, Identity } from '../shared/api';
 
 // No `ext::` transport (it runs arbitrary commands); paths printed as they are.
@@ -38,6 +38,31 @@ function run(args: string[], cwd: string, extra: string[] = []): Promise<Result>
         resolve({ code: error ? ((error as { code?: number }).code ?? 1) : 0, stdout, stderr });
       },
     );
+  });
+}
+
+// Many files' contents at once: `git cat-file --batch`, fed the object ids.
+function readBlobs(cwd: string, ids: string[]): Promise<string[]> {
+  return new Promise((resolve, reject) => {
+    const p = spawn('git', [...SAFE, 'cat-file', '--batch'], { cwd, env: { ...process.env, LC_ALL: 'C', ELECTRON_RUN_AS_NODE: undefined } });
+    const chunks: Buffer[] = [];
+    p.stdout.on('data', (c: Buffer) => chunks.push(c));
+    p.on('error', (e) => reject(new GitError(`Couldn't run git: ${e.message}. Is git installed?`)));
+    p.on('close', () => {
+      const all = Buffer.concat(chunks);
+      const out: string[] = [];
+      let at = 0;
+      for (let i = 0; i < ids.length; i++) {
+        const nl = all.indexOf(0x0a, at);
+        const head = all.subarray(at, nl).toString().split(' '); // <id> blob <size>, or <id> missing
+        if (nl < 0 || head[1] !== 'blob') return reject(new GitError(`Couldn't read ${ids[i]} from git.`));
+        const size = Number(head[2]);
+        out.push(all.subarray(nl + 1, nl + 1 + size).toString('utf8'));
+        at = nl + 1 + size + 1;
+      }
+      resolve(out);
+    });
+    p.stdin.end(ids.join('\n') + '\n');
   });
 }
 
@@ -299,6 +324,24 @@ export const git = {
     if (r.code !== 0) throw new GitError(explain(r.stderr));
     return { commits: parseLog(r.stdout), to: b };
   },
+
+  // The files in a commit (blobs): path and object id. null if there's no such commit.
+  async tree(root: string, commit: string): Promise<{ path: string; id: string }[] | null> {
+    if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
+    const r = await run(['ls-tree', '-r', '-z', '--full-tree', commit], root);
+    if (r.code !== 0) return null;
+    return r.stdout
+      .split('\0')
+      .filter(Boolean)
+      .map((e) => {
+        const tab = e.indexOf('\t');
+        const [, type, id] = e.slice(0, tab).split(' ');
+        return { type, id, path: e.slice(tab + 1) };
+      })
+      .filter((e) => e.type === 'blob')
+      .map(({ path, id }) => ({ path, id }));
+  },
+  blobs: (root: string, ids: string[]) => (ids.length ? readBlobs(root, ids) : Promise.resolve([])),
 
   async show(root: string, commit: string, path: string): Promise<string | null> {
     if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
