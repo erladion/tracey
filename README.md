@@ -114,7 +114,10 @@ Payment fails with a retry-exhausted message after 3 attempts.
 - **`estimate: 30m`** on a test case: how long running it takes (`45`, `1h`, `1h 30m`,
   `1.5h`, `1:30`; a bare number is minutes). Test runs add them up.
 - **Status `obsolete`** leaves an item out of coverage.
-- Fields Tracey doesn't know are kept as they are.
+- **Other fields** (`priority`, `safety-level`, `doors`, from an import or written by
+  hand) are kept as they are and shown read-only under the item's own fields; change
+  them in the file. Search finds them too: any word searches every field, and
+  `field:value` one field (`priority:high`, `doors:payments`).
 
 ### trace.yml
 
@@ -459,6 +462,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   frontmatter.ts  front matter: read, and change fields keeping the rest as written
   model.ts        items, links, fingerprints, problems, coverage, new IDs, component globs
   graph.ts        the traceability graph: nodes, edges, gaps, filters, column order
+  fields.ts       front-matter fields without an editor: shown read-only, searched
   links.ts        Jira issue ↔ item links from every source
   commits.ts      commits → Jira keys, item IDs and components
   impact.ts       which test cases a range of commits calls for, and why

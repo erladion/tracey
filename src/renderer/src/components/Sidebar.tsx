@@ -5,6 +5,7 @@ import { linksOf, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill, VariantTag } from './bits';
+import { matchesSearch } from '../../../core/fields';
 
 interface Props {
   project: Project;
@@ -36,13 +37,13 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
   }, [index]);
 
   const items = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     return index.items.filter(
       (i) =>
         i.kind === kind &&
         (!status || i.status === status) &&
         (!component || i.components.includes(component)) &&
-        (!q || i.id.toLowerCase().includes(q) || i.title.toLowerCase().includes(q) || i.body.toLowerCase().includes(q) || i.verifies.some((v) => v.toLowerCase().includes(q))),
+        matchesSearch(i, q),
     );
   }, [index, kind, query, status, component]);
 
@@ -68,7 +69,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
       </div>
       <div className="search">
         <Icon name="search" />
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search ID, title or text" aria-label="Search" />
+        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search, or field:value" aria-label="Search" title="Words are searched in the ID, title, text and every field. field:value searches one field, like priority:high." />
       </div>
       <div className="filters">
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">

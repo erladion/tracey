@@ -33,6 +33,12 @@ const paths: Record<string, ReactNode> = {
   undo: <path d="M5 4L2.5 6.5 5 9M2.5 6.5H10a3.5 3.5 0 010 7H7" />,
   redo: <path d="M11 4l2.5 2.5L11 9M13.5 6.5H6a3.5 3.5 0 000 7h3" />,
   plus: <path d="M8 3v10M3 8h10" />,
+  lock: (
+    <>
+      <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
+      <path d="M5.5 7V5a2.5 2.5 0 015 0v2" />
+    </>
+  ),
   search: (
     <>
       <circle cx="7" cy="7" r="4" />

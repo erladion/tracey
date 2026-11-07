@@ -25,6 +25,7 @@ import { NO_MARKS, type GitMarks } from '../editor/gitmarks';
 import { CompareDialog, imageResolver } from './Compare';
 import { CommitDialog } from './GitBar';
 import { timeAgo } from './bits';
+import { fieldText, otherFields } from '../../../core/fields';
 
 interface Props {
   project: Project;
@@ -386,6 +387,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
             {item.kind === 'testcase' && <EstimateField raw={item.data.estimate == null ? '' : String(item.data.estimate)} onChange={(estimate) => setField({ estimate })} />}
             <ChipInput label="Jira" mono values={item.jira} href={jira ? (k) => `${jira}/browse/${encodeURIComponent(k)}` : undefined} onChange={(v) => setField({ jira: v })} placeholder="PROJ-123" />
           </div>
+          <OtherFields item={item} />
           <div className="item-path mono" title="File in the repository">
             {path}
           </div>
@@ -559,6 +561,36 @@ function EstimateField({ raw, onChange }: { raw: string; onChange: (v: string | 
         title="How long running it takes: 30m, 1h, 1h 30m"
       />
       {minutes === null ? <span className="warn-text small">Write it like 30m or 1h 30m</span> : minutes != null && text.trim() !== durationText(minutes) ? <span className="muted small">{formatDuration(minutes)}</span> : null}
+    </div>
+  );
+}
+
+// Fields Tracey has no editor for (from an import, or written by hand): shown as they
+// are, read-only. Saving never touches them.
+function OtherFields({ item }: { item: Item }) {
+  const fields = otherFields(item);
+  if (!fields.length) return null;
+  return (
+    <div className="other-fields" title="Read-only here: change these in the file itself.">
+      {fields.map(([k, v]) => (
+        <div key={k} className="chip-field">
+          <span className="chip-label">{k}</span>
+          {Array.isArray(v) ? (
+            <span className="chips">
+              {v.map((x, i) => (
+                <span key={i} className="chip read-only">
+                  {fieldText(x)}
+                </span>
+              ))}
+            </span>
+          ) : (
+            <span className="field-value">{fieldText(v)}</span>
+          )}
+        </div>
+      ))}
+      <span className="other-fields-note">
+        <Icon name="lock" size={12} /> read-only
+      </span>
     </div>
   );
 }
