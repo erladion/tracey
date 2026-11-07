@@ -3,6 +3,7 @@
 import { linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
 import { lastResult, releaseOf, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
+import { runEstimate } from './estimate';
 import { outcomeText, resultMatrix, VERDICT_LABEL, type Outcome, type Verdict } from './verdict';
 import type { Cell, Sheet, Tone } from './xlsx';
 
@@ -95,6 +96,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Variants', width: 16 },
       { header: 'Components', width: 16 },
       { header: 'Jira', width: 16 },
+      { header: 'Estimate (min)', width: 13 },
       { header: 'Last result', width: 12 },
       { header: 'Last run', width: 22 },
       { header: 'Tester', width: 16 },
@@ -115,6 +117,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         variantNames(index.config, t),
         componentNames(t),
         issues(t),
+        t.estimate,
         res?.case.result ?? 'never run',
         res?.run.name ?? '',
         res?.case.tester ?? '',
@@ -166,11 +169,15 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Blocked', width: 8 },
       { header: 'Not run', width: 8 },
       { header: 'Done', width: 8 },
+      { header: 'Estimate (h)', width: 12 },
+      { header: 'Left (h)', width: 9 },
       { header: 'File', width: 32 },
     ],
     rows: o.runs.map((r) => {
       const s = summarize({ ...r, cases: runCases(r) });
-      return [r.name, r.created, releaseOf(r), r.from, r.to, r.fixVersion, r.variant ? (index.config.variants.find((v) => v.key === r.variant)?.name ?? r.variant) : null, s.total, s.passed, s.failed, s.blocked, s.notRun, s.total ? { pct: s.done / s.total } : null, r.path];
+      const e = runEstimate({ ...r, cases: runCases(r) }, index);
+      const hours = (m: number) => Math.round((m / 60) * 10) / 10;
+      return [r.name, r.created, releaseOf(r), r.from, r.to, r.fixVersion, r.variant ? (index.config.variants.find((v) => v.key === r.variant)?.name ?? r.variant) : null, s.total, s.passed, s.failed, s.blocked, s.notRun, s.total ? { pct: s.done / s.total } : null, e.total.counted ? hours(e.total.minutes) : null, e.total.counted ? hours(e.left.minutes) : null, r.path];
     }),
   };
 

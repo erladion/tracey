@@ -10,6 +10,7 @@ import type { Commit, JiraIssue } from '../../../shared/api';
 import { impact, reasonText, type Impact } from '../../../core/impact';
 import { addCases, newRunText, releaseFrom, removeCase, runPath, setCase, setRelease as setRunRelease, summarize, today, RESULTS, type Result, type RunCase, type TestRun } from '../../../core/runs';
 import { releases } from '../../../core/verdict';
+import { estimateOf, estimateText, formatDuration, runEstimate } from '../../../core/estimate';
 import { reportHtml, reportMarkdown } from '../../../core/report';
 import { slug } from '../../../core/model';
 import { api } from '../api';
@@ -47,6 +48,7 @@ export function RunsView({ project, focus, onOpenId }: { project: Project; focus
         <ul className="item-list">
           {runs.map((r) => {
             const s = summarize(r);
+            const left = s.notRun ? runEstimate(r, project.allIndex).left : null;
             return (
               <li key={r.path}>
                 <button type="button" className={`item-row${r.path === selected ? ' selected' : ''}`} onClick={() => setSelected(r.path)}>
@@ -60,6 +62,7 @@ export function RunsView({ project, focus, onOpenId }: { project: Project; focus
                   <ProgressBar s={s} />
                   <span className="muted small">
                     {s.done} of {s.total} run{s.failed ? ` · ${s.failed} failed` : ''}
+                    {left?.counted ? ` · ${formatDuration(left.minutes)}${left.missing ? '+' : ''} left` : ''}
                   </span>
                 </button>
               </li>
@@ -130,6 +133,7 @@ function RunDetail({
   // Every item: a run may hold test cases the chosen variant doesn't show.
   const index = project.allIndex;
   const s = summarize(run);
+  const est = useMemo(() => runEstimate(run, index), [run, index]);
   const [filter, setFilter] = useState<Filter>('all');
   const [open, setOpen] = useState<string | null>(focusCase);
   useEffect(() => {
@@ -238,6 +242,11 @@ function RunDetail({
           <span className="tile-value">
             {s.notRun} <span className="tile-of">of {s.total}</span>
           </span>
+          <span className="tile-sub" title={est.total.counted ? `The whole run: about ${formatDuration(est.total.minutes)}` : 'Give test cases an estimate, like 30m'}>
+            {est.total.counted
+              ? `About ${formatDuration(est.left.minutes)} left${est.left.missing ? `, ${est.left.missing} without an estimate` : ''}`
+              : 'No time estimates'}
+          </span>
         </div>
       </div>
 
@@ -283,7 +292,9 @@ function RunDetail({
                       <span>
                         <span className="item-id">{c.id}</span> <span className="strong">{item?.title ?? '(no longer in the repository)'}</span>
                       </span>
-                      {c.reason.length > 0 && <span className="muted small">{c.reason.join(' · ')}</span>}
+                      {(c.reason.length > 0 || item?.estimate != null) && (
+                        <span className="muted small">{[...c.reason, ...(item?.estimate != null ? [`about ${formatDuration(item.estimate)}`] : [])].join(' · ')}</span>
+                      )}
                     </span>
                   </button>
                   <div className="result-buttons" role="radiogroup" aria-label={`Result for ${c.id}`}>
@@ -777,6 +788,11 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
           </ul>
         )}
         {scope === 'none' && <p className="muted small">The run starts empty; add test cases to it with “Add test cases”.</p>}
+        {picked.length > 0 && (
+          <p className="small run-estimate">
+            Estimated time: <strong>{estimateText(estimateOf(picked.map((p) => p.item.id), index))}</strong>
+          </p>
+        )}
 
         <label className="field">
           <span>Release (optional)</span>

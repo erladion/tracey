@@ -10,6 +10,7 @@ import type { Project } from '../project';
 import { Editor } from '../editor/Editor';
 import type { RefTarget } from '../editor/setup';
 import { ChipInput } from './bits';
+import { durationText, formatDuration, parseDuration } from '../../../core/estimate';
 import { TracePanel } from './TracePanel';
 import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
@@ -382,6 +383,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
                 placeholder={item.variants.length ? 'Add variant' : 'All variants'}
               />
             )}
+            {item.kind === 'testcase' && <EstimateField raw={item.data.estimate == null ? '' : String(item.data.estimate)} onChange={(estimate) => setField({ estimate })} />}
             <ChipInput label="Jira" mono values={item.jira} href={jira ? (k) => `${jira}/browse/${encodeURIComponent(k)}` : undefined} onChange={(v) => setField({ jira: v })} placeholder="PROJ-123" />
           </div>
           <div className="item-path mono" title="File in the repository">
@@ -515,6 +517,48 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
           </div>
         </Dialog>
       )}
+    </div>
+  );
+}
+
+// How long the test case takes to run. Saved tidied (90 → 1h 30m) when it can be read.
+function EstimateField({ raw, onChange }: { raw: string; onChange: (v: string | undefined) => void }) {
+  const [text, setText] = useState(raw);
+  useEffect(() => setText(raw), [raw]);
+  const minutes = parseDuration(text);
+  const commit = () => {
+    const t = text.trim();
+    if (!t) {
+      if (raw) onChange(undefined);
+      return;
+    }
+    if (minutes == null) return;
+    const tidy = durationText(minutes);
+    if (tidy !== raw) onChange(tidy);
+    setText(tidy);
+  };
+  return (
+    <div className="chip-field estimate-field">
+      <label htmlFor="estimate" className="chip-label">
+        Estimate
+      </label>
+      <input
+        id="estimate"
+        value={text}
+        placeholder="30m"
+        spellCheck={false}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+          }
+        }}
+        aria-invalid={minutes === null}
+        title="How long running it takes: 30m, 1h, 1h 30m"
+      />
+      {minutes === null ? <span className="warn-text small">Write it like 30m or 1h 30m</span> : minutes != null && text.trim() !== durationText(minutes) ? <span className="muted small">{formatDuration(minutes)}</span> : null}
     </div>
   );
 }

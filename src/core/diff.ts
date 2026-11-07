@@ -174,7 +174,7 @@ export function readVersion(raw: string): ItemVersion {
   return { data: readFrontMatter(front).data, body, bodyLine: head.split('\n').length - 1 };
 }
 
-const FIELD_LABELS: Record<string, string> = { id: 'ID', title: 'Title', status: 'Status', components: 'Components', verifies: 'Verifies', jira: 'Jira' };
+const FIELD_LABELS: Record<string, string> = { id: 'ID', title: 'Title', status: 'Status', components: 'Components', variants: 'Variants', verifies: 'Verifies', estimate: 'Estimate', jira: 'Jira' };
 export const fieldLabel = (k: string) => FIELD_LABELS[k] ?? k;
 
 export const showValue = (v: unknown): string =>

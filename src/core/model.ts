@@ -4,6 +4,7 @@
 // A file is an item when its front matter has an `id` whose prefix is a configured
 // one (REQ-, TC-), or a `type: requirement | testcase`. IDs are never derived from
 // file names, so files can be renamed or moved freely.
+import { parseDuration } from './estimate';
 import { parseConfig, type Component, type Kind, type TraceConfig, statusesFor } from './config';
 import { decodeText, readFrontMatter, splitFrontMatter } from './frontmatter';
 
@@ -21,6 +22,7 @@ export interface Item {
   variants: string[]; // the variants it's limited to; empty: all of them
   jira: string[];
   verifies: string[]; // test cases: the requirements they verify
+  estimate: number | null; // test cases: minutes to run it (see estimate.ts); null: none or unreadable
   // Test cases: per verified requirement, the fingerprint of its text when the link
   // was last reviewed. A different fingerprint now makes the link suspect.
   reviewed: Record<string, string>;
@@ -34,7 +36,7 @@ export type Severity = 'error' | 'warning';
 
 export interface Problem {
   severity: Severity;
-  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch';
+  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch' | 'bad-estimate';
   message: string;
   path?: string;
   id?: string;
@@ -104,6 +106,7 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       variants: list(data.variants),
       jira: list(data.jira),
       verifies: kind === 'testcase' ? list(data.verifies) : [],
+      estimate: kind === 'testcase' ? (parseDuration(data.estimate) ?? null) : null,
       reviewed,
       path: file.path,
       front,
@@ -150,6 +153,14 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
     if (componentKeys.size)
       for (const c of it.components)
         if (!componentKeys.has(c)) problems.push({ severity: 'warning', code: 'unknown-component', message: `${it.id} names component “${c}”, which trace.yml doesn't define.`, path: it.path, id: it.id });
+    if (it.kind === 'testcase' && parseDuration(it.data.estimate) === null)
+      problems.push({
+        severity: 'warning',
+        code: 'bad-estimate',
+        message: `${it.id} has estimate “${String(it.data.estimate)}”, which isn't a time: write it like 30m, 1h or 1h 30m.`,
+        path: it.path,
+        id: it.id,
+      });
     for (const v of it.variants)
       if (!variantKeys.has(v))
         problems.push({

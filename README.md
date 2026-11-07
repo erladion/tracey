@@ -102,6 +102,8 @@ Payment fails with a retry-exhausted message after 3 attempts.
   test case and marks it reviewed. Whitespace and line wrapping don't count as changes.
 - **`variants: [pro]`** limits an item to some product variants (see Variants below).
   Without it, an item applies to all of them.
+- **`estimate: 30m`** on a test case: how long running it takes (`45`, `1h`, `1h 30m`,
+  `1.5h`, `1:30`; a bare number is minutes). Test runs add them up.
 - **Status `obsolete`** leaves an item out of coverage.
 - Fields Trace doesn't know are kept as they are.
 
@@ -269,6 +271,16 @@ Results show beside the items too: a test case's side panel lists every run it's
 with result, tester, date and note, and a requirement's lists each test's last result.
 Click one to open that run at the case.
 
+**Release.** A run's results count toward a release: the one set in the run
+(`release: v2.4.0`, filled in from the code tag or Jira fix version when there is one,
+and changeable on the run's page), else the code version it tested if that's a tag, else
+its Jira fix version. Versions match without a leading `v` and ignoring case, so tag
+`v2.4.0` and fix version `2.4.0` are one release. A run up to a branch or a commit
+belongs to no release unless one is set.
+
+**Estimated time.** The New test run dialog adds up the test cases' estimates, and a
+run shows how much is left (the cases not run yet), saying how many have no estimate.
+
 Expand a case to read its steps while testing. **Report (HTML)** downloads a standalone
 page (print it to PDF), **Report (Markdown)** a text version; **Save report to
 repository** puts the Markdown next to the run, to commit with it.
@@ -342,6 +354,17 @@ leaves out obsolete items unless asked.
 - **CSV**: one of those tables, as UTF-8 that Excel opens correctly. A cell that starts
   with `=`, `+`, `-` or `@` gets a leading `'`, so it can't run as a formula.
 
+## Test results in the traceability matrix
+
+**Coverage → Traceability → Results from** picks which results the matrix shows: the
+latest result of each test case, a release (its runs), one run, or none. Each
+requirement then gets a verdict: **failing** if any of its test cases failed, else
+**blocked** if any is blocked, **verified** when all passed, **partly run** when some
+passed and the rest haven't run, **not run**, or **no tests**. Obsolete test cases don't
+count. Each test case shows its result as a mark (✓ ✕ ! –) as well as a colour.
+The PDF and Excel/CSV exports can include the same: a verdict column and each test's
+result, with where the results came from.
+
 ## Variants
 
 When a product comes in variants, declare them in `trace.yml`:
@@ -414,7 +437,9 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   links.ts        Jira issue ↔ item links from every source
   commits.ts      commits → Jira keys, item IDs and components
   impact.ts       which test cases a range of commits calls for, and why
-  runs.ts         test run files: read, create, record results; a test case's results
+  runs.ts         test run files: read, create, record results; a test case's results; releases
+  verdict.ts      results in the matrix: where they come from, each requirement's verdict
+  estimate.ts     test case time estimates and run totals
   images.ts       images in an item's text, and where pasted ones go
   report.ts       a run's report as Markdown or HTML
   specdoc.ts      the specification document (HTML, printed to PDF)

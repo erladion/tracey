@@ -1,6 +1,7 @@
 // A test run's report, as Markdown (to keep in the repository) or as a standalone HTML
 // page (to send, or print to PDF).
 import type { Item, ProjectIndex } from './model';
+import { estimateText, formatDuration, runEstimate } from './estimate';
 import { releaseOf, summarize, type Result, type RunCase, type TestRun } from './runs';
 
 const LABEL: Record<Result, string> = { passed: 'Passed', failed: 'Failed', blocked: 'Blocked', 'not-run': 'Not run' };
@@ -46,6 +47,10 @@ function header(run: TestRun, index?: ProjectIndex): [string, string][] {
   if (run.commitCount != null) rows.push(['Commits in range', String(run.commitCount)]);
   if (run.requirementsCommit) rows.push(['Requirements commit', run.requirementsCommit]);
   if (run.issues.length) rows.push(['Jira issues', run.issues.join(', ')]);
+  if (index) {
+    const e = runEstimate(run, index);
+    if (e.total.counted) rows.push(['Estimated time', `${estimateText(e.total)}; ${formatDuration(e.left.minutes)} of it not run yet`]);
+  }
   rows.push(['Run created', run.created || '—']);
   const testers = [...new Set(run.cases.map((c) => c.tester).filter(Boolean))];
   if (testers.length) rows.push(['Testers', testers.join(', ')]);

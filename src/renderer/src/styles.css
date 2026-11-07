@@ -2882,3 +2882,18 @@ h3 {
   color: var(--fg);
   font: inherit;
 }
+
+.estimate-field input {
+  width: 90px;
+  min-height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.estimate-field input[aria-invalid='true'] {
+  border-color: var(--warn-line);
+}
