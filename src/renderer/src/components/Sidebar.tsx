@@ -1,5 +1,5 @@
 // The list of requirements or test cases, with search and filters.
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { fieldsFor, type Kind } from '../../../core/config';
 import { linksOf, type Item } from '../../../core/model';
 import type { Project } from '../project';
@@ -16,9 +16,13 @@ interface Props {
   selected: string | null;
   onSelect: (path: string) => void;
   onNew: () => void;
+  picked: string[]; // several chosen to change at once
+  onPick: (paths: string[]) => void;
 }
 
-export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Props) {
+export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, picked, onPick }: Props) {
+  const [picking, setPicking] = useState(false); // plain clicks pick, for touch screens
+  const [anchor, setAnchor] = useState<string | null>(null);
   const { index } = project;
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState('');
@@ -57,6 +61,31 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
         }),
     );
   }, [index, kind, query, status, component, byField, choiceFields]);
+
+  const pickedSet = new Set(picked);
+  const many = picking || picked.length > 0;
+  // Ctrl/⌘-click toggles one, Shift-click takes the range from the last one clicked.
+  const click = (e: MouseEvent, path: string) => {
+    const from = anchor ?? selected;
+    if (e.shiftKey && from) {
+      const a = items.findIndex((i) => i.path === from);
+      const b = items.findIndex((i) => i.path === path);
+      if (a >= 0 && b >= 0) {
+        const range = items.slice(Math.min(a, b), Math.max(a, b) + 1).map((i) => i.path);
+        onPick([...new Set([...picked, ...range])]);
+        return;
+      }
+    }
+    if (e.ctrlKey || e.metaKey || many) {
+      const start = picked.length ? picked : selected && selected !== path && !picking ? [selected] : [];
+      const next = start.includes(path) ? start.filter((p) => p !== path) : [...start, path];
+      onPick(next);
+      setAnchor(path);
+      return;
+    }
+    setAnchor(path);
+    onSelect(path);
+  };
 
   const move = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -107,16 +136,49 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
           </select>
         ))}
       </div>
+      <div className="pick-bar">
+        {many ? (
+          <>
+            <span className="small">
+              <span className="strong">{picked.length}</span> picked
+            </span>
+            <button type="button" className="link-button small" onClick={() => onPick([...new Set([...picked, ...items.map((i) => i.path)])])} disabled={items.every((i) => pickedSet.has(i.path))}>
+              Pick all {items.length} shown
+            </button>
+            <span className="tool-spacer" />
+            <button
+              type="button"
+              className="link-button small"
+              onClick={() => {
+                onPick([]);
+                setPicking(false);
+              }}
+            >
+              Done
+            </button>
+          </>
+        ) : (
+          <button type="button" className="link-button small" onClick={() => setPicking(true)} title="Or Ctrl-click (⌘ on a Mac) and Shift-click in the list">
+            Change several at once…
+          </button>
+        )}
+      </div>
       <ul className="item-list" onKeyDown={move}>
         {items.map((it) => (
           <li key={it.path}>
             <button
               type="button"
               id={`row-${it.path}`}
-              className={`item-row${it.path === selected ? ' selected' : ''}${it.status === 'obsolete' ? ' obsolete' : ''}`}
-              onClick={() => onSelect(it.path)}
-              aria-current={it.path === selected ? 'true' : undefined}
+              className={`item-row${!many && it.path === selected ? ' selected' : ''}${pickedSet.has(it.path) ? ' picked' : ''}${many ? ' picking' : ''}${it.status === 'obsolete' ? ' obsolete' : ''}`}
+              onClick={(e) => click(e, it.path)}
+              aria-current={!many && it.path === selected ? 'true' : undefined}
+              aria-pressed={many ? pickedSet.has(it.path) : undefined}
             >
+              {many && (
+                <span className="pick-box" aria-hidden="true">
+                  {pickedSet.has(it.path) && <Icon name="check" size={12} />}
+                </span>
+              )}
               <span className="item-row-top">
                 <span className="item-id">{it.id}</span>
                 <RowBadge project={project} item={it} />

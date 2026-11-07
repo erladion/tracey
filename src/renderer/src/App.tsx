@@ -9,6 +9,7 @@ import { Toasts } from './components/Toasts';
 import { StartScreen } from './components/StartScreen';
 import { Sidebar } from './components/Sidebar';
 import { ItemView } from './components/ItemView';
+import { BulkEdit } from './components/BulkEdit';
 import { CoverageView } from './components/CoverageView';
 import { SettingsView } from './components/SettingsView';
 import { GraphView } from './components/GraphView';
@@ -80,6 +81,8 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
   const [kind, setKind] = useState<Kind>('requirement');
   const [selected, setSelectedState] = useState<string | null>(() => load<string>(selKey));
   const [newItem, setNewItem] = useState<NewItemRequest | null>(null);
+  const [picked, setPicked] = useState<string[]>([]); // several items, to change at once
+  useEffect(() => setPicked([]), [kind, repo.id]);
   const [graphFocus, setGraphFocus] = useState<string | null>(null);
   const [runFocus, setRunFocus] = useState<RunFocus | null>(null);
 
@@ -191,9 +194,19 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
           </div>
         ) : view === 'items' ? (
           <>
-            <Sidebar project={project} kind={kind} onKind={setKind} selected={selected} onSelect={select} onNew={() => setNewItem({ kind })} />
+            <Sidebar project={project} kind={kind} onKind={setKind} selected={selected} onSelect={select} onNew={() => setNewItem({ kind })} picked={picked} onPick={setPicked} />
             <main className="main">
-              {hasText ? (
+              {picked.length > 0 ? (
+                <BulkEdit
+                  project={full}
+                  paths={picked}
+                  onClear={() => setPicked([])}
+                  onOpen={(path) => {
+                    setPicked([]);
+                    select(path);
+                  }}
+                />
+              ) : hasText ? (
                 <ItemView
                   key={selected!}
                   project={full}

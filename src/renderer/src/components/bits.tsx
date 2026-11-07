@@ -60,11 +60,12 @@ interface ChipProps {
   onOpen?: (value: string) => void;
   placeholder?: string;
   mono?: boolean;
+  idKey?: string; // when the label isn't unique on the page
 }
 
-export function ChipInput({ label, values, onChange, suggestions = [], href, onOpen, placeholder, mono }: ChipProps) {
+export function ChipInput({ label, values, onChange, suggestions = [], href, onOpen, placeholder, mono, idKey }: ChipProps) {
   const [text, setText] = useState('');
-  const id = `chips-${label.replace(/\W/g, '')}`;
+  const id = `chips-${(idKey ?? label).replace(/\W/g, '')}`;
   const add = (raw: string) => {
     const v = raw.trim().replace(/,$/, '');
     if (v && !values.includes(v)) onChange([...values, v]);

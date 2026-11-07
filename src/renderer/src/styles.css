@@ -683,6 +683,123 @@ h3 {
   background: var(--accent-soft);
   border-color: var(--accent-line);
 }
+/* Several picked, to change at once: a check box at the left of each row. */
+.item-row.picking {
+  position: relative;
+  padding-left: 36px;
+}
+.pick-box {
+  position: absolute;
+  left: 10px;
+  top: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--on-accent);
+}
+.item-row.picked {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+}
+.item-row.picked .pick-box {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pick-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding: 0 2px;
+}
+.bulk-edit {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 28px 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.bulk-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.bulk-head h1 {
+  margin: 0;
+  font-size: 24px;
+}
+.bulk-picked {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 120px;
+  overflow: auto;
+}
+.bulk-chip {
+  border: 0;
+  padding: 2px 9px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.bulk-chip:hover {
+  background: var(--accent-soft);
+}
+.bulk-form h2 {
+  margin-top: 0;
+}
+.bulk-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 10px 20px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.bulk-row {
+  display: contents;
+}
+.bulk-row > label,
+.bulk-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg-2);
+}
+.bulk-ctl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 24px;
+  min-width: 0;
+}
+.bulk-ctl select {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+}
+@media (max-width: 700px) {
+  .bulk-edit {
+    padding: 20px 16px 32px;
+  }
+  .bulk-grid {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .bulk-row > label,
+  .bulk-label {
+    margin-top: 8px;
+  }
+}
 .item-row.obsolete .item-title {
   color: var(--muted);
   text-decoration: line-through;

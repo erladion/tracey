@@ -166,6 +166,17 @@ edited paragraphs keep their line wrapping, so diffs and reviews stay small. Fil
 by themselves (Ctrl+S saves at once); committing is a separate, deliberate step in the
 status bar.
 
+### Changing many at once
+
+Ctrl-click (⌘ on a Mac) items in the list to pick several, Shift-click to pick a range,
+or **Change several at once…** above the list to pick by clicking (on a touch screen).
+With some picked, the page shows them and one form for all of them: set or clear the
+status, estimate and your single-value fields; add or remove components, variants,
+Jira keys, requirements verified (reviewed now, like adding one by hand) and list
+fields. It says how many files that changes before you apply it, leaves out items that
+already have the value, and the files are then committed from the status bar like any
+edit (or discarded there).
+
 ### Git in the editor
 
 A bar above the text says whether the item changed since the last commit, and what
@@ -475,6 +486,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   model.ts        items, links, fingerprints, problems, coverage, new IDs, component globs
   graph.ts        the traceability graph: nodes, edges, gaps, filters, column order
   fields.ts       declared fields (checked, parsed) and the others (read-only); search
+  bulk.ts         one change to many items: what each file gets
   links.ts        Jira issue ↔ item links from every source
   commits.ts      commits → Jira keys, item IDs and components
   impact.ts       which test cases a range of commits calls for, and why
