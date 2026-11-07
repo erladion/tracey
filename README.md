@@ -32,6 +32,15 @@ code-signed, so Windows SmartScreen and macOS Gatekeeper warn on first start (*M
 building. Building for Windows on Linux needs Wine; a Windows machine or CI runner is
 simpler.
 
+GitHub Actions (`.github/workflows/build.yml`) runs the type check and tests on every
+push and pull request, and on `main` builds the Linux AppImage and the Windows installer
+(download them from the run's artifacts). Pushing a tag `v1.2.3` also makes a GitHub
+release with both, as version 1.2.3:
+
+```sh
+git tag v0.2.0 && git push origin v0.2.0
+```
+
 The web server's repositories are the folders in its workspace (default `./repos`),
 plus any given with `--repo /path/to/repo` (repeatable). It listens on 127.0.0.1 by
 default. To let other machines in, use `--host 0.0.0.0` **and** set `TRACE_TOKEN`;
