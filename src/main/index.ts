@@ -10,6 +10,18 @@ import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 
 if (process.env.TRACE_USER_DATA) app.setPath('userData', process.env.TRACE_USER_DATA);
 
+// Run from a terminal with a command (`Tracey.AppImage import-reqif …`, `… check`), the
+// app does that and exits, without a window. Chromium's own switches may come first.
+const argv = process.argv.slice(app.isPackaged ? 1 : 2);
+const command = argv.slice(argv.findIndex((a) => !a.startsWith('-')));
+const isCommand = command[0] === 'import-reqif' || command[0] === 'check';
+if (isCommand) {
+  // An AppImage runs from its own mount; OWD is the folder it was started in.
+  if (process.env.OWD) process.chdir(process.env.OWD);
+  const self = process.env.APPIMAGE ? basename(process.env.APPIMAGE) : app.isPackaged ? basename(process.execPath) : 'electron .';
+  void import('../backend/cli').then(async ({ runCommand }) => app.exit((await runCommand(command, self)) ?? 2));
+}
+
 protocol.registerSchemesAsPrivileged([{ scheme: 'trace-file', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);
 
 let win: BrowserWindow | null = null;
@@ -170,6 +182,7 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  if (isCommand) return;
   // Images in pages: trace-file://repo/<repo id>/<path in repo>
   protocol.handle('trace-file', async (req) => {
     try {

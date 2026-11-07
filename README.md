@@ -55,6 +55,7 @@ web app). Tracey never prompts for passwords: set up `git clone` from a terminal
 
 ```sh
 npm run check -- path/to/repo     # or: node out/server/index.js check path/to/repo
+./Tracey-0.1.0-linux-x86_64.AppImage check path/to/repo   # with only the desktop app
 ```
 
 It prints duplicate IDs, broken links, unknown statuses and components, and a coverage
@@ -333,6 +334,23 @@ npm run import-reqif -- payments.reqifz --map doors-map.yml --into ../reqs      
 npm run check -- ../reqs
 ```
 
+With only the desktop app, it runs the same commands from a terminal, without opening
+a window:
+
+```sh
+./Tracey-0.1.0-linux-x86_64.AppImage import-reqif payments.reqifz --init-map doors-map.yml
+./Tracey-0.1.0-linux-x86_64.AppImage import-reqif payments.reqifz --map doors-map.yml --into ../reqs --dry-run
+./Tracey-0.1.0-linux-x86_64.AppImage import-reqif payments.reqifz --map doors-map.yml --into ../reqs
+./Tracey-0.1.0-linux-x86_64.AppImage check ../reqs
+```
+
+**Requirements and test cases in different modules.** Best is one export holding both
+modules and the link module between them. If they were exported separately, give all
+the exports at once (`import-reqif reqs.reqifz tests.reqifz …`, the same in every step):
+they're read as one, so a test module's links to the requirements module become
+`verifies:`. Imported in separate runs instead, those links point outside the import
+and are left out (the report counts them).
+
 The map (YAML, guessed from the export, with what was found listed at the end) says:
 
 - **modules**: per DOORS module, `requirement`, `testcase` or `skip`, its folder and its
@@ -510,10 +528,10 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end
-src/backend/      Node: files (with path checks), git, and the Jira client
-src/main/         Electron: window, IPC, folder dialogs, recent repositories
+src/backend/      Node: files (with path checks), git, the Jira client, and the commands (cli.ts)
+src/main/         Electron: window, IPC, folder dialogs, recent repositories; commands from a terminal
 src/preload/      the IPC bridge
-src/server/       web server (same API over HTTP) and the `check` command
+src/server/       web server (same API over HTTP), and the same commands
 src/renderer/     React interface, used by both
 ```
 

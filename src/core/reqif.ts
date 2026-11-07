@@ -67,7 +67,8 @@ export function emptyReqif(): Reqif {
   return { title: '', objects: new Map(), relations: [], specs: [], objectBase: new Map() };
 }
 
-// Reads one .reqif file into `into` (several files merge: DOORS may export one per module).
+// Reads one .reqif file into `into` (several files merge: DOORS may export one per module,
+// and separate exports can be read together; what two files both hold is kept once).
 export function readReqif(xml: string, into: Reqif = emptyReqif(), base = ''): Reqif {
   const doc = parseXml(xml);
   if (doc.local !== 'REQ-IF') throw new Error(`This isn't ReqIF: the document is <${doc.name}>.`);
@@ -120,12 +121,16 @@ export function readReqif(xml: string, into: Reqif = emptyReqif(), base = ''): R
     into.objectBase.set(id, base);
   }
 
-  for (const r of elements(child(content, 'SPEC-RELATIONS'), 'SPEC-RELATION'))
+  const seenRelations = new Set(into.relations.map((r) => r.id).filter(Boolean));
+  for (const r of elements(child(content, 'SPEC-RELATIONS'), 'SPEC-RELATION')) {
+    if (r.attrs.IDENTIFIER && seenRelations.has(r.attrs.IDENTIFIER)) continue;
     into.relations.push({ id: r.attrs.IDENTIFIER, type: typeName.get(ref(child(r, 'TYPE'))) ?? '', source: ref(child(r, 'SOURCE')), target: ref(child(r, 'TARGET')) });
+  }
 
   const hierarchy = (el: XmlElement | undefined): ReqifNode[] =>
     elements(child(el, 'CHILDREN'), 'SPEC-HIERARCHY').map((h) => ({ object: ref(child(h, 'OBJECT')), children: hierarchy(h) }));
   for (const s of elements(child(content, 'SPECIFICATIONS'), 'SPECIFICATION')) {
+    if (into.specs.some((x) => x.id === s.attrs.IDENTIFIER)) continue;
     const values = readValues(s);
     const name = s.attrs['LONG-NAME'] || values.get('ReqIF.Name')?.text || values.get('ReqIF.ChapterName')?.text || s.attrs.IDENTIFIER;
     into.specs.push({ id: s.attrs.IDENTIFIER, name, children: hierarchy(s), base });

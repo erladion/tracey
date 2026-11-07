@@ -2,7 +2,7 @@
 //
 //   node out/server/index.js [--workspace DIR] [--repo PATH]… [--port 5180] [--host 127.0.0.1]
 //   node out/server/index.js check [DIR]     validate a repository (for CI)
-//   node out/server/index.js import-reqif EXPORT.reqifz …   import from DOORS (see importcli.ts)
+//   node out/server/index.js import-reqif EXPORT.reqifz …   import from DOORS (see backend/cli.ts)
 //
 // Repositories are the folders in the workspace (default ./repos), plus any given with
 // --repo. Set TRACE_TOKEN to require a token: open the app once as /?token=… .
@@ -19,41 +19,12 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createBackend, readProjectFiles, safePath, type RepoHost } from '../backend/service';
 import { createVault, jiraCookies, webJiraCredentials } from '../backend/webjira';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
-import { buildIndex, coverage, forVariant } from '../core/model';
 
 const args = process.argv.slice(2);
 
-if (args[0] === 'import-reqif') {
-  const { importReqif } = await import('./importcli');
-  try {
-    process.exit(await importReqif(args));
-  } catch (e) {
-    console.error((e as Error).message);
-    process.exit(1);
-  }
-}
-
-if (args[0] === 'check') {
-  const dir = resolve(args[1] ?? '.');
-  const { config, files } = await readProjectFiles(dir);
-  const index = buildIndex(files, config);
-  const cov = coverage(index);
-  for (const p of index.problems) console.log(`${p.severity === 'error' ? 'error' : 'warning'}: ${p.path ?? ''}: ${p.message}`);
-  const errors = index.problems.filter((p) => p.severity === 'error').length;
-  console.log(
-    `\n${cov.requirements.length} requirements, ${cov.testcases.length} test cases; ${cov.untested.length} requirements without test cases; ` +
-      `${cov.suspect.length} suspect links; ${errors} errors, ${index.problems.length - errors} warnings.`,
-  );
-  // Per variant: a requirement counts only when a test case for that variant verifies it.
-  for (const v of index.config.variants) {
-    const c = coverage(forVariant(index, v.key));
-    const live = c.requirements.filter((r) => r.status !== 'obsolete').length;
-    console.log(
-      `  ${v.name}: ${c.tested.length} of ${live} requirements verified${live ? ` (${Math.round((c.tested.length / live) * 100)}%)` : ''}` +
-        (c.untested.length ? `; without test cases: ${c.untested.map((r) => r.id).join(', ')}` : ''),
-    );
-  }
-  process.exit(errors ? 1 : 0);
+if (args[0] === 'import-reqif' || args[0] === 'check') {
+  const { runCommand } = await import('../backend/cli');
+  process.exit((await runCommand(args, 'node out/server/index.js')) ?? 2);
 }
 
 function option(name: string, fallback?: string): string | undefined {

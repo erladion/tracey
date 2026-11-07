@@ -10,7 +10,8 @@ import { guessMap, planImport, readMap } from '../src/core/doors';
 import { parseConfig } from '../src/core/config';
 import { buildIndex, coverage, linksOf } from '../src/core/model';
 import { readProjectFiles } from '../src/backend/service';
-import { importReqif } from '../src/server/importcli';
+import { importReqif } from '../src/backend/cli';
+import { readExport } from '../src/backend/reqifz';
 
 const FIXTURE = readFileSync(join(__dirname, 'fixtures/doors9.reqif'), 'utf8');
 const md = (xhtml: string, image = (d: string) => `img/${d}`) => xhtmlToMarkdown(parseXml(`<x xmlns:xhtml="h">${xhtml}</x>`).children, { image });
@@ -156,5 +157,44 @@ z.write(sys.argv[2],'export/payments.reqif'); z.write(sys.argv[3],'export/files/
       console.error = err;
       console.log = orig;
     }
+  });
+});
+
+describe('modules exported separately', () => {
+  // The requirements module in one export; the test module, with its links to the
+  // requirements, in another (as DOORS writes a module's out-links with it).
+  const drop = (xml: string, objects: RegExp, spec: string, links: string[]) =>
+    xml
+      .replace(new RegExp(`<SPEC-OBJECT IDENTIFIER="(?:${objects.source})"[\\s\\S]*?</SPEC-OBJECT>\\s*`, 'g'), '')
+      .replace(new RegExp(`<SPECIFICATION IDENTIFIER="${spec}"[\\s\\S]*?</SPECIFICATION>\\s*`), '')
+      .replace(new RegExp(`<SPEC-RELATION IDENTIFIER="(?:${links.join('|')})">[\\s\\S]*?</SPEC-RELATION>\\s*`, 'g'), '');
+  const reqs = drop(FIXTURE, /t-[^"]+/, 's-test', ['l1', 'l2']);
+  const tests = drop(FIXTURE, /o-[^"]+/, 's-sys', ['l3', 'l4']);
+
+  it('loses the links when read alone, and keeps them when read together', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'trace-doors2-'));
+    writeFileSync(join(dir, 'reqs.reqif'), reqs);
+    writeFileSync(join(dir, 'tests.reqif'), tests);
+    const alone = await readExport(join(dir, 'tests.reqif'));
+    expect(alone.reqif.specs.map((s) => s.name)).toEqual(['System Test Specification']);
+    const cfg = parseConfig(null).config;
+    expect(planImport(alone.reqif, guessMap(alone.reqif, cfg), cfg, { attachment: () => null }).report.links.dangling).toBe(2);
+
+    const both = await readExport([join(dir, 'reqs.reqif'), join(dir, 'tests.reqif'), join(dir, 'tests.reqif')]);
+    expect(both.reqif.specs.map((s) => s.name)).toEqual(['System Requirements', 'System Test Specification']);
+    expect(both.reqif.relations.map((r) => r.id)).toEqual(['l3', 'l4', 'l1', 'l2']); // the second read of tests adds nothing
+
+    const repo = join(dir, 'repo');
+    const orig = console.log;
+    console.log = () => {};
+    try {
+      expect(await importReqif(['import-reqif', join(dir, 'reqs.reqif'), join(dir, 'tests.reqif'), '--into', repo])).toBe(0);
+    } finally {
+      console.log = orig;
+    }
+    const { config, files } = await readProjectFiles(repo);
+    const idx = buildIndex(files, config);
+    expect(idx.byId.get('TC-5')!.verifies).toEqual(['REQ-12']);
+    expect(idx.byId.get('TC-6')!.verifies).toEqual(['REQ-13']);
   });
 });

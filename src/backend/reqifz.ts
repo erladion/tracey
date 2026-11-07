@@ -56,25 +56,38 @@ export interface DoorsExport {
   files: string[]; // the .reqif files read
 }
 
-export async function readExport(file: string): Promise<DoorsExport> {
+// One export file, or several read as one (modules exported separately, with the links
+// between them): an object's pictures are looked for in each file in turn.
+export async function readExport(file: string | string[]): Promise<DoorsExport> {
+  const reqif = emptyReqif();
+  const lookups: DoorsExport['attachment'][] = [];
+  const files: string[] = [];
+  for (const f of Array.isArray(file) ? file : [file]) {
+    const one = await readOne(f, reqif);
+    lookups.push(one.attachment);
+    files.push(...one.files);
+  }
+  return { reqif, attachment: (path) => lookups.reduce<Uint8Array | null>((hit, look) => hit ?? look(path), null), files };
+}
+
+async function readOne(file: string, reqif: Reqif): Promise<Omit<DoorsExport, 'reqif'>> {
   const buf = await fs.readFile(file);
   // A zip starts with PK; anything else is read as ReqIF XML.
   if (buf.readUInt32LE(0) !== 0x04034b50) {
-    return { reqif: readReqif(buf.toString('utf8')), attachment: () => null, files: [file] };
+    readReqif(buf.toString('utf8'), reqif);
+    return { attachment: () => null, files: [file] };
   }
   const entries = unzip(buf);
   const reqifs = entries.filter((e) => /\.reqif$/i.test(e.name));
-  if (!reqifs.length) throw new Error('The archive has no .reqif file in it.');
-  const reqif = emptyReqif();
+  if (!reqifs.length) throw new Error(`${file}: the archive has no .reqif file in it.`);
   for (const e of reqifs) readReqif(e.data().toString('utf8'), reqif, e.name.includes('/') ? e.name.slice(0, e.name.lastIndexOf('/')) : '');
   const byName = new Map(entries.map((e) => [e.name, e]));
   const lower = new Map(entries.map((e) => [e.name.toLowerCase(), e]));
   return {
-    reqif,
     attachment: (path) => {
       const e = byName.get(path) ?? lower.get(path.toLowerCase());
       return e ? new Uint8Array(e.data()) : null;
     },
-    files: reqifs.map((e) => e.name),
+    files: reqifs.map((e) => `${file}: ${e.name}`),
   };
 }
