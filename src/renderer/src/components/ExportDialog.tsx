@@ -12,6 +12,8 @@ import { loadTrend } from '../trend';
 import { notify } from '../notify';
 import { load, save } from '../storage';
 import { Dialog } from './Dialog';
+import { SourceSelect } from './ResultSource';
+import { describeSource, sourceName, sourceRuns, type ResultSource } from '../../../core/verdict';
 
 type Format = 'pdf' | 'xlsx' | 'csv';
 
@@ -32,7 +34,7 @@ const SHEET_HINT: Record<TableKey, string> = {
   trend: 'coverage and results at each run',
 };
 
-export function ExportDialog({ project, onClose }: { project: Project; onClose: () => void }) {
+export function ExportDialog({ project, source: initialSource, onClose }: { project: Project; source?: ResultSource; onClose: () => void }) {
   const { index, repo, git } = project;
   const [format, setFormatState] = useState<Format>(() => load<Format>('trace.exportFormat') ?? 'pdf');
   const variantName = project.variant ? (index.config.variants.find((v) => v.key === project.variant)?.name ?? project.variant) : null;
@@ -45,6 +47,9 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
   const [obsolete, setObsolete] = useState(false);
   const [component, setComponent] = useState('');
   const [busy, setBusy] = useState(false);
+  // Test results in the matrix: as chosen on the Coverage screen, unless changed here.
+  const [source, setSource] = useState<ResultSource>(initialSource ?? { kind: 'none' });
+  const resultRuns = sourceRuns(project.runs, source);
   const components = [...new Set([...index.config.components.map((c) => c.key), ...index.items.flatMap((i) => i.components)])].sort();
   const uncommitted = (git?.changes ?? []).some((c) => index.byPath.has(c.path));
   const issues = (item: Item) => (project.links.byItem.get(item.id) ?? []).map((l) => l.issue).sort();
@@ -60,6 +65,7 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
     if (variantName) meta.push(['Variant', variantName]);
     if (git?.branch) meta.push(['Branch', git.branch]);
     if (git?.head) meta.push(['Commit', git.head + (uncommitted ? ' (with uncommitted changes)' : '')]);
+    if (matrix && resultRuns) meta.push(['Test results', sourceName(project.runs, source)]);
     const html = specHtml(index, {
       title: title.trim() || repo.name,
       requirements,
@@ -70,6 +76,7 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
       meta,
       image: (itemPath, src) => imageUrl(repo.id, itemPath, src),
       issues,
+      results: matrix && resultRuns ? { runs: resultRuns, description: describeSource(project.runs, source), oneRun: source.kind === 'run' } : null,
     });
     await savePdf(html, `${fileName}.pdf`);
   };
@@ -77,7 +84,8 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
   const exportTables = async () => {
     const wanted = format === 'xlsx' ? SHEETS.filter((k) => sheets.has(k)) : [csvTable];
     const trend = wanted.includes('trend') ? await loadTrend(project) : null;
-    const all = tables(index, { obsolete, component: component || null, runs: project.runs, issues, trend });
+    const results = resultRuns ? { runs: resultRuns, name: sourceName(project.runs, source), oneRun: source.kind === 'run' } : null;
+    const all = tables(index, { obsolete, component: component || null, runs: project.runs, issues, trend, results });
     if (format === 'xlsx')
       download(
         `${fileName}.xlsx`,
@@ -164,6 +172,12 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
                 </option>
               ))}
             </select>
+          </label>
+        )}
+        {project.runs.length > 0 && (format === 'pdf' ? matrix : format === 'xlsx' ? sheets.has('matrix') : csvTable === 'matrix') && (
+          <label className="field">
+            <span>Test results in the matrix</span>
+            <SourceSelect runs={project.runs} value={source} onChange={setSource} />
           </label>
         )}
         <div className="stack tight">{check('Include obsolete items', obsolete, setObsolete)}</div>

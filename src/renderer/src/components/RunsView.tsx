@@ -555,6 +555,8 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
         created: today(),
         from: wantRange ? from.trim() : null,
         to: wantRange ? to.trim() : null,
+        // Whether it's a tag (a release) or a branch or commit; unknown if the tags didn't load.
+        toTag: wantRange && tags.length ? tags.includes(to.trim()) : null,
         fixVersion: fv || null,
         codeCommit: scope === 'impact' ? (preview?.to ?? null) : null,
         commitCount: scope === 'impact' ? (preview?.commits ?? null) : null,

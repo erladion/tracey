@@ -3,6 +3,8 @@
 import MarkdownIt from 'markdown-it';
 import { coverage, linksOf, variantNames, type Item, type ProjectIndex } from './model';
 import { DOC_CSS, esc } from './report';
+import type { TestRun } from './runs';
+import { outcomeText, RESULT_MARK, resultMatrix, VERDICT_LABEL, VERDICT_MARK, verdictSummary } from './verdict';
 
 // Raw HTML in the Markdown is shown as text, never run.
 const md = MarkdownIt('commonmark', { html: false }).enable(['table', 'strikethrough']);
@@ -19,6 +21,8 @@ export interface SpecOptions {
   image: (itemPath: string, src: string) => string;
   // The Jira issues linked to an item, from every source (default: its front matter).
   issues?: (item: Item) => string[];
+  // Show test results in the matrix, from these runs (see verdict.ts).
+  results?: { runs: TestRun[]; description: string; oneRun: boolean } | null;
 }
 
 function body(item: Item, image: SpecOptions['image']): string {
@@ -64,6 +68,27 @@ ${fields(it)}
     o.matrix && reqs.length ? `<li><a href="#matrix">Traceability matrix</a></li>` : '',
   ].join('');
 
+  const rows = resultMatrix(index, o.results?.runs ?? [], keep);
+  const matrixHtml = () => {
+    const res = o.results;
+    const head = res
+      ? `<p class="muted">Results: ${esc(res.description)}. A requirement is verified when all of its test cases passed.</p><p><b>${esc(verdictSummary(rows))}</b></p>`
+      : '';
+    const testCell = (l: (typeof rows)[number]['links'][number]) =>
+      res
+        ? `<div>${ref(l.test.id)} <span class="res ${l.outcome.result}">${RESULT_MARK[l.outcome.result]} ${esc(outcomeText(l.outcome, res.oneRun))}</span>${l.state === 'suspect' ? ' ⚠' : ''}</div>`
+        : ref(l.test.id) + (l.state === 'suspect' ? ' ⚠' : '');
+    const body = rows
+      .map(({ req, links, verdict }) => {
+        const tests = links.length ? links.map(testCell).join(res ? '' : ', ') : '<span class="pill gap">no test cases</span>';
+        const v = res ? `<td>${verdict ? `<span class="verdict ${verdict}">${VERDICT_MARK[verdict]} ${VERDICT_LABEL[verdict]}</span>` : '—'}</td>` : '';
+        return `<tr><td>${ref(req.id)} ${esc(req.title)}</td><td>${esc(req.status)}</td>${v}<td>${tests}</td></tr>`;
+      })
+      .join('');
+    const suspectNote = rows.some((r) => r.links.some((l) => l.state === 'suspect')) ? '<p class="muted small">⚠ The requirement changed after the link was last reviewed.</p>' : '';
+    return `<h2 id="matrix">Traceability matrix</h2>${head}<table class="matrix"><tr><th>Requirement</th><th>Status</th>${res ? '<th>Verdict</th>' : ''}<th>Test cases</th></tr>${body}</table>${suspectNote}`;
+  };
+
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(o.title)}</title>
@@ -77,7 +102,9 @@ h3{font-size:16px;margin:0 0 8px}
 .prose code{font-family:ui-monospace,monospace;font-size:.9em}
 .pill.st{background:#e6eefb;color:#1e3f8f;font-weight:500}.pill.gap{color:var(--bad);border:1px dashed #b85a1a}.pill.suspect{background:var(--badbg);color:var(--bad)}
 .cover{padding:8px 0 24px}.toc li{margin:2px 0}
-.matrix td{font-size:13px}
+.matrix td{font-size:13px}.small{font-size:12px}
+.res,.verdict{white-space:nowrap}.res.passed,.verdict.verified{color:var(--ok)}.res.failed,.verdict.failing,.verdict.no-tests{color:var(--bad);font-weight:600}
+.res.blocked,.verdict.blocked{color:var(--warn);font-weight:600}.res.not-run,.verdict.partial,.verdict.not-run{color:var(--muted)}
 @media print{.item{break-inside:auto}.item h3{break-after:avoid}#testcases,#matrix{break-before:page}}
 </style></head><body><main>
 <div class="cover keep">
@@ -85,21 +112,12 @@ h3{font-size:16px;margin:0 0 8px}
 <table class="meta">${[...o.meta, ['Generated', generated.toLocaleString()] as [string, string]].map(([k, v]) => `<tr><td>${esc(k)}</td><td${/commit/i.test(k) ? ' class="mono"' : ''}>${esc(v)}</td></tr>`).join('')}</table>
 <h2>Summary</h2>
 <p>${live.length} requirements, ${tested.length} of them verified by a test case (${live.length ? Math.round((tested.length / live.length) * 100) : 0}%); ${tests.length} test cases.
-${suspect.length ? ` ${suspect.length} link${suspect.length === 1 ? '' : 's'} changed since review.` : ''}${o.component ? ` Only items in the component “${esc(index.config.components.find((c) => c.key === o.component)?.name ?? o.component)}”.` : ''}</p>
+${suspect.length ? ` ${suspect.length} link${suspect.length === 1 ? '' : 's'} changed since review.` : ''}${o.results ? ` Test results: ${esc(verdictSummary(rows))}.` : ''}${o.component ? ` Only items in the component “${esc(index.config.components.find((c) => c.key === o.component)?.name ?? o.component)}”.` : ''}</p>
 ${toc ? `<h2>Contents</h2><ol class="toc">${toc}</ol>` : ''}
 </div>
 ${o.requirements && reqs.length ? `<h2 id="requirements">Requirements</h2>${reqs.map(section).join('\n')}` : ''}
 ${o.testcases && tests.length ? `<h2 id="testcases">Test cases</h2>${tests.map(section).join('\n')}` : ''}
-${
-  o.matrix && reqs.length
-    ? `<h2 id="matrix">Traceability matrix</h2><table class="matrix"><tr><th>Requirement</th><th>Status</th><th>Test cases</th></tr>${reqs
-        .map((r) => {
-          const t = linksOf(index, r).filter((l) => keep(l.test));
-          return `<tr><td>${ref(r.id)} ${esc(r.title)}</td><td>${esc(r.status)}</td><td>${t.length ? t.map((l) => ref(l.test.id) + (l.state === 'suspect' ? ' ⚠' : '')).join(', ') : '<span class="pill gap">no test cases</span>'}</td></tr>`;
-        })
-        .join('')}</table>`
-    : ''
-}
+${o.matrix && reqs.length ? matrixHtml() : ''}
 </main></body></html>
 `;
 }

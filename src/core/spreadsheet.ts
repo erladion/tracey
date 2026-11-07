@@ -3,7 +3,8 @@
 import { linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
 import { lastResult, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
-import type { Sheet } from './xlsx';
+import { outcomeText, resultMatrix, VERDICT_LABEL, type Outcome, type Verdict } from './verdict';
+import type { Cell, Sheet, Tone } from './xlsx';
 
 export interface TableOptions {
   obsolete: boolean; // include obsolete items
@@ -11,6 +12,8 @@ export interface TableOptions {
   runs: TestRun[];
   issues?: (item: Item) => string[]; // Jira issues linked to an item (default: its front matter)
   trend?: TrendPoint[] | null;
+  // Show test results in the matrix: from these runs (see verdict.ts).
+  results?: { runs: TestRun[]; name: string; oneRun: boolean } | null;
 }
 
 export type TableKey = 'requirements' | 'testcases' | 'matrix' | 'runs' | 'results' | 'trend';
@@ -26,6 +29,8 @@ export const TABLE_LABEL: Record<TableKey, string> = {
 
 const STATE_LABEL: Record<LinkState, string> = { ok: 'reviewed', suspect: 'changed since review', unreviewed: 'not reviewed' };
 const MATRIX_MARK: Record<LinkState, string> = { ok: '✓', suspect: 'changed', unreviewed: 'not reviewed' };
+const RESULT_TONE: Record<Outcome['result'], Tone> = { passed: 'good', failed: 'bad', blocked: 'warn', 'not-run': 'muted' };
+const VERDICT_TONE: Record<Verdict, Tone> = { verified: 'good', failing: 'bad', blocked: 'warn', partial: 'muted', 'not-run': 'muted', 'no-tests': 'bad' };
 
 export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, Sheet> {
   const keep = (i: Item) => (o.obsolete || i.status !== 'obsolete') && (!o.component || i.components.includes(o.component));
@@ -120,14 +125,28 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     }),
   };
 
-  // Requirements down, the test cases that verify one across.
+  // Requirements down, the test cases that verify one across. With results: each
+  // requirement's verdict, and each test case's result in the chosen runs.
   const linked = tests.filter((t) => t.verifies.some((v) => reqs.some((r) => r.id === v)));
+  const res = o.results;
+  const rows = resultMatrix(index, res?.runs ?? [], keep);
   const matrix: Sheet = {
     name: 'Matrix',
-    columns: [{ header: 'Requirement', width: 10 }, { header: 'Title', width: 36 }, ...linked.map((t) => ({ header: t.id, width: Math.max(9, t.id.length + 3) }))],
-    rows: reqs.map((r) => {
-      const state = new Map(linksOf(index, r).map((l) => [l.test.id, l.state]));
-      return [r.id, r.title, ...linked.map((t) => (state.has(t.id) ? MATRIX_MARK[state.get(t.id)!] : null))];
+    columns: [
+      { header: 'Requirement', width: 10 },
+      { header: 'Title', width: 36 },
+      ...(res ? [{ header: `Verdict (${res.name})`, width: Math.max(12, res.name.length + 11) }] : []),
+      ...linked.map((t) => ({ header: t.id, width: Math.max(res ? 12 : 9, t.id.length + 3) })),
+    ],
+    rows: rows.map(({ req, links, verdict }) => {
+      const by = new Map(links.map((l) => [l.test.id, l]));
+      const cells: Cell[] = linked.map((t) => {
+        const l = by.get(t.id);
+        if (!l) return null;
+        if (!res) return MATRIX_MARK[l.state];
+        return { text: outcomeText(l.outcome, res.oneRun) + (l.state === 'suspect' ? ' ⚠' : ''), tone: RESULT_TONE[l.outcome.result] };
+      });
+      return [req.id, req.title, ...(res ? [verdict ? ({ text: VERDICT_LABEL[verdict], tone: VERDICT_TONE[verdict] } as Cell) : null] : []), ...cells];
     }),
   };
 

@@ -1,7 +1,9 @@
 // Spreadsheets without a library: an Excel workbook (.xlsx, which is a zip of XML
 // parts) and CSV. Text is written as text, never as a formula.
 
-export type Cell = string | number | null | { pct: number }; // pct: a fraction shown as 0%
+// pct: a fraction shown as 0%; tone: text on a coloured fill (a test result, a verdict).
+export type Tone = 'good' | 'bad' | 'warn' | 'muted';
+export type Cell = string | number | null | { pct: number } | { text: string; tone: Tone };
 
 export interface Column {
   header: string;
@@ -121,18 +123,27 @@ function sheetNames(sheets: Sheet[]): string[] {
 
 const MAX_CELL = 32767; // characters Excel keeps in a cell
 
-// Styles: 0 plain (top-aligned), 1 header, 2 wrapped text, 3 percent.
+// Styles: 0 plain (top-aligned), 1 header, 2 wrapped text, 3 percent, 4–7 the tones.
+const TONE_STYLE: Record<Tone, number> = { good: 4, bad: 5, warn: 6, muted: 7 };
 const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<fonts count="2"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font></fonts>
-<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE6EEFB"/><bgColor indexed="64"/></patternFill></fill></fills>
+<fonts count="6"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font>${['FF0B5A48', 'FF8A2C10', 'FF6B520B', 'FF6F6F6A'].map((c) => `<font><sz val="11"/><color rgb="${c}"/><name val="Calibri"/><family val="2"/></font>`).join('')}</fonts>
+<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>${['FFE6EEFB', 'FFD9F0E7', 'FFF9DCCF', 'FFF6ECC6'].map((c) => `<fill><patternFill patternType="solid"><fgColor rgb="${c}"/><bgColor indexed="64"/></patternFill></fill>`).join('')}</fills>
 <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="4">
+<cellXfs count="8">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top"/></xf>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1" applyAlignment="1"><alignment vertical="top"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
 <xf numFmtId="9" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment vertical="top"/></xf>
+${[
+  [2, 3],
+  [3, 4],
+  [4, 5],
+  [5, 0],
+]
+  .map(([font, fill]) => `<xf numFmtId="0" fontId="${font}" fillId="${fill}" borderId="0" xfId="0" applyFont="1"${fill ? ' applyFill="1"' : ''} applyAlignment="1"><alignment vertical="top"/></xf>`)
+  .join('\n')}
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -141,7 +152,8 @@ function sheetXml(sheet: Sheet): string {
   const cell = (v: Cell, ref: string, style: number): string => {
     if (v == null || v === '') return '';
     if (typeof v === 'number') return Number.isFinite(v) ? `<c r="${ref}"${style ? ` s="${style}"` : ''}><v>${v}</v></c>` : '';
-    if (typeof v === 'object') return `<c r="${ref}" s="3"><v>${v.pct}</v></c>`;
+    if (typeof v === 'object' && 'pct' in v) return `<c r="${ref}" s="3"><v>${v.pct}</v></c>`;
+    if (typeof v === 'object') return cell(v.text, ref, TONE_STYLE[v.tone]);
     const t = xmlText(v.length > MAX_CELL ? v.slice(0, MAX_CELL - 1) + '…' : v);
     return `<c r="${ref}" t="inlineStr"${style ? ` s="${style}"` : ''}><is><t${/^\s|\s$|\n/.test(v) ? ' xml:space="preserve"' : ''}>${t}</t></is></c>`;
   };
@@ -236,7 +248,7 @@ export function csv(sheet: Sheet): string {
   const field = (v: Cell): string => {
     if (v == null) return '';
     if (typeof v === 'number') return String(v);
-    if (typeof v === 'object') return `${Math.round(v.pct * 100)}%`;
+    if (typeof v === 'object') return 'pct' in v ? `${Math.round(v.pct * 100)}%` : field(v.text);
     const s = safe(v);
     return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };

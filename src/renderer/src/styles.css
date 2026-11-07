@@ -339,6 +339,10 @@ h3 {
   min-height: 30px;
   flex: none;
 }
+.segmented.wrap {
+  flex-wrap: wrap;
+  align-self: flex-start;
+}
 .segmented .count {
   color: var(--muted);
   font-weight: 400;
@@ -1385,6 +1389,63 @@ h3 {
   background: var(--warn-soft);
   border-color: var(--warn-line);
   color: var(--warn);
+}
+/* With results: a neutral chip with the result as a mark (shape and colour) */
+.test-chip.with-result {
+  gap: 5px;
+  padding-left: 4px;
+}
+.test-chip.with-result:not(.suspect) {
+  background: var(--surface);
+  border-color: var(--border-strong);
+  color: var(--fg-2);
+}
+.mk {
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font: 700 9px/1 var(--font-ui);
+  color: var(--surface);
+  flex: none;
+}
+.mk.passed {
+  background: var(--res-passed);
+}
+.mk.failed {
+  background: var(--res-failed);
+}
+.mk.blocked {
+  background: var(--res-blocked);
+}
+.mk.not-run {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  color: var(--muted);
+}
+.mk.not-run.absent {
+  opacity: 0.6;
+}
+.results-from {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-2);
+}
+.results-from select {
+  max-width: 280px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+}
+.results-note {
+  margin: -6px 0 0;
 }
 .attention-group {
   display: flex;
@@ -2537,6 +2598,9 @@ h3 {
 }
 .result-pill.blocked::before {
   background: var(--res-blocked);
+}
+.result-pill.partial::before {
+  background: linear-gradient(90deg, var(--res-passed) 50%, var(--border-strong) 50%);
 }
 .result-pill.not-run {
   background: transparent;

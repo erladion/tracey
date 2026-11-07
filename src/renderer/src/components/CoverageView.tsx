@@ -1,7 +1,9 @@
 // The whole repository at a glance: what's tested, what isn't, which links need a
 // look, and what's broken.
 import { useMemo, useState } from 'react';
-import { coverage, forVariant, linksOf, type Link } from '../../../core/model';
+import { coverage, forVariant, type Link } from '../../../core/model';
+import { describeSource, outcomeText, RESULT_MARK, resultMatrix, sourceRuns, verdictCounts, verdictSummary, type ResultSource } from '../../../core/verdict';
+import { loadSource, saveSource, SourceSelect, VerdictPill } from './ResultSource';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { LinkBadge, StatusPill } from './bits';
@@ -17,7 +19,7 @@ interface Props {
   onVariant: (variant: string | null) => void;
 }
 
-type Filter = 'all' | 'gaps' | 'suspect';
+type Filter = 'all' | 'gaps' | 'suspect' | 'failing' | 'blocked' | 'not-run';
 
 export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props) {
   const { index } = project;
@@ -28,15 +30,41 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const pct = live.length ? Math.round((cov.tested.length / live.length) * 100) : 0;
   const errors = cov.problems.filter((p) => p.severity === 'error');
 
-  const rows = useMemo(
-    () =>
-      cov.requirements
-        .map((r) => ({ req: r, links: linksOf(index, r) }))
-        .filter(({ req, links }) =>
-          filter === 'gaps' ? req.status !== 'obsolete' && links.length === 0 : filter === 'suspect' ? links.some((l) => l.state === 'suspect') : true,
-        ),
-    [cov, index, filter],
+  const [source, setSourceState] = useState<ResultSource>(() => loadSource(project.repo.id, project.runs));
+  const setSource = (s: ResultSource) => {
+    setSourceState(s);
+    saveSource(project.repo.id, s);
+  };
+  const resultRuns = useMemo(() => sourceRuns(project.runs, source), [project.runs, source]);
+  const oneRun = source.kind === 'run';
+  const all = useMemo(() => resultMatrix(index, resultRuns ?? []), [index, resultRuns]);
+  const counts = useMemo(() => verdictCounts(all), [all]);
+  const shown = resultRuns ? filter : filter === 'failing' || filter === 'blocked' || filter === 'not-run' ? 'all' : filter;
+  const rows = all.filter(({ req, links, verdict }) =>
+    shown === 'gaps'
+      ? req.status !== 'obsolete' && links.length === 0
+      : shown === 'suspect'
+        ? links.some((l) => l.state === 'suspect')
+        : shown === 'failing'
+          ? verdict === 'failing'
+          : shown === 'blocked'
+            ? verdict === 'blocked'
+            : shown === 'not-run'
+              ? verdict === 'not-run' || verdict === 'partial'
+              : true,
   );
+  const filters: [Filter, string, number | null][] = [
+    ['all', 'All', null],
+    ...(resultRuns
+      ? ([
+          ['failing', 'Failing', counts.failing],
+          ['blocked', 'Blocked', counts.blocked],
+          ['not-run', 'Not run', counts['not-run'] + counts.partial],
+        ] as [Filter, string, number][])
+      : []),
+    ['gaps', 'No tests', cov.untested.length],
+    ['suspect', 'Suspect', new Set(cov.suspect.map((l) => l.req.id)).size],
+  ];
 
   const reviewAll = (links: Link[]) => {
     const byTest = new Map<string, Link[]>();
@@ -70,7 +98,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
           <Icon name="download" /> Export…
         </button>
       </div>
-      {exporting && <ExportDialog project={project} onClose={() => setExporting(false)} />}
+      {exporting && <ExportDialog project={project} source={source} onClose={() => setExporting(false)} />}
 
       <div className="tiles">
         <div className="tile">
@@ -109,19 +137,26 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
         <section className="card grow">
           <div className="card-head">
             <h2>Traceability</h2>
-            <div className="segmented small" role="tablist">
-              {(
-                [
-                  ['all', 'All'],
-                  ['gaps', `No tests (${cov.untested.length})`],
-                  ['suspect', `Suspect (${new Set(cov.suspect.map((l) => l.req.id)).size})`],
-                ] as const
-              ).map(([f, label]) => (
-                <button key={f} type="button" role="tab" aria-selected={filter === f} className={filter === f ? 'on' : ''} onClick={() => setFilter(f)}>
-                  {label}
-                </button>
-              ))}
-            </div>
+            {project.runs.length > 0 && (
+              <label className="results-from">
+                <span>Results from</span>
+                <SourceSelect runs={project.runs} value={source} onChange={setSource} />
+              </label>
+            )}
+          </div>
+          {resultRuns && (
+            <p className="muted small results-note">
+              {describeSource(project.runs, source).replace(/^./, (c) => c.toUpperCase())}. A requirement is verified when all of its test cases passed.{' '}
+              <strong>{verdictSummary(all)}.</strong>
+            </p>
+          )}
+          <div className="segmented small wrap" role="tablist" aria-label="Show">
+            {filters.map(([f, label, n]) => (
+              <button key={f} type="button" role="tab" aria-selected={shown === f} className={shown === f ? 'on' : ''} onClick={() => setFilter(f)}>
+                {label}
+                {n != null && <span className="count"> {n}</span>}
+              </button>
+            ))}
           </div>
           <div className="table-scroll">
             <table className="matrix">
@@ -129,12 +164,12 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                 <tr>
                   <th>Requirement</th>
                   <th>Status</th>
-                  <th>Components</th>
-                  <th>Test cases</th>
+                  {resultRuns ? <th>Verdict</th> : <th>Components</th>}
+                  <th>{resultRuns ? 'Test cases and their results' : 'Test cases'}</th>
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ req, links }) => (
+                {rows.map(({ req, links, verdict }) => (
                   <tr key={req.path} className={req.status === 'obsolete' ? 'obsolete' : ''}>
                     <td>
                       <button type="button" className="cell-link" onClick={() => onOpenId(req.id)}>
@@ -145,22 +180,45 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                     <td>
                       <StatusPill status={req.status} />
                     </td>
-                    <td className="small">{req.components.join(', ') || <span className="muted">—</span>}</td>
+                    {resultRuns ? (
+                      <td>{verdict ? <VerdictPill verdict={verdict} /> : <span className="muted small">—</span>}</td>
+                    ) : (
+                      <td className="small">{req.components.join(', ') || <span className="muted">—</span>}</td>
+                    )}
                     <td>
                       {links.length === 0 ? (
-                        req.status === 'obsolete' ? (
+                        req.status === 'obsolete' || resultRuns ? (
                           <span className="muted small">—</span>
                         ) : (
                           <span className="pill gap-pill">No tests</span>
                         )
                       ) : (
                         <div className="test-chips">
-                          {links.map((l) => (
-                            <button key={l.test.id} type="button" className={`test-chip ${l.state}`} onClick={() => onOpenId(l.test.id)} title={`${l.test.id}: ${l.test.title}`}>
-                              {l.state === 'suspect' && <Icon name="warn" size={12} />}
-                              {l.test.id}
-                            </button>
-                          ))}
+                          {links.map((l) => {
+                            const o = l.outcome;
+                            const where = o.at ? ` in ${o.at.run.name}${o.at.case.tester ? `, ${o.at.case.tester}` : ''}${o.at.case.date ? `, ${o.at.case.date}` : ''}` : '';
+                            const tip = `${l.test.id}: ${l.test.title}${resultRuns ? `\n${outcomeText(o, oneRun).replace(/^./, (c) => c.toUpperCase())}${where}` : ''}${
+                              l.state === 'suspect' ? '\nThe requirement changed since this link was reviewed' : ''
+                            }`;
+                            return (
+                              <button
+                                key={l.test.id}
+                                type="button"
+                                className={`test-chip ${l.state}${resultRuns ? ' with-result' : ''}`}
+                                onClick={() => onOpenId(l.test.id)}
+                                title={tip}
+                                aria-label={tip.replace(/\n/g, '. ')}
+                              >
+                                {resultRuns && (
+                                  <span className={`mk ${o.result}${o.inRuns || o.result !== 'not-run' ? '' : ' absent'}`} aria-hidden="true">
+                                    {RESULT_MARK[o.result]}
+                                  </span>
+                                )}
+                                {l.state === 'suspect' && <Icon name="warn" size={12} />}
+                                {l.test.id}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                     </td>
@@ -169,7 +227,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                 {rows.length === 0 && (
                   <tr>
                     <td colSpan={4} className="muted">
-                      {filter === 'all' ? 'No requirements yet.' : 'None.'}
+                      {shown === 'all' ? 'No requirements yet.' : 'None.'}
                     </td>
                   </tr>
                 )}

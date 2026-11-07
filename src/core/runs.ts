@@ -3,7 +3,7 @@
 //   name: Release 2.4.0
 //   created: 2026-11-06
 //   variant: pro                   (when the project has variants)
-//   code: { from: v2.3.0, to: v2.4.0, commit: 3f2a…, commits: 42 }
+//   code: { from: v2.3.0, to: v2.4.0, tag: true, commit: 3f2a…, commits: 42 }   (tag: `to` is a tag)
 //   requirements-commit: 9c1e…
 //   issues: [PROJ-466, PROJ-481]
 //   gaps: { requirements-without-tests: [REQ-19], … }
@@ -46,6 +46,7 @@ export interface TestRun {
   created: string;
   from: string | null;
   to: string | null;
+  toTag: boolean | null; // whether `to` is a tag in the code repository; null: not recorded
   codeCommit: string | null;
   commitCount: number | null;
   requirementsCommit: string | null;
@@ -68,6 +69,7 @@ export function readRun(path: string, text: string): TestRun {
     created: '',
     from: null,
     to: null,
+    toTag: null,
     codeCommit: null,
     commitCount: null,
     requirementsCommit: null,
@@ -89,6 +91,7 @@ export function readRun(path: string, text: string): TestRun {
     created: str(o.created),
     from: code.from == null ? null : str(code.from),
     to: code.to == null ? null : str(code.to),
+    toTag: typeof code.tag === 'boolean' ? code.tag : null,
     codeCommit: code.commit == null ? null : str(code.commit),
     commitCount: code.commits == null ? null : Number(code.commits),
     requirementsCommit: o['requirements-commit'] == null ? null : str(o['requirements-commit']),
@@ -119,6 +122,7 @@ export interface NewRun {
   created: string;
   from: string | null;
   to: string | null;
+  toTag?: boolean | null;
   codeCommit: string | null;
   commitCount: number | null;
   requirementsCommit: string | null;
@@ -149,7 +153,7 @@ export function newRunText(r: NewRun): string {
   const doc = parseDocument('{}');
   const obj: Record<string, unknown> = { name: r.name, created: r.created };
   if (r.variant) obj.variant = r.variant;
-  if (r.from || r.to) obj.code = { from: r.from, to: r.to, commit: r.codeCommit, commits: r.commitCount };
+  if (r.from || r.to) obj.code = { from: r.from, to: r.to, ...(r.to && r.toTag != null ? { tag: r.toTag } : {}), commit: r.codeCommit, commits: r.commitCount };
   if (r.requirementsCommit) obj['requirements-commit'] = r.requirementsCommit;
   if (r.fixVersion) obj.jira = { 'fix-version': r.fixVersion };
   if (r.issues.length) obj.issues = r.issues;
