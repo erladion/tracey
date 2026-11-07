@@ -1,5 +1,5 @@
 // Merging two people's changes to the same file (yours and the server's, from a common
-// starting point), the way Trace understands the file:
+// starting point), the way Tracey understands the file:
 //
 //   requirement / test case   field by field; the text block by block; lists (verifies,
 //                             components, jira) as sets, so additions on both sides merge

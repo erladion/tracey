@@ -1,5 +1,5 @@
 // Resolving conflicts after getting the latest: for each file both you and the server
-// changed, Trace merges what it can and asks about the rest, side by side.
+// changed, Tracey merges what it can and asks about the rest, side by side.
 import { useEffect, useMemo, useState } from 'react';
 import type { ConflictVersions, Identity } from '../../../shared/api';
 import { planMerge, type Choice, type Conflict, type MergePlan } from '../../../core/merge';
@@ -83,7 +83,7 @@ function ConflictCard({ c, choice, onChoose, image }: { c: Conflict; choice: Cho
   return (
     <div className="conflict">
       <div className="conflict-head">
-        <span className="strong">The whole file</span> <span className="muted small">Trace can’t merge this kind of file part by part</span>
+        <span className="strong">The whole file</span> <span className="muted small">Tracey can’t merge this kind of file part by part</span>
       </div>
       <div className="choices" role="radiogroup" aria-label="File">
         <Option on={choice === 'ours'} label="Yours" onPick={() => onChoose('ours')}>
@@ -180,7 +180,7 @@ export function ResolveDialog({ project, onClose }: { project: Project; onClose:
         {conflicted.length > 0 ? (
           <>
             <p className="muted">
-              You and the server changed the same things in {conflicted.length} file{conflicted.length === 1 ? '' : 's'}. Trace merged everything else; choose what to keep here.
+              You and the server changed the same things in {conflicted.length} file{conflicted.length === 1 ? '' : 's'}. Tracey merged everything else; choose what to keep here.
             </p>
             {conflicted.length > 1 && (
               <div className="segmented small" role="tablist">
@@ -202,7 +202,7 @@ export function ResolveDialog({ project, onClose }: { project: Project; onClose:
                 {plan.plan.conflicts.map((c, i) => (
                   <ConflictCard key={i} c={c} choice={choices[i]} image={image} onChoose={(ch) => setChoices(choices.map((x, j) => (j === i ? ch : x)))} />
                 ))}
-                {plan.plan.conflicts.length === 0 && <p className="small">Nothing left to choose: Trace can merge this file by itself.</p>}
+                {plan.plan.conflicts.length === 0 && <p className="small">Nothing left to choose: Tracey can merge this file by itself.</p>}
               </>
             )}
           </>

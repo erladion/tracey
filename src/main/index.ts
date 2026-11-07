@@ -148,7 +148,7 @@ function createWindow() {
     height: 900,
     minWidth: 760,
     minHeight: 500,
-    title: 'Trace',
+    title: 'Tracey',
     backgroundColor: '#F6F6F3',
     autoHideMenuBar: true,
     webPreferences: { preload: join(import.meta.dirname, '../preload/index.cjs'), sandbox: true, contextIsolation: true },

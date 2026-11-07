@@ -77,7 +77,7 @@ describe('merging a test run', () => {
 });
 
 describe('getting the latest with conflicts', () => {
-  it('stops on a merge, resolves in Trace, and finishes', async () => {
+  it('stops on a merge, resolves in Tracey, and finishes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'trace-merge-'));
     const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@x', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@x' };
     const g = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, env, stdio: 'pipe' }).toString();

@@ -41,7 +41,7 @@ export function StartScreen({ onOpen }: { onOpen: (r: RepoEntry) => void }) {
             <Icon name="logo" size={28} />
           </span>
           <div>
-            <h1>Trace</h1>
+            <h1>Tracey</h1>
             <p>Requirements and test cases as Markdown in git, linked both ways.</p>
           </div>
         </header>

@@ -1,7 +1,7 @@
 {
   "name": "reqtessuite",
-  "productName": "Trace",
-  "desktopName": "trace.desktop",
+  "productName": "Tracey",
+  "desktopName": "tracey.desktop",
   "version": "0.1.0",
   "description": "Requirements and test cases as Markdown in git, with traceability",
   "author": "erladion",

@@ -1,4 +1,4 @@
-// Importing a DOORS (9 or Next) ReqIF export into Trace's files.
+// Importing a DOORS (9 or Next) ReqIF export into Tracey's files.
 //
 // Each module (ReqIF specification) becomes a folder of Markdown files, one per
 // requirement or test case, plus a README.md keeping the module's headings,
@@ -29,7 +29,7 @@ export interface DoorsMap {
   };
   types: { heading: string[]; note: string[] }; // object types that are headings, or information
   values: {
-    status: Record<string, string>; // DOORS value → Trace status, for requirements
+    status: Record<string, string>; // DOORS value → Tracey status, for requirements
     testStatus: Record<string, string>; // …and for test cases
     variants: Record<string, string>;
     components: Record<string, string>;
@@ -176,14 +176,14 @@ export function mapToYaml(map: DoorsMap, reqif: Reqif): string {
   for (const o of reqif.objects.values()) types.set(o.type, (types.get(o.type) ?? 0) + 1);
   const objectCounts = reqif.specs.map((s, i) => `#   ${s.name}: ${objectsIn(reqif, i).length} objects`);
 
-  return `# How to import "${reqif.title || 'the DOORS export'}" into Trace. Edit it, then run the import with --map.
+  return `# How to import "${reqif.title || 'the DOORS export'}" into Tracey. Edit it, then run the import with --map.
 #
 # modules: each DOORS module (ReqIF specification): kind (requirement, testcase or skip),
 #   the folder its files go in, and the ID prefix (an object's number is added to it).
 # attributes: which attributes hold the ID, title, text, status, variants and components
 #   (the first with a value wins); keep: others copied into the front matter as they are.
 # types: object types that are headings, or information (kept in the module's README).
-# values: DOORS values → Trace statuses (status for requirements, testStatus for test
+# values: DOORS values → Tracey statuses (status for requirements, testStatus for test
 #   cases), variant keys and component keys.
 # links: link types meaning "test case verifies requirement" (either direction), and
 #   "refines" between requirements (source refines target; list a type under reversed

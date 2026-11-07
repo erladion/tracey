@@ -23,7 +23,7 @@ export function versionLabel(c: FileCommit): string {
 }
 
 // Where the browser loads an item's image from: web images as they are, the
-// repository's through Trace.
+// repository's through Tracey.
 export function imageResolver(repo: string, itemPath: string) {
   return (src: string) => {
     if (/^(https?:|data:)/i.test(src)) return src;

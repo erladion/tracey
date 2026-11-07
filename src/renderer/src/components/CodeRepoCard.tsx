@@ -34,7 +34,7 @@ export function CodeRepoCard({ project }: { project: Project }) {
     <section className="card">
       <h2>Code repository</h2>
       <p className="muted">
-        Commits in the code repository name Jira issues (<code>PROJ-466: …</code>). Trace reads them to link each commit to the requirements naming that issue, and on to their
+        Commits in the code repository name Jira issues (<code>PROJ-466: …</code>). Tracey reads them to link each commit to the requirements naming that issue, and on to their
         test cases. It only reads this repository; it never changes it.
       </p>
       <dl className="settings-summary">
@@ -84,7 +84,7 @@ export function CodeRepoCard({ project }: { project: Project }) {
           <select
             className="button"
             value=""
-            aria-label="Use a repository Trace knows"
+            aria-label="Use a repository Tracey knows"
             onChange={(e) => {
               const r = others.find((x) => x.id === e.target.value);
               if (r) project.setCodeRepo(r);

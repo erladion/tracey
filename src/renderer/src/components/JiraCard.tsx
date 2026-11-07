@@ -25,7 +25,7 @@ export function JiraCard({ project }: { project: Project }) {
         <h2>Jira</h2>
         <p className="muted">
           Not set up. Add <code>jira: {'{'} url: https://jira.example.com {'}'}</code> to trace.yml below (and <code>api: 3</code> for Jira Cloud). Without it, issue keys
-          in front matter and commit messages still link; with it, Trace also reads the issues, so their labels, a field, their text and their remote links can name
+          in front matter and commit messages still link; with it, Tracey also reads the issues, so their labels, a field, their text and their remote links can name
           requirements and test cases too.
         </p>
       </section>

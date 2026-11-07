@@ -202,7 +202,7 @@ ${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" Co
       'docProps/core.xml',
       `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-<dc:title>${xmlText(props.title ?? '')}</dc:title><dc:creator>Trace</dc:creator>
+<dc:title>${xmlText(props.title ?? '')}</dc:title><dc:creator>Tracey</dc:creator>
 <dcterms:created xsi:type="dcterms:W3CDTF">${iso}</dcterms:created><dcterms:modified xsi:type="dcterms:W3CDTF">${iso}</dcterms:modified>
 </cp:coreProperties>`,
     ],

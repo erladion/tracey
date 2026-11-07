@@ -315,7 +315,7 @@ export function checkNewId(index: ProjectIndex, kind: Kind, raw: string): { erro
   if (other && !other.startsWith(own) && id.startsWith(other))
     return { error: `IDs starting with ${other} are ${kind === 'requirement' ? 'test cases' : 'requirements'}. Use one starting with ${own}.`, warning: null };
   if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(id))
-    return ok(`Trace recognizes IDs in text, commit messages and Jira when they look like ${own || 'TC-'}123 (capital letters, a dash, a number). This one is only linked through fields such as Verifies.`);
+    return ok(`Tracey recognizes IDs in text, commit messages and Jira when they look like ${own || 'TC-'}123 (capital letters, a dash, a number). This one is only linked through fields such as Verifies.`);
   if (own && !id.startsWith(own)) return ok(`It doesn’t start with ${own}, so the file says what it is (type: ${kind}).`);
   return ok();
 }

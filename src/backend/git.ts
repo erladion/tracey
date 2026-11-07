@@ -191,7 +191,7 @@ export const git = {
   },
 
   // Your commits on top of the server's. If they overlap, merge instead and stop there
-  // (status.merging) for the conflicts to be resolved, once, in Trace.
+  // (status.merging) for the conflicts to be resolved, once, in Tracey.
   async pull(root: string, author: Identity | null = null): Promise<string> {
     const who = author ? ['-c', `user.name=${author.name}`, '-c', `user.email=${author.email}`] : [];
     const r = await run(['pull', '--rebase', '--autostash'], root, who);

@@ -255,6 +255,6 @@ const server = createServer(async (req, res) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`Trace is running at http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/  (repositories in ${workspace})`);
+  console.log(`Tracey is running at http://${host === '0.0.0.0' ? 'localhost' : host}:${port}/  (repositories in ${workspace})`);
   if (!token && host !== '127.0.0.1' && host !== 'localhost') console.warn('Warning: listening beyond this computer without TRACE_TOKEN; anyone who can reach it can edit and push.');
 });

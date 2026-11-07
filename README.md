@@ -1,4 +1,4 @@
-# Trace
+# Tracey
 
 Requirements and test cases as Markdown files in git, edited WYSIWYG, linked both
 ways, with coverage and "suspect link" tracking. Runs as a desktop app (Electron) or
@@ -20,7 +20,7 @@ npm run start:web -- --workspace ./repos --port 5180
 
 ```sh
 npm run dist         # an installer for this computer's system, in dist/
-npm run dist:win     # Windows: Trace-<version>-win-x64.exe (installs per user, no admin rights)
+npm run dist:win     # Windows: Tracey-<version>-win-x64.exe (installs per user, no admin rights)
 npm run dist:mac     # macOS: a .dmg (build it on a Mac)
 npm run dist:linux   # Linux: an .AppImage (make it executable and run it)
 ```
@@ -40,7 +40,7 @@ by the server's git with the author each person enters in the commit dialog.
 
 Git is the system's `git`, so cloning, pulling and pushing use whatever credential
 helper or SSH key the machine has (the user's for the desktop app, the server's for the
-web app). Trace never prompts for passwords: set up `git clone` from a terminal first.
+web app). Tracey never prompts for passwords: set up `git clone` from a terminal first.
 
 ### CI check
 
@@ -96,7 +96,7 @@ Payment fails with a retry-exhausted message after 3 attempts.
   are also recognized in text, commit messages and Jira; other IDs only link through
   fields such as `verifies`.
 - **Kind** comes from the ID prefix (`REQ-`, `TC-`), or `type: requirement | testcase`.
-- **`reviewed`** is written by Trace: for each verified requirement, a fingerprint of
+- **`reviewed`** is written by Tracey: for each verified requirement, a fingerprint of
   its title and text when the link was last reviewed. When the requirement's text
   changes, the link shows as *changed since review* (suspect) until someone checks the
   test case and marks it reviewed. Whitespace and line wrapping don't count as changes.
@@ -105,7 +105,7 @@ Payment fails with a retry-exhausted message after 3 attempts.
 - **`estimate: 30m`** on a test case: how long running it takes (`45`, `1h`, `1h 30m`,
   `1.5h`, `1:30`; a bare number is minutes). Test runs add them up.
 - **Status `obsolete`** leaves an item out of coverage.
-- Fields Trace doesn't know are kept as they are.
+- Fields Tracey doesn't know are kept as they are.
 
 ### trace.yml
 
@@ -161,7 +161,7 @@ A bar above the text says whether the item changed since the last commit, and wh
 ### Conflicts
 
 **Get latest** puts your commits on top of the server's. When you and the server
-changed the same file, Trace merges instead and resolves what it can by itself:
+changed the same file, Tracey merges instead and resolves what it can by itself:
 
 - a requirement or test case field by field (lists like Verifies as sets, so additions
   on both sides are kept) and its text paragraph by paragraph;
@@ -199,7 +199,7 @@ jira:
   max: 2000
 ```
 
-Trace reads the projects' issues (or `jql`'s) plus every key named in front matter or
+Tracey reads the projects' issues (or `jql`'s) plus every key named in front matter or
 commits, and only reads; it never changes Jira. Remote links take one request per
 issue, for up to 500 issues. Keys that don't exist in Jira are listed in Settings.
 
@@ -221,9 +221,9 @@ run can cover a **fix version** (alone, or with a range of code versions).
 
 ## Commits: the code repository
 
-Requirements and test cases live in one repository (the one Trace opens); the code
+Requirements and test cases live in one repository (the one Tracey opens); the code
 lives in another, whose commit messages name Jira issues (`PROJ-466: …`, or Bitbucket's
-`Pull request #12: PROJ-466 …`). Trace reads that repository's log, and never changes it:
+`Pull request #12: PROJ-466 …`). Tracey reads that repository's log, and never changes it:
 
 ```yaml
 # trace.yml in the requirements repository
@@ -235,7 +235,7 @@ jira:
   projects: [PROJ]     # which KEY-123 words are Jira keys (default: those used in jira: fields)
 ```
 
-Trace finds a local clone with that remote among the repositories it knows (the
+Tracey finds a local clone with that remote among the repositories it knows (the
 desktop app's recent folders, the web server's workspace); otherwise **Settings → Code
 repository** offers to clone it, or to choose its folder. It fetches before reading,
 so new commits show up without pulling the code yourself.
@@ -248,7 +248,7 @@ components by their paths, shown with the commit.
 ## Test runs: what to test between two versions
 
 **Test runs → New test run**, then pick two versions of the code (tags, branches or
-commits; tags are offered). Trace reads the commits between them in the code repository
+commits; tags are offered). Tracey reads the commits between them in the code repository
 and picks the test cases to run:
 
 - commit → Jira key → requirements naming it in `jira:` → test cases verifying them
@@ -306,7 +306,7 @@ The map (YAML, guessed from the export, with what was found listed at the end) s
 - **attributes**: which hold the ID, title, text, status, variants and components;
   `keep` copies others (Priority…) into the front matter as they are.
 - **types**: object types that are headings, or information.
-- **values**: DOORS statuses, variants and components → Trace's.
+- **values**: DOORS statuses, variants and components → Tracey's.
 - **links**: link types meaning *verifies* (a test case and a requirement, whichever
   way DOORS drew the link) and *refines* (between requirements: `refines: [STK-4]`).
 
@@ -349,7 +349,7 @@ leaves out obsolete items unless asked.
   - **Every result in every run.**
   - **Coverage over time.**
 
-  Headers are frozen and filterable. Trace writes the file itself, with no library and
+  Headers are frozen and filterable. Tracey writes the file itself, with no library and
   no macros.
 - **CSV**: one of those tables, as UTF-8 that Excel opens correctly. A cell that starts
   with `=`, `+`, `-` or `@` gets a leading `'`, so it can't run as a formula.
@@ -401,7 +401,7 @@ the text); everything else applies to all variants, so most items need nothing.
 
 When the text differs only a little between variants, split the requirement
 (REQ-07 for the others, REQ-07-PRO for Pro) or give the values per variant in a table
-in the text. Trace has no conditional text, so files stay plain Markdown.
+in the text. Tracey has no conditional text, so files stay plain Markdown.
 
 ## Coverage over time
 
@@ -472,5 +472,5 @@ src/renderer/     React interface, used by both
 From the design discussion, in roughly this order:
 
 1. **Writing to Jira** (optional): remote links from issues back to requirements in
-   Trace, test results on issues.
+   Tracey, test results on issues.
 2. **Bitbucket**: Code Insights reports on PRs ("touches REQ-12, 2 of 3 linked tests pass").

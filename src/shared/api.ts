@@ -29,7 +29,7 @@ export interface GitStatus {
   ahead: number;
   behind: number;
   changes: GitChange[];
-  merging: boolean; // getting the latest stopped on conflicts, to resolve in Trace
+  merging: boolean; // getting the latest stopped on conflicts, to resolve in Tracey
 }
 
 // A file both you and the server changed: before, yours, the server's (null: not there).
@@ -140,7 +140,7 @@ export interface Api {
   // The code repository's history: newest first, on `branch` (the server's copy when
   // there is one); [] if it isn't a repository.
   gitCommits(repo: string, limit: number, branch: string | null): Promise<Commit[]>;
-  // A repository Trace knows whose remote is `url`, if any.
+  // A repository Tracey knows whose remote is `url`, if any.
   findRepoByRemote(url: string): Promise<RepoEntry | null>;
   // Versions: tags, newest version first.
   gitTags(repo: string): Promise<string[]>;

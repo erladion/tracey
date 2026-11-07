@@ -85,7 +85,7 @@ export function SettingsView({ project }: { project: Project }) {
             <dd>{config.jiraUrl ?? 'Not set: Jira keys are shown as plain text.'}</dd>
           </dl>
           <p className="muted small">
-            “obsolete” items are left out of coverage. A test case lists what it verifies in <code>verifies: [REQ-07]</code>; Trace records the reviewed text of each
+            “obsolete” items are left out of coverage. A test case lists what it verifies in <code>verifies: [REQ-07]</code>; Tracey records the reviewed text of each
             requirement under <code>reviewed:</code>, and flags the link when the requirement changes.
           </p>
         </aside>

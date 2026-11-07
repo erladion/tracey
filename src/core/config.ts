@@ -155,7 +155,7 @@ export function statusesFor(config: TraceConfig, k: Kind): string[] {
 }
 
 // The starting trace.yml for a new project.
-export const SAMPLE_CONFIG = `# Trace settings. See README for every option.
+export const SAMPLE_CONFIG = `# Tracey settings. See README for every option.
 requirements:
   dir: requirements
   prefix: REQ-

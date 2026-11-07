@@ -134,7 +134,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
             <span className="brand-mark">
               <Icon name="logo" size={20} />
             </span>
-            <span className="brand-name">Trace</span>
+            <span className="brand-name">Tracey</span>
           </button>
           <span className="repo-name" title={repo.location}>
             {repo.name}
