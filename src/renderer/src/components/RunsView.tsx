@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { Project } from '../project';
-import type { Item } from '../../../core/model';
+import { forVariant, type Item } from '../../../core/model';
 import { linkCommits } from '../../../core/commits';
 import { buildIssueLinks, projectsOf } from '../../../core/links';
 import type { Commit, JiraIssue } from '../../../shared/api';
@@ -17,7 +17,7 @@ import { download } from '../download';
 import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
-import { RESULT_LABEL, StatusPill } from './bits';
+import { RESULT_LABEL, StatusPill, VariantTag } from './bits';
 import { load, save } from '../storage';
 
 // Test steps are shown as formatted text; raw HTML in them is shown as text.
@@ -49,7 +49,9 @@ export function RunsView({ project, focus, onOpenId }: { project: Project; focus
             return (
               <li key={r.path}>
                 <button type="button" className={`item-row${r.path === selected ? ' selected' : ''}`} onClick={() => setSelected(r.path)}>
-                  <span className="item-title">{r.name}</span>
+                  <span className="item-title">
+                    {r.name} {r.variant && <VariantTag variants={[r.variant]} config={project.allIndex.config} />}
+                  </span>
                   <span className="muted small">
                     {r.from || r.to ? `${r.from} → ${r.to} · ` : ''}
                     {r.created}
@@ -124,7 +126,8 @@ function RunDetail({
   onOpenId: (id: string) => void;
   onDeleted: () => void;
 }) {
-  const { index } = project;
+  // Every item: a run may hold test cases the chosen variant doesn't show.
+  const index = project.allIndex;
   const s = summarize(run);
   const [filter, setFilter] = useState<Filter>('all');
   const [open, setOpen] = useState<string | null>(focusCase);
@@ -175,6 +178,11 @@ function RunDetail({
             {run.fixVersion && (
               <>
                 Jira fix version <code>{run.fixVersion}</code> ·{' '}
+              </>
+            )}
+            {run.variant && (
+              <>
+                Variant <strong>{index.config.variants.find((v) => v.key === run.variant)?.name ?? run.variant}</strong> ·{' '}
               </>
             )}
             created {run.created} · <span className="mono small">{run.path}</span>
@@ -376,7 +384,8 @@ function AddCasesDialog({ project, run, onClose }: { project: Project; run: Test
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const inRun = new Set(run.cases.map((c) => c.id));
   const q = query.trim().toLowerCase();
-  const tests = project.index.items.filter(
+  const pool = run.variant ? forVariant(project.allIndex, run.variant) : project.allIndex;
+  const tests = pool.items.filter(
     (i) => i.kind === 'testcase' && i.status !== 'obsolete' && !inRun.has(i.id) && (!q || i.id.toLowerCase().includes(q) || i.title.toLowerCase().includes(q) || i.components.some((c) => c.includes(q))),
   );
   return (
@@ -434,7 +443,11 @@ function AddCasesDialog({ project, run, onClose }: { project: Project; run: Test
 // ---- a new run ------------------------------------------------------------------------
 
 function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClose: () => void; onCreated: (path: string) => void }) {
-  const { index, code } = project;
+  const { code } = project;
+  const variants = project.allIndex.config.variants;
+  const [variant, setVariant] = useState(project.variant ?? '');
+  // The test cases that apply to the variant being tested.
+  const index = useMemo(() => (variant ? forVariant(project.allIndex, variant) : project.allIndex), [project.allIndex, variant]);
   const [tags, setTags] = useState<string[]>([]);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
@@ -520,7 +533,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
   const fixVersions = useMemo(() => [...new Set(project.jira.issues.flatMap((i) => i.fixVersions))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })), [project.jira.issues]);
 
   const componentName = (k: string) => index.config.components.find((c) => c.key === k)?.name ?? k;
-  const allTests = index.items.filter((i) => i.kind === 'testcase' && i.status !== 'obsolete');
+  const allTests = useMemo(() => index.items.filter((i) => i.kind === 'testcase' && i.status !== 'obsolete'), [index]);
   const picked: { item: Item; reason: string[] }[] = useMemo(() => {
     if (scope === 'all') return allTests.map((item) => ({ item, reason: ['Full regression'] }));
     if (scope === 'none' || !preview) return [];
@@ -529,7 +542,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
       .filter((x) => x.item)
       .sort((a, b) => a.item.id.localeCompare(b.item.id, undefined, { numeric: true }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, preview, index]);
+  }, [scope, preview, index, allTests]);
 
   const create = async () => {
     setBusy(true);
@@ -546,6 +559,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
         codeCommit: scope === 'impact' ? (preview?.to ?? null) : null,
         commitCount: scope === 'impact' ? (preview?.commits ?? null) : null,
         requirementsCommit: project.git?.head ?? null,
+        variant: variant || null,
         issues: im?.issues ?? [],
         gaps: {
           requirementsWithoutTests: im?.requirementsWithoutTests ?? [],
@@ -577,6 +591,20 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
             Choose myself
           </button>
         </div>
+
+        {variants.length > 0 && (
+          <label className="field">
+            <span>Variant tested</span>
+            <select value={variant} onChange={(e) => setVariant(e.target.value)}>
+              <option value="">Not variant-specific (every test case)</option>
+              {variants.map((v) => (
+                <option key={v.key} value={v.key}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
 
         {scope === 'impact' && !code.repo && !jiraOn && (
           <p className="warn-text small">Connect the code repository or Jira under Settings first: the commits between two versions, or a Jira fix version, say what changed.</p>

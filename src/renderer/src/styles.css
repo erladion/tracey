@@ -2738,3 +2738,61 @@ h3 {
 .new-item-id input[aria-invalid='true'] {
   border-color: var(--warn-line);
 }
+
+/* ---- variants ---- */
+.variant-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.variant-pick select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+}
+.variant-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.variant-choice legend {
+  float: left;
+  margin-right: 8px;
+  color: var(--muted);
+}
+.variant-tag {
+  display: inline-block;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid var(--purple);
+  color: var(--purple);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.variant-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.variant-meter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+}
+.variant-meter .meter {
+  flex: 1;
+  margin: 0;
+}
+.variant-meter .meter {
+  background: var(--accent-soft);
+}

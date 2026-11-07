@@ -100,6 +100,8 @@ Payment fails with a retry-exhausted message after 3 attempts.
   its title and text when the link was last reviewed. When the requirement's text
   changes, the link shows as *changed since review* (suspect) until someone checks the
   test case and marks it reviewed. Whitespace and line wrapping don't count as changes.
+- **`variants: [pro]`** limits an item to some product variants (see Variants below).
+  Without it, an item applies to all of them.
 - **Status `obsolete`** leaves an item out of coverage.
 - Fields Trace doesn't know are kept as they are.
 
@@ -293,6 +295,35 @@ leaves out obsolete items unless asked.
   no macros.
 - **CSV**: one of those tables, as UTF-8 that Excel opens correctly. A cell that starts
   with `=`, `+`, `-` or `@` gets a leading `'`, so it can't run as a formula.
+
+## Variants
+
+When a product comes in variants, declare them in `trace.yml`:
+
+```yaml
+variants:
+  base: { name: Base }
+  pro: { name: Pro }
+```
+
+An item limited to some variants lists them (`variants: [pro]`, also editable above
+the text); everything else applies to all variants, so most items need nothing.
+
+- **Variant** at the top right shows what applies to one variant. The list, coverage,
+  graph, test runs and exports then cover that variant only. New IDs are still counted
+  across all variants, so they never clash.
+- **Coverage per variant**: a requirement counts as verified for a variant only when
+  a test case that applies to that variant verifies it. With all variants shown,
+  **Coverage → By variant** lists each one; `check` prints them too.
+- **Problems**: a test case whose variants can never meet its requirement's
+  (`[base]` verifying a `[pro]` requirement), and variants `trace.yml` doesn't define.
+- **Test runs** are made for a variant (`variant: pro` in the run file): only its test
+  cases are picked, and its report, results and trend say which variant was tested.
+- A new test case made from a requirement takes the requirement's variants.
+
+When the text differs only a little between variants, split the requirement
+(REQ-07 for the others, REQ-07-PRO for Pro) or give the values per variant in a table
+in the text. Trace has no conditional text, so files stay plain Markdown.
 
 ## Coverage over time
 

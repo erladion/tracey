@@ -7,13 +7,14 @@ export interface NewItemRequest {
   kind: Kind;
   verifies?: string[];
   components?: string[];
+  variants?: string[];
 }
 
 interface Props {
   request: NewItemRequest;
   index: ProjectIndex;
   onClose: () => void;
-  onCreate: (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[] }) => void;
+  onCreate: (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[]; variants?: string[] }) => void;
 }
 
 export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
@@ -21,6 +22,7 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
   const [title, setTitle] = useState('');
   const [typedId, setTypedId] = useState<string | null>(null); // null: the next free one
   const [busy, setBusy] = useState(false);
+  const [variants, setVariants] = useState<string[]>(request.variants ?? []);
   const next = nextId(index, kind);
   const id = typedId ?? next;
   const check = typedId == null ? { error: null, warning: null } : checkNewId(index, kind, typedId);
@@ -35,7 +37,7 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
           e.preventDefault();
           if (!canCreate) return;
           setBusy(true);
-          onCreate(kind, title.trim(), { id: typedId?.trim() || undefined, verifies, components: request.components });
+          onCreate(kind, title.trim(), { id: typedId?.trim() || undefined, verifies, components: request.components, variants });
         }}
       >
         {!request.verifies && (
@@ -64,6 +66,25 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
             <input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder={kind === 'requirement' ? 'Payment retry after gateway timeout' : 'Payment stops after 3 retries'} />
           </label>
         </div>
+        {index.config.variants.length > 0 && (
+          <fieldset className="variant-choice">
+            <legend className="small">Variants</legend>
+            <label className="check">
+              <input type="checkbox" checked={variants.length === 0} onChange={() => setVariants([])} />
+              <span>All</span>
+            </label>
+            {index.config.variants.map((v) => (
+              <label key={v.key} className="check">
+                <input
+                  type="checkbox"
+                  checked={variants.includes(v.key)}
+                  onChange={(e) => setVariants(e.target.checked ? [...variants, v.key] : variants.filter((x) => x !== v.key))}
+                />
+                <span>{v.name}</span>
+              </label>
+            ))}
+          </fieldset>
+        )}
         <p id="new-id-note" className={`small ${check.error ? 'warn-text' : 'muted'}`}>
           {check.error ??
             check.warning ??

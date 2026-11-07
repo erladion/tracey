@@ -1,7 +1,7 @@
 // The specification document: every requirement and test case with their text, the
 // traceability matrix and coverage, as one HTML page to print or save as PDF.
 import MarkdownIt from 'markdown-it';
-import { coverage, linksOf, type Item, type ProjectIndex } from './model';
+import { coverage, linksOf, variantNames, type Item, type ProjectIndex } from './model';
 import { DOC_CSS, esc } from './report';
 
 // Raw HTML in the Markdown is shown as text, never run.
@@ -39,6 +39,7 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
   const ref = (id: string) => (index.byId.get(id) && keep(index.byId.get(id)!) ? `<a class="mono" href="#${anchor(id)}">${esc(id)}</a>` : `<span class="mono">${esc(id)}</span>`);
   const fields = (it: Item) => {
     const rows: [string, string][] = [['Status', statusPill(it.status)]];
+    if (it.variants.length) rows.push(['Variants', esc(variantNames(index.config, it))]);
     if (it.components.length) rows.push(['Components', esc(it.components.map((c) => index.config.components.find((x) => x.key === c)?.name ?? c).join(', '))]);
     const issues = o.issues ? o.issues(it) : it.jira;
     if (issues.length) rows.push(['Jira', esc(issues.join(', '))]);

@@ -35,8 +35,9 @@ function verdict(g: Group): Result {
   return 'passed';
 }
 
-function header(run: TestRun): [string, string][] {
+function header(run: TestRun, index?: ProjectIndex): [string, string][] {
   const rows: [string, string][] = [];
+  if (run.variant) rows.push(['Variant', index?.config.variants.find((v) => v.key === run.variant)?.name ?? run.variant]);
   if (run.from || run.to) rows.push(['Versions', `${run.from ?? '?'} → ${run.to ?? '?'}`]);
   if (run.fixVersion) rows.push(['Jira fix version', run.fixVersion]);
   if (run.codeCommit) rows.push(['Code commit', run.codeCommit]);
@@ -56,7 +57,7 @@ export function reportMarkdown(run: TestRun, index: ProjectIndex, generated = ne
   const cell = (t: string) => t.replace(/\|/g, '\\|').replace(/\n+/g, ' ');
   const out: string[] = [`# Test report: ${run.name}`, ''];
   out.push('| | |', '| --- | --- |');
-  for (const [k, v] of header(run)) out.push(`| ${k} | ${cell(v)} |`);
+  for (const [k, v] of header(run, index)) out.push(`| ${k} | ${cell(v)} |`);
   out.push(`| Report generated | ${generated.toISOString().slice(0, 16).replace('T', ' ')} |`, '');
   out.push('## Summary', '');
   out.push(`${s.total} test cases: **${s.passed} passed**, **${s.failed} failed**, ${s.blocked} blocked, ${s.notRun} not run (${pct(s.done, s.total)}% executed, ${pct(s.passed, s.total)}% passed).`, '');
@@ -135,7 +136,7 @@ export function reportHtml(run: TestRun, index: ProjectIndex, generated = new Da
 <title>Test report: ${esc(run.name)}</title>
 <style>${DOC_CSS}</style></head><body><main>
 <h1>Test report: ${esc(run.name)}</h1>
-<table class="meta">${header(run)
+<table class="meta">${header(run, index)
     .map(([k, v]) => `<tr><td>${esc(k)}</td><td${/commit/i.test(k) ? ' class="mono"' : ''}>${esc(v)}</td></tr>`)
     .join('')}<tr><td>Report generated</td><td>${esc(generated.toLocaleString())}</td></tr></table>
 <h2>Summary</h2>

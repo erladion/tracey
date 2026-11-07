@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { RepoEntry } from '../../shared/api';
 import type { Kind } from '../../core/config';
 import { api } from './api';
-import { useProject } from './project';
+import { useProject, type Project } from './project';
+import { forVariant } from '../../core/model';
 import { Icon } from './icons';
 import { Toasts } from './components/Toasts';
 import { StartScreen } from './components/StartScreen';
@@ -60,7 +61,19 @@ export function App() {
 type View = 'items' | 'coverage' | 'graph' | 'runs' | 'settings';
 
 function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) {
-  const project = useProject(repo);
+  const full = useProject(repo);
+  // The product variant being looked at: the views show what applies to it.
+  const variantKey = `trace.variant.${repo.id}`;
+  const [variantChoice, setVariantChoice] = useState<string | null>(() => load<string>(variantKey));
+  const variants = full.index.config.variants;
+  const variant = variantChoice && variants.some((v) => v.key === variantChoice) ? variantChoice : null;
+  const chooseVariant = (v: string | null) => {
+    setVariantChoice(v);
+    save(variantKey, v);
+  };
+  const variantIndex = useMemo(() => (variant ? forVariant(full.index, variant) : full.index), [full.index, variant]);
+  const variantRuns = useMemo(() => (variant ? full.runs.filter((r) => !r.variant || r.variant === variant) : full.runs), [full.runs, variant]);
+  const project: Project = variant ? { ...full, index: variantIndex, runs: variantRuns, variant } : full;
   const { index } = project;
   const selKey = `trace.selected.${repo.id}`;
   const [view, setView] = useState<View>('items');
@@ -80,23 +93,23 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
 
   const openId = useCallback(
     (id: string) => {
-      const item = index.byId.get(id);
+      const item = full.index.byId.get(id); // any variant's
       if (!item) return notify(`There's no ${id}.`, 'error');
       select(item.path);
       setKind(item.kind);
       setView('items');
     },
-    [index, select],
+    [full.index, select],
   );
 
   const openPath = useCallback(
     (path: string) => {
-      const item = index.byPath.get(path);
+      const item = full.index.byPath.get(path);
       if (item) setKind(item.kind);
       select(path);
       setView('items');
     },
-    [index, select],
+    [full.index, select],
   );
 
   // Ctrl+S saves now; it saves by itself anyway.
@@ -147,6 +160,19 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
           </nav>
         </div>
         <div className="topbar-right">
+          {variants.length > 0 && (
+            <label className="variant-pick" title="Show what applies to one product variant">
+              <span className="muted small">Variant</span>
+              <select value={variant ?? ''} onChange={(e) => chooseVariant(e.target.value || null)}>
+                <option value="">All</option>
+                {variants.map((v) => (
+                  <option key={v.key} value={v.key}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button type="button" className="button primary" onClick={() => setNewItem({ kind })}>
             <Icon name="plus" /> New
           </button>
@@ -170,10 +196,10 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
               {hasText ? (
                 <ItemView
                   key={selected!}
-                  project={project}
+                  project={full}
                   path={selected!}
                   onOpenId={openId}
-                  onNewTest={(req) => setNewItem({ kind: 'testcase', verifies: [req.id], components: req.components })}
+                  onNewTest={(req) => setNewItem({ kind: 'testcase', verifies: [req.id], components: req.components, variants: req.variants })}
                   onShowInGraph={(it) => {
                     setGraphFocus(`${it.kind === 'requirement' ? 'req' : 'test'}:${it.id}`);
                     setView('graph');
@@ -207,22 +233,22 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
             </main>
           </>
         ) : view === 'coverage' ? (
-          <CoverageView project={project} onOpenId={openId} onOpenPath={openPath} />
+          <CoverageView project={project} onOpenId={openId} onOpenPath={openPath} onVariant={chooseVariant} />
         ) : view === 'runs' ? (
           <RunsView key={runFocus ? `${runFocus.path}:${runFocus.caseId}` : ''} project={project} focus={runFocus} onOpenId={openId} />
         ) : view === 'graph' ? (
           <GraphView project={project} focus={graphFocus} onOpenId={openId} />
         ) : (
-          <SettingsView project={project} />
+          <SettingsView project={full} />
         )}
       </div>
 
-      <GitBar project={project} />
+      <GitBar project={full} />
 
       {newItem && (
         <NewItemDialog
           request={newItem}
-          index={index}
+          index={full.index}
           onClose={() => setNewItem(null)}
           onCreate={async (k, title, opts) => {
             try {

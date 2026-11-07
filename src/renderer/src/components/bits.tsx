@@ -2,6 +2,7 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { LinkState } from '../../../core/model';
 import type { Result } from '../../../core/runs';
+import type { TraceConfig } from '../../../core/config';
 import { Icon } from '../icons';
 
 export function StatusPill({ status }: { status: string }) {
@@ -15,6 +16,17 @@ export function ResultPill({ result, title }: { result: Result; title?: string }
   return (
     <span className={`result-pill ${result}`} title={title}>
       {RESULT_LABEL[result]}
+    </span>
+  );
+}
+
+// The variants an item is limited to; nothing when it applies to all.
+export function VariantTag({ variants, config }: { variants: string[]; config: TraceConfig }) {
+  if (!variants.length) return null;
+  const names = variants.map((v) => config.variants.find((x) => x.key === v)?.name ?? v);
+  return (
+    <span className="variant-tag" title={`Only for ${names.join(', ')}`}>
+      {names.join(', ')}
     </span>
   );
 }
@@ -75,8 +87,10 @@ export function ChipInput({ label, values, onChange, suggestions = [], href, onO
       <div className="chips">
         {values.map((v) => {
           const url = href?.(v);
+          // A known value shows its name (a component's or variant's); the key is in the file.
+          const named = suggestions.find((s) => s.value === v && s.label && s.label !== v);
           return (
-            <span key={v} className={`chip${mono ? ' mono' : ''}`}>
+            <span key={v} className={`chip${mono ? ' mono' : ''}`} title={named ? v : undefined}>
               {url ? (
                 <a href={url} target="_blank" rel="noreferrer">
                   {v}
@@ -86,7 +100,7 @@ export function ChipInput({ label, values, onChange, suggestions = [], href, onO
                   {v}
                 </button>
               ) : (
-                v
+                (named?.label ?? v)
               )}
               <button type="button" className="chip-remove" aria-label={`Remove ${v}`} onClick={() => onChange(values.filter((x) => x !== v))}>
                 <Icon name="close" size={12} />

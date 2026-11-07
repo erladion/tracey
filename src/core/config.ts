@@ -5,6 +5,8 @@
 //   statuses: [draft, review, approved, obsolete]
 //   components:
 //     payments: { name: Payments, paths: ["src/payments/**"] }
+//   variants:
+//     pro: { name: Pro }
 //   jira: { url: https://jira.example.com }
 import { parse } from 'yaml';
 
@@ -33,12 +35,19 @@ export interface Component {
   paths: string[]; // glob patterns, relative to the repository root
 }
 
+// A product variant. Items name the variants they're limited to; none means all.
+export interface Variant {
+  key: string;
+  name: string;
+}
+
 export interface TraceConfig {
   requirements: KindConfig;
   testcases: KindConfig;
   statuses: string[];
   testcaseStatuses: string[];
   components: Component[];
+  variants: Variant[];
   jiraUrl: string | null;
   // Jira project keys (PROJ) to look for in commit messages. Empty: those used in
   // requirements' `jira:` fields.
@@ -57,6 +66,7 @@ export const DEFAULT_CONFIG: TraceConfig = {
   statuses: ['draft', 'review', 'approved', 'obsolete'],
   testcaseStatuses: ['draft', 'ready', 'obsolete'],
   components: [],
+  variants: [],
   jiraUrl: null,
   jiraProjects: [],
   jira: { api: 2, jql: null, field: null, links: ISSUE_LINK_SOURCES, max: 2000 },
@@ -103,6 +113,12 @@ export function parseConfig(text: string | null): ConfigResult {
       }
     }
   }
+  // variants: { pro: { name: Pro }, base: Base }  or  [base, pro]
+  const variants: Variant[] = [];
+  if (Array.isArray(o.variants)) for (const v of o.variants) if (v != null && String(v).trim()) variants.push({ key: String(v).trim(), name: String(v).trim() });
+  if (o.variants && typeof o.variants === 'object' && !Array.isArray(o.variants))
+    for (const [key, v] of Object.entries(o.variants as Record<string, unknown>))
+      variants.push({ key, name: typeof v === 'string' ? v : str((v as Record<string, unknown> | null)?.name, key) });
   const jira = (o.jira && typeof o.jira === 'object' ? o.jira : {}) as Record<string, unknown>;
   const code = (o.code && typeof o.code === 'object' ? o.code : {}) as Record<string, unknown>;
   const commitCount = Number(code.commits);
@@ -113,6 +129,7 @@ export function parseConfig(text: string | null): ConfigResult {
       statuses: strList(o.statuses, DEFAULT_CONFIG.statuses),
       testcaseStatuses: strList(o.testcaseStatuses ?? o['testcase-statuses'], DEFAULT_CONFIG.testcaseStatuses),
       components,
+      variants,
       jiraUrl: typeof jira.url === 'string' && jira.url ? jira.url.replace(/\/+$/, '') : null,
       jiraProjects: strList(jira.projects, []).map((p) => p.toUpperCase()),
       jira: {
@@ -154,6 +171,11 @@ components:
   payments:
     name: Payments
     paths: ["src/payments/**"]
+# Product variants. An item limited to some says so (variants: [pro]); one that
+# doesn't say applies to all of them.
+# variants:
+#   base: { name: Base }
+#   pro: { name: Pro }
 # jira:
 #   url: https://jira.example.com
 #   api: 2               # 2: Data Center / Server (personal access token); 3: Cloud

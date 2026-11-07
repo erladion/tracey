@@ -18,6 +18,7 @@ export interface Item {
   title: string;
   status: string;
   components: string[];
+  variants: string[]; // the variants it's limited to; empty: all of them
   jira: string[];
   verifies: string[]; // test cases: the requirements they verify
   // Test cases: per verified requirement, the fingerprint of its text when the link
@@ -33,7 +34,7 @@ export type Severity = 'error' | 'warning';
 
 export interface Problem {
   severity: Severity;
-  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component';
+  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch';
   message: string;
   path?: string;
   id?: string;
@@ -100,6 +101,7 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       title: data.title == null ? '' : String(data.title),
       status: data.status == null ? '' : String(data.status),
       components: list(data.components),
+      variants: list(data.variants),
       jira: list(data.jira),
       verifies: kind === 'testcase' ? list(data.verifies) : [],
       reviewed,
@@ -139,6 +141,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
 
   const verifiedBy = new Map<string, Item[]>();
   const componentKeys = new Set(config.components.map((c) => c.key));
+  const variantKeys = new Set(config.variants.map((v) => v.key));
   for (const it of items) {
     if (!it.title.trim()) problems.push({ severity: 'warning', code: 'missing-title', message: `${it.id} has no title.`, path: it.path, id: it.id });
     const statuses = statusesFor(config, it.kind);
@@ -147,14 +150,63 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
     if (componentKeys.size)
       for (const c of it.components)
         if (!componentKeys.has(c)) problems.push({ severity: 'warning', code: 'unknown-component', message: `${it.id} names component “${c}”, which trace.yml doesn't define.`, path: it.path, id: it.id });
+    for (const v of it.variants)
+      if (!variantKeys.has(v))
+        problems.push({
+          severity: 'warning',
+          code: 'unknown-variant',
+          message: variantKeys.size ? `${it.id} names variant “${v}”, which trace.yml doesn't define.` : `${it.id} names variant “${v}”, but trace.yml defines no variants.`,
+          path: it.path,
+          id: it.id,
+        });
     for (const target of it.verifies) {
       const req = byId.get(target);
       if (!req) problems.push({ severity: 'error', code: 'broken-link', message: `${it.id} verifies ${target}, which doesn't exist.`, path: it.path, id: it.id });
       else if (req.kind !== 'requirement') problems.push({ severity: 'error', code: 'link-to-testcase', message: `${it.id} verifies ${target}, which is a test case.`, path: it.path, id: it.id });
-      else verifiedBy.set(target, [...(verifiedBy.get(target) ?? []), it]);
+      else {
+        verifiedBy.set(target, [...(verifiedBy.get(target) ?? []), it]);
+        if (!sharesVariant(it, req))
+          problems.push({
+            severity: 'warning',
+            code: 'variant-mismatch',
+            message: `${it.id} is for ${it.variants.join(', ')} and ${req.id} for ${req.variants.join(', ')}, so it can never verify it.`,
+            path: it.path,
+            id: it.id,
+          });
+      }
     }
   }
   return { config, items, byId, byPath, verifiedBy, problems };
+}
+
+// ---- variants ------------------------------------------------------------------------
+
+export const appliesTo = (item: Pick<Item, 'variants'>, variant: string) => item.variants.length === 0 || item.variants.includes(variant);
+
+// Whether two items can meet in some variant.
+export const sharesVariant = (a: Pick<Item, 'variants'>, b: Pick<Item, 'variants'>) => !a.variants.length || !b.variants.length || a.variants.some((v) => b.variants.includes(v));
+
+export function variantNames(config: TraceConfig, item: Pick<Item, 'variants'>): string {
+  return item.variants.length ? item.variants.map((v) => config.variants.find((x) => x.key === v)?.name ?? v).join(', ') : 'All variants';
+}
+
+// The project as one variant sees it: only the items that apply to it, and only the
+// links between them. Coverage, the graph and exports then work per variant as is.
+export function forVariant(index: ProjectIndex, variant: string): ProjectIndex {
+  const items = index.items.filter((i) => appliesTo(i, variant));
+  const kept = new Set(items);
+  const byId = new Map([...index.byId].filter(([, it]) => kept.has(it)));
+  const byPath = new Map([...index.byPath].filter(([, it]) => kept.has(it)));
+  const verifiedBy = new Map<string, Item[]>();
+  for (const [id, tests] of index.verifiedBy) {
+    const req = index.byId.get(id);
+    if (!req || !kept.has(req)) continue;
+    const t = tests.filter((x) => kept.has(x));
+    if (t.length) verifiedBy.set(id, t);
+  }
+  // Problems about items the variant doesn't have aren't its problems.
+  const problems = index.problems.filter((p) => !p.path || !index.byPath.has(p.path) || byPath.has(p.path));
+  return { config: index.config, items, byId, byPath, verifiedBy, problems };
 }
 
 // REQ-2 before REQ-10.
@@ -279,7 +331,7 @@ export function newItemPath(index: ProjectIndex, kind: Kind, id: string, title: 
 
 export function newItemText(
   kind: Kind,
-  fields: { id: string; title: string; status: string; verifies?: string[]; components?: string[]; reviewed?: Record<string, string>; type?: boolean },
+  fields: { id: string; title: string; status: string; verifies?: string[]; components?: string[]; variants?: string[]; reviewed?: Record<string, string>; type?: boolean },
 ): string {
   const yamlString = (s: string) => (/^[\w .,()/-]*$/.test(s) && !/^[\s-]|:\s|\s$/.test(s) && s !== '' ? s : JSON.stringify(s));
   const lines = [`id: ${yamlString(fields.id)}`];
@@ -287,6 +339,7 @@ export function newItemText(
   if (fields.type) lines.push(`type: ${kind}`);
   lines.push(`title: ${yamlString(fields.title)}`, `status: ${fields.status}`);
   if (fields.components?.length) lines.push(`components: [${fields.components.join(', ')}]`);
+  if (fields.variants?.length) lines.push(`variants: [${fields.variants.join(', ')}]`);
   if (kind === 'testcase') {
     lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);
     const r = Object.entries(fields.reviewed ?? {});

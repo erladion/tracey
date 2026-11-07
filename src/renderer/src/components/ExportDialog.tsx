@@ -35,7 +35,8 @@ const SHEET_HINT: Record<TableKey, string> = {
 export function ExportDialog({ project, onClose }: { project: Project; onClose: () => void }) {
   const { index, repo, git } = project;
   const [format, setFormatState] = useState<Format>(() => load<Format>('trace.exportFormat') ?? 'pdf');
-  const [title, setTitle] = useState(`${repo.name}: requirements and test cases`);
+  const variantName = project.variant ? (index.config.variants.find((v) => v.key === project.variant)?.name ?? project.variant) : null;
+  const [title, setTitle] = useState(`${repo.name}: requirements and test cases${variantName ? ` (${variantName})` : ''}`);
   const [requirements, setRequirements] = useState(true);
   const [testcases, setTestcases] = useState(true);
   const [matrix, setMatrix] = useState(true);
@@ -56,6 +57,7 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
 
   const exportPdf = async () => {
     const meta: [string, string][] = [['Repository', repo.name]];
+    if (variantName) meta.push(['Variant', variantName]);
     if (git?.branch) meta.push(['Branch', git.branch]);
     if (git?.head) meta.push(['Commit', git.head + (uncommitted ? ' (with uncommitted changes)' : '')]);
     const html = specHtml(index, {
@@ -178,6 +180,7 @@ export function ExportDialog({ project, onClose }: { project: Project; onClose: 
             </select>
           </label>
         )}
+        {variantName && <p className="muted small">Only what applies to the variant {variantName} (chosen at the top).</p>}
         {uncommitted && <p className="muted small">Some requirements or test cases have uncommitted changes; the export shows them as they are now.</p>}
         <div className="dialog-actions">
           <span className="tool-spacer" />

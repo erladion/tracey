@@ -1,7 +1,7 @@
 // The whole repository at a glance: what's tested, what isn't, which links need a
 // look, and what's broken.
 import { useMemo, useState } from 'react';
-import { coverage, linksOf, type Link } from '../../../core/model';
+import { coverage, forVariant, linksOf, type Link } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { LinkBadge, StatusPill } from './bits';
@@ -14,11 +14,12 @@ interface Props {
   project: Project;
   onOpenId: (id: string) => void;
   onOpenPath: (path: string) => void;
+  onVariant: (variant: string | null) => void;
 }
 
 type Filter = 'all' | 'gaps' | 'suspect';
 
-export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
+export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props) {
   const { index } = project;
   const cov = useMemo(() => coverage(index), [index]);
   const [filter, setFilter] = useState<Filter>('all');
@@ -52,7 +53,18 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
       <div className="dash-head graph-head">
         <div>
           <h1>Coverage</h1>
-          <p className="muted">Requirements, the test cases that verify them, and links to check, in this branch’s files as they are now.</p>
+          <p className="muted">
+            Requirements, the test cases that verify them, and links to check, in this branch’s files as they are now
+            {project.variant ? (
+              <>
+                , for the variant <strong>{index.config.variants.find((v) => v.key === project.variant)?.name ?? project.variant}</strong>{' '}
+                <button type="button" className="link-button" onClick={() => onVariant(null)}>
+                  Show all
+                </button>
+              </>
+            ) : null}
+            .
+          </p>
         </div>
         <button type="button" className="button" onClick={() => setExporting(true)}>
           <Icon name="download" /> Export…
@@ -88,6 +100,8 @@ export function CoverageView({ project, onOpenId, onOpenPath }: Props) {
           <span className="tile-sub">changed since review · {cov.unreviewed.length} never reviewed</span>
         </div>
       </div>
+
+      {!project.variant && index.config.variants.length > 0 && <ByVariant project={project} onVariant={onVariant} />}
 
       <TrendCard project={project} />
 
@@ -313,6 +327,65 @@ function TrendCard({ project }: { project: Project }) {
           isn’t in this copy (get the latest).
         </p>
       )}
+    </section>
+  );
+}
+
+// Each variant's coverage: a requirement counts only when a test case for that
+// variant verifies it.
+function ByVariant({ project, onVariant }: { project: Project; onVariant: (variant: string) => void }) {
+  const rows = useMemo(
+    () =>
+      project.allIndex.config.variants.map((v) => {
+        const c = coverage(forVariant(project.allIndex, v.key));
+        const live = c.requirements.filter((r) => r.status !== 'obsolete').length;
+        return { v, live, tested: c.tested.length, untested: c.untested.length, suspect: c.suspect.length, pct: live ? Math.round((c.tested.length / live) * 100) : 0 };
+      }),
+    [project.allIndex],
+  );
+  return (
+    <section className="card">
+      <div className="card-head">
+        <h2>By variant</h2>
+        <span className="muted small">A requirement counts for a variant only when a test case for that variant verifies it.</span>
+      </div>
+      <div className="table-scroll">
+        <table className="matrix variant-table">
+          <thead>
+            <tr>
+              <th>Variant</th>
+              <th className="num">Requirements</th>
+              <th>Verified by a test case</th>
+              <th className="num">Without tests</th>
+              <th className="num">Links to review</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.v.key}>
+                <td>
+                  <button type="button" className="cell-link" onClick={() => onVariant(r.v.key)} title={`Show only what applies to ${r.v.name}`}>
+                    <span>{r.v.name}</span>
+                  </button>
+                </td>
+                <td className="num">{r.live}</td>
+                <td>
+                  <span className="variant-meter">
+                    <span className="meter" aria-hidden="true">
+                      <span style={{ width: `${r.pct}%` }} />
+                    </span>
+                    <span className="num">
+                      {r.pct}% <span className="muted small">({r.tested})</span>
+                    </span>
+                  </span>
+                </td>
+                <td className={`num${r.untested ? ' warn-text' : ''}`}>{r.untested}</td>
+                <td className={`num${r.suspect ? ' warn-text' : ''}`}>{r.suspect}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   );
 }

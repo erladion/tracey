@@ -2,6 +2,7 @@
 //
 //   name: Release 2.4.0
 //   created: 2026-11-06
+//   variant: pro                   (when the project has variants)
 //   code: { from: v2.3.0, to: v2.4.0, commit: 3f2a…, commits: 42 }
 //   requirements-commit: 9c1e…
 //   issues: [PROJ-466, PROJ-481]
@@ -49,6 +50,7 @@ export interface TestRun {
   commitCount: number | null;
   requirementsCommit: string | null;
   fixVersion: string | null; // Jira fix version the run covers
+  variant: string | null; // the product variant tested; null: not said
   issues: string[];
   gaps: RunGaps;
   cases: RunCase[];
@@ -70,6 +72,7 @@ export function readRun(path: string, text: string): TestRun {
     commitCount: null,
     requirementsCommit: null,
     fixVersion: null,
+    variant: null,
     issues: [],
     gaps: { requirementsWithoutTests: [], componentsWithoutTests: [], issuesWithoutRequirement: [] },
     cases: [],
@@ -90,6 +93,7 @@ export function readRun(path: string, text: string): TestRun {
     commitCount: code.commits == null ? null : Number(code.commits),
     requirementsCommit: o['requirements-commit'] == null ? null : str(o['requirements-commit']),
     fixVersion: (o.jira as Record<string, unknown> | undefined)?.['fix-version'] == null ? null : str((o.jira as Record<string, unknown>)['fix-version']),
+    variant: o.variant == null || o.variant === '' ? null : str(o.variant),
     issues: list(o.issues),
     gaps: {
       requirementsWithoutTests: list(gaps['requirements-without-tests']),
@@ -119,6 +123,7 @@ export interface NewRun {
   commitCount: number | null;
   requirementsCommit: string | null;
   fixVersion?: string | null;
+  variant?: string | null;
   issues: string[];
   gaps: RunGaps;
   cases: { id: string; reason: string[] }[];
@@ -143,6 +148,7 @@ function spaceCases(doc: Document) {
 export function newRunText(r: NewRun): string {
   const doc = parseDocument('{}');
   const obj: Record<string, unknown> = { name: r.name, created: r.created };
+  if (r.variant) obj.variant = r.variant;
   if (r.from || r.to) obj.code = { from: r.from, to: r.to, commit: r.codeCommit, commits: r.commitCount };
   if (r.requirementsCommit) obj['requirements-commit'] = r.requirementsCommit;
   if (r.fixVersion) obj.jira = { 'fix-version': r.fixVersion };

@@ -37,10 +37,12 @@ describe('spreadsheet tables', () => {
   const t = tables(now, { obsolete: false, component: null, runs: [run2, run1], trend: null });
   it('lists requirements with their tests, coverage and last results', () => {
     expect(t.requirements.rows.map((r) => r.slice(0, 1))).toEqual([['REQ-01'], ['REQ-02']]);
+    const col = (h: string) => t.requirements.columns.findIndex((c) => c.header === h);
     const r1 = t.requirements.rows[0];
-    expect(r1[5]).toBe('TC-001');
-    expect(r1[6]).toBe('Yes');
-    expect(r1[8]).toBe('TC-001: passed (Release 2.0)');
+    expect(r1[col('Test cases')]).toBe('TC-001');
+    expect(r1[col('Covered')]).toBe('Yes');
+    expect(r1[col('Variants')]).toBe('All variants');
+    expect(r1[col('Last results')]).toBe('TC-001: passed (Release 2.0)');
   });
   it('makes a matrix of requirements and the tests that verify them', () => {
     expect(t.matrix.columns.map((c) => c.header)).toEqual(['Requirement', 'Title', 'TC-001', 'TC-002']);

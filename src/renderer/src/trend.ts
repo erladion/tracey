@@ -1,7 +1,7 @@
 // Coverage over time: the requirements as they were at each test run's
 // requirements-commit, read from git once per commit and kept for the session.
 import { useEffect, useState } from 'react';
-import { buildIndex, type ProjectIndex } from '../../core/model';
+import { buildIndex, forVariant, type ProjectIndex } from '../../core/model';
 import { trend, type TrendPoint } from '../../core/trend';
 import type { Project } from './project';
 import { api } from './api';
@@ -25,7 +25,13 @@ export async function loadTrend(project: Project): Promise<TrendPoint[]> {
   const commits = [...new Set(project.runs.map((r) => r.requirementsCommit).filter((c): c is string => !!c))];
   const found = new Map<string, ProjectIndex | null>();
   await Promise.all(commits.map(async (c) => found.set(c, await indexAt(project.repo.id, c))));
-  return trend(project.runs, (run) => (run.requirementsCommit ? (found.get(run.requirementsCommit) ?? null) : null), project.index);
+  // Seen by the chosen variant, then as now; at each run, by the variant it tested.
+  const view = (idx: ProjectIndex, v: string | null) => (v ? forVariant(idx, v) : idx);
+  const at = (run: (typeof project.runs)[number]) => {
+    const idx = run.requirementsCommit ? found.get(run.requirementsCommit) : null;
+    return idx ? view(idx, project.variant ?? run.variant) : null;
+  };
+  return trend(project.runs, at, project.index);
 }
 
 // null while reading.
@@ -42,6 +48,6 @@ export function useTrend(project: Project): TrendPoint[] | null {
     };
     // Again when the runs or the items change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [project.repo.id, project.runs, project.index]);
+  }, [project.repo.id, project.runs, project.index, project.variant]);
   return points;
 }

@@ -18,7 +18,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createBackend, readProjectFiles, safePath, type RepoHost } from '../backend/service';
 import { createVault, jiraCookies, webJiraCredentials } from '../backend/webjira';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
-import { buildIndex, coverage } from '../core/model';
+import { buildIndex, coverage, forVariant } from '../core/model';
 
 const args = process.argv.slice(2);
 
@@ -33,6 +33,15 @@ if (args[0] === 'check') {
     `\n${cov.requirements.length} requirements, ${cov.testcases.length} test cases; ${cov.untested.length} requirements without test cases; ` +
       `${cov.suspect.length} suspect links; ${errors} errors, ${index.problems.length - errors} warnings.`,
   );
+  // Per variant: a requirement counts only when a test case for that variant verifies it.
+  for (const v of index.config.variants) {
+    const c = coverage(forVariant(index, v.key));
+    const live = c.requirements.filter((r) => r.status !== 'obsolete').length;
+    console.log(
+      `  ${v.name}: ${c.tested.length} of ${live} requirements verified${live ? ` (${Math.round((c.tested.length / live) * 100)}%)` : ''}` +
+        (c.untested.length ? `; without test cases: ${c.untested.map((r) => r.id).join(', ')}` : ''),
+    );
+  }
   process.exit(errors ? 1 : 0);
 }
 

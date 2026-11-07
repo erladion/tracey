@@ -316,6 +316,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
   const jira = index.config.jiraUrl;
   const reqSuggestions = index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title }));
   const componentSuggestions = index.config.components.map((c) => ({ value: c.key, label: c.name }));
+  const variantSuggestions = index.config.variants.map((v) => ({ value: v.key, label: v.name }));
 
   return (
     <div className="item-view">
@@ -372,6 +373,15 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
               />
             )}
             <ChipInput label="Components" values={item.components} suggestions={componentSuggestions} onChange={(components) => setField({ components })} placeholder="Add component" />
+            {(variantSuggestions.length > 0 || item.variants.length > 0) && (
+              <ChipInput
+                label="Variants"
+                values={item.variants}
+                suggestions={variantSuggestions}
+                onChange={(variants) => setField({ variants })}
+                placeholder={item.variants.length ? 'Add variant' : 'All variants'}
+              />
+            )}
             <ChipInput label="Jira" mono values={item.jira} href={jira ? (k) => `${jira}/browse/${encodeURIComponent(k)}` : undefined} onChange={(v) => setField({ jira: v })} placeholder="PROJ-123" />
           </div>
           <div className="item-path mono" title="File in the repository">

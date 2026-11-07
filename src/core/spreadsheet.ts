@@ -1,6 +1,6 @@
 // The repository as spreadsheet tables: requirements, test cases, the traceability
 // matrix, test runs and their results, and coverage over time.
-import { linksOf, type Item, type LinkState, type ProjectIndex } from './model';
+import { linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
 import { lastResult, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
 import type { Sheet } from './xlsx';
@@ -43,6 +43,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'ID', width: 10 },
       { header: 'Title', width: 40, wrap: true },
       { header: 'Status', width: 11 },
+      { header: 'Variants', width: 16 },
       { header: 'Components', width: 16 },
       { header: 'Jira', width: 16 },
       { header: 'Test cases', width: 18, wrap: true },
@@ -58,6 +59,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         r.id,
         r.title,
         r.status,
+        variantNames(index.config, r),
         componentNames(r),
         issues(r),
         links.map((l) => l.test.id).join(', '),
@@ -85,6 +87,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Status', width: 11 },
       { header: 'Verifies', width: 18, wrap: true },
       { header: 'Links', width: 30, wrap: true },
+      { header: 'Variants', width: 16 },
       { header: 'Components', width: 16 },
       { header: 'Jira', width: 16 },
       { header: 'Last result', width: 12 },
@@ -104,6 +107,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         linksOf(index, t)
           .map((l) => `${l.req.id}: ${STATE_LABEL[l.state]}`)
           .join('\n'),
+        variantNames(index.config, t),
         componentNames(t),
         issues(t),
         res?.case.result ?? 'never run',
@@ -135,6 +139,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'From', width: 10 },
       { header: 'To', width: 10 },
       { header: 'Fix version', width: 11 },
+      { header: 'Variant', width: 12 },
       { header: 'Test cases', width: 10 },
       { header: 'Passed', width: 8 },
       { header: 'Failed', width: 8 },
@@ -145,7 +150,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     ],
     rows: o.runs.map((r) => {
       const s = summarize({ ...r, cases: runCases(r) });
-      return [r.name, r.created, r.from, r.to, r.fixVersion, s.total, s.passed, s.failed, s.blocked, s.notRun, s.total ? { pct: s.done / s.total } : null, r.path];
+      return [r.name, r.created, r.from, r.to, r.fixVersion, r.variant ? (index.config.variants.find((v) => v.key === r.variant)?.name ?? r.variant) : null, s.total, s.passed, s.failed, s.blocked, s.notRun, s.total ? { pct: s.done / s.total } : null, r.path];
     }),
   };
 

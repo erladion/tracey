@@ -4,7 +4,7 @@ import type { Kind } from '../../../core/config';
 import { linksOf, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
-import { StatusPill } from './bits';
+import { StatusPill, VariantTag } from './bits';
 
 interface Props {
   project: Project;
@@ -101,6 +101,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew }: Pr
               <span className="item-title">{it.title || <em className="muted">Untitled</em>}</span>
               <span className="item-row-bottom">
                 <StatusPill status={it.status} />
+                <VariantTag variants={it.variants} config={index.config} />
                 {it.kind === 'testcase' && it.verifies.length > 0 && <span className="muted small mono">→ {it.verifies.join(', ')}</span>}
               </span>
             </button>

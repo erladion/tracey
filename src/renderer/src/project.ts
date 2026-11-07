@@ -21,7 +21,9 @@ export interface Project {
   error: string | null;
   config: string | null;
   texts: Map<string, string>;
-  index: ProjectIndex;
+  index: ProjectIndex; // as the chosen variant sees it (allIndex when none is chosen)
+  allIndex: ProjectIndex; // every item
+  variant: string | null; // the product variant being looked at; null: all
   git: GitStatus | null;
   saving: boolean;
   // The code repository, whose commits name Jira issues.
@@ -39,7 +41,7 @@ export interface Project {
   updateFields(path: string, changes: Record<string, unknown>): void;
   markReviewed(test: Item, reqIds: string[]): void;
   writeConfig(text: string): Promise<void>;
-  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; components?: string[] }): Promise<string>;
+  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; components?: string[]; variants?: string[] }): Promise<string>;
   deleteItem(path: string): Promise<void>; // any file: items and test runs
   runs: TestRun[];
   createFile(path: string, text: string): Promise<void>;
@@ -377,7 +379,7 @@ export function useProject(repo: RepoEntry): Project {
   );
 
   const createItem = useCallback(
-    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[] } = {}) => {
+    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[]; variants?: string[] } = {}) => {
       const idx = indexRef.current;
       // A chosen ID is checked again here: another change may have taken it meanwhile.
       const id = opts.id?.trim() || nextId(idx, kind);
@@ -393,7 +395,7 @@ export function useProject(repo: RepoEntry): Project {
         if (req) reviewed[r] = fingerprint(req);
       }
       const status = (kind === 'requirement' ? idx.config.statuses : idx.config.testcaseStatuses)[0] ?? 'draft';
-      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, components: opts.components, reviewed, type: !!prefix && !id.startsWith(prefix) });
+      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, components: opts.components, variants: opts.variants, reviewed, type: !!prefix && !id.startsWith(prefix) });
       await api.writeFile(repo.id, path, text);
       const next = new Map(textsRef.current);
       next.set(path, text);
@@ -419,5 +421,5 @@ export function useProject(repo: RepoEntry): Project {
     [repo.id, refreshGit],
   );
 
-  return { repo, loading, error, config, texts, index, git, saving, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
+  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
 }

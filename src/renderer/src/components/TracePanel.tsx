@@ -9,7 +9,7 @@ import type { Project } from '../project';
 import { api } from '../api';
 import { Icon } from '../icons';
 import { lastResult, resultsFor, type CaseResult } from '../../../core/runs';
-import { LinkBadge, ResultPill, StatusPill, timeAgo } from './bits';
+import { LinkBadge, ResultPill, StatusPill, VariantTag, timeAgo } from './bits';
 import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
 import { CompareDialog } from './Compare';
@@ -59,8 +59,9 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph, 
                   </button>
                   <div className="link-meta">
                     <StatusPill status={other.status} />
+                    <VariantTag variants={other.variants} config={index.config} />
                     <LinkBadge state={l.state} />
-                    {item.kind === 'requirement' && <LastRun result={lastResult(project.runs, other.id)} onOpenRun={onOpenRun} />}
+                    {item.kind === 'requirement' && <LastRun result={lastResult(project.runs, other.id)} config={index.config} onOpenRun={onOpenRun} />}
                   </div>
                   {l.state !== 'ok' && (
                     <div className="link-actions">
@@ -242,14 +243,16 @@ function History({ project, item }: { project: Project; item: Item }) {
 }
 
 const runWhen = (r: CaseResult) => [r.case.tester, r.case.date || r.run.created].filter(Boolean).join(', ');
+const runName = (r: CaseResult, config: Project['index']['config']) =>
+  r.run.variant ? `${r.run.name} (${config.variants.find((v) => v.key === r.run.variant)?.name ?? r.run.variant})` : r.run.name;
 
 // A test's last result, beside it under "Verified by".
-function LastRun({ result, onOpenRun }: { result: CaseResult | null; onOpenRun: (focus: RunFocus) => void }) {
+function LastRun({ result, config, onOpenRun }: { result: CaseResult | null; config: Project['index']['config']; onOpenRun: (focus: RunFocus) => void }) {
   if (!result) return <span className="muted small">Never run</span>;
   return (
-    <button type="button" className="last-run" onClick={() => onOpenRun({ path: result.run.path, caseId: result.case.id })} title={`Last run in ${result.run.name} (${runWhen(result)})`}>
+    <button type="button" className="last-run" onClick={() => onOpenRun({ path: result.run.path, caseId: result.case.id })} title={`Last run in ${runName(result, config)} (${runWhen(result)})`}>
       <ResultPill result={result.case.result} />
-      <span className="muted small">{result.run.name}</span>
+      <span className="muted small">{runName(result, config)}</span>
     </button>
   );
 }
@@ -269,7 +272,7 @@ function Results({ project, item, onOpenRun }: { project: Project; item: Item; o
               <button type="button" className="history-row" onClick={() => onOpenRun({ path: r.run.path, caseId: item.id })} title="Open this test run">
                 <span className="result-line">
                   <ResultPill result={r.case.result} />
-                  <span className="history-msg">{r.run.name}</span>
+                  <span className="history-msg">{runName(r, project.index.config)}</span>
                 </span>
                 <span className="muted small">
                   {r.case.result === 'not-run' ? `To do · run created ${r.run.created}` : runWhen(r)}
