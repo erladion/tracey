@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { typeWord, type Kind } from '../../../core/config';
+import { isRunnable, typeWord, type Kind } from '../../../core/config';
 import { checkNewId, nextId, type ProjectIndex } from '../../../core/model';
 import { Dialog } from './Dialog';
 
@@ -28,7 +28,7 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
   const next = nextId(index, kind);
   const id = typedId ?? next;
   const check = typedId == null ? { error: null, warning: null } : checkNewId(index, kind, typedId);
-  const verifies = kind === 'testcase' ? request.verifies : undefined;
+  const verifies = isRunnable(index.config, kind) ? request.verifies : undefined;
   const refines = kind === 'requirement' ? request.refines : undefined;
   const links = request.links;
   const linked = Object.entries(links ?? {}).filter(([, ids]) => ids.length);
@@ -41,6 +41,8 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
       title={
         refines?.length
           ? `New requirement refining ${refines.join(', ')}`
+          : verifies?.length && kind !== 'testcase'
+            ? `New ${typeWord(index.config, kind)} verifying ${verifies.join(', ')}`
           : linkDef
             ? `New ${typeWord(index.config, kind)} that ${linkDef.name.toLowerCase()} ${linked[0][1].join(', ')}`
             : `New ${typeWord(index.config, kind)}`

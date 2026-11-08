@@ -6,7 +6,7 @@
 // file names, so files can be renamed or moved freely.
 import { parseDuration } from './estimate';
 import { fieldIssue } from './fields';
-import { customLinks, linksFrom, parseConfig, typeOf, type Component, type Kind, type LinkDef, type RuleDef, type TraceConfig, statusesFor } from './config';
+import { customLinks, isRunnable, isVerifiable, linksFrom, parseConfig, typeOf, type Component, type Kind, type LinkDef, type RuleDef, type TraceConfig, statusesFor } from './config';
 import { decodeText, readFrontMatter, splitFrontMatter } from './frontmatter';
 
 export interface SourceFile {
@@ -171,12 +171,12 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       components: list(data.components),
       variants: list(data.variants),
       jira: list(data.jira),
-      verifies: kind === 'testcase' ? list(data.verifies) : [],
+      verifies: isRunnable(config, kind) ? list(data.verifies) : [],
       refines: kind === 'requirement' ? list(data.refines) : [],
       links: Object.fromEntries(linksFrom(config, kind).filter((l) => !l.builtIn).map((l) => [l.key, list(data[l.key])])),
       verification: method ?? 'test',
       evidence: kind === 'requirement' ? (Array.isArray(data.evidence) ? data.evidence : data.evidence == null || data.evidence === '' ? [] : [data.evidence]).map((x) => String(x).trim()).filter(Boolean) : [],
-      estimate: kind === 'testcase' ? (parseDuration(data.estimate) ?? null) : null,
+      estimate: isRunnable(config, kind) ? (parseDuration(data.estimate) ?? null) : null,
       reviewed,
       path: file.path,
       front,
@@ -216,6 +216,8 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
   const refinedBy = new Map<string, Item[]>();
   const linkedBy = new Map<string, Map<string, Item[]>>(customLinks(config).map((l) => [l.key, new Map()]));
   const typeName = (k: Kind) => typeOf(config, k).name.toLowerCase();
+  const a = (word: string) => `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`;
+  const verifiable = config.types.filter((t) => isVerifiable(config, t.key)).map((t) => t.plural.toLowerCase());
   const componentKeys = new Set(config.components.map((c) => c.key));
   const variantKeys = new Set(config.variants.map((v) => v.key));
   for (const it of items) {
@@ -226,7 +228,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
     if (componentKeys.size)
       for (const c of it.components)
         if (!componentKeys.has(c)) problems.push({ severity: 'warning', code: 'unknown-component', message: `${it.id} names component “${c}”, which trace.yml doesn't define.`, path: it.path, id: it.id });
-    if (it.kind === 'testcase' && parseDuration(it.data.estimate) === null)
+    if (isRunnable(config, it.kind) && parseDuration(it.data.estimate) === null)
       problems.push({
         severity: 'warning',
         code: 'bad-estimate',
@@ -250,7 +252,14 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
     for (const target of it.verifies) {
       const req = byId.get(target);
       if (!req) problems.push({ severity: 'error', code: 'broken-link', message: `${it.id} verifies ${target}, which doesn't exist.`, path: it.path, id: it.id });
-      else if (req.kind !== 'requirement') problems.push({ severity: 'error', code: 'link-to-testcase', message: `${it.id} verifies ${target}, which is a test case.`, path: it.path, id: it.id });
+      else if (!isVerifiable(config, req.kind))
+        problems.push({
+          severity: 'error',
+          code: 'link-to-testcase',
+          message: `${it.id} verifies ${target}, which is ${a(typeName(req.kind))}${verifiable.length > 1 ? `: tests verify ${verifiable.join(' or ')}` : ''}.`,
+          path: it.path,
+          id: it.id,
+        });
       else {
         verifiedBy.set(target, [...(verifiedBy.get(target) ?? []), it]);
         if (!sharesVariant(it, req))
@@ -266,7 +275,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
     for (const target of it.refines) {
       const parent = byId.get(target);
       if (!parent) problems.push({ severity: 'error', code: 'broken-link', message: `${it.id} refines ${target}, which doesn't exist.`, path: it.path, id: it.id });
-      else if (parent.kind !== 'requirement') problems.push({ severity: 'error', code: 'link-to-testcase', message: `${it.id} refines ${target}, which is a test case.`, path: it.path, id: it.id });
+      else if (parent.kind !== 'requirement') problems.push({ severity: 'error', code: 'link-to-testcase', message: `${it.id} refines ${target}, which is ${a(typeName(parent.kind))}.`, path: it.path, id: it.id });
       else if (parent === it) problems.push({ severity: 'error', code: 'refine-loop', message: `${it.id} refines itself.`, path: it.path, id: it.id });
       else {
         refinedBy.set(target, [...(refinedBy.get(target) ?? []), it]);
@@ -295,7 +304,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
           problems.push({
             severity: 'error',
             code: 'wrong-link-type',
-            message: `${it.id} ${def.name.toLowerCase()} ${target}, which is a ${typeName(to.kind)}: ${def.key} links go to ${def.to.map((k) => typeOf(config, k).plural.toLowerCase()).join(' or ')}.`,
+            message: `${it.id} ${def.name.toLowerCase()} ${target}, which is ${a(typeName(to.kind))}: ${def.key} links go to ${def.to.map((k) => typeOf(config, k).plural.toLowerCase()).join(' or ')}.`,
             ...where,
           });
         else {
@@ -400,11 +409,13 @@ export function refinesOf(index: ProjectIndex, item: Item): { up: RefineLink[]; 
   return { up, down };
 }
 
+// Verifies links: of a verified item (a requirement…), the tests verifying it; of a test
+// (a test case, or another runnable type), what it verifies.
 export function linksOf(index: ProjectIndex, item: Item): Link[] {
-  if (item.kind === 'requirement') return (index.verifiedBy.get(item.id) ?? []).map((test) => ({ test, req: item, state: linkState(test, item) }));
+  if (isVerifiable(index.config, item.kind)) return (index.verifiedBy.get(item.id) ?? []).map((test) => ({ test, req: item, state: linkState(test, item) }));
   return item.verifies.flatMap((id) => {
     const req = index.byId.get(id);
-    return req && req.kind === 'requirement' ? [{ test: item, req, state: linkState(item, req) }] : [];
+    return req && req !== item && isVerifiable(index.config, req.kind) ? [{ test: item, req, state: linkState(item, req) }] : [];
   });
 }
 
@@ -441,7 +452,7 @@ export interface Coverage {
   byEvidence: Item[]; // of those, the ones covered by analysis, inspection or demonstration
   untested: Item[]; // requirements (not obsolete) nothing covers
   exempt: Item[]; // requirements needing no verification (verification: none) that nothing covers
-  orphans: Item[]; // test cases (not obsolete) that verify nothing
+  orphans: Item[]; // test cases and other runnable items (not obsolete) that verify nothing
   suspect: Link[];
   unreviewed: Link[];
   suspectRefines: RefineLink[]; // parents changed since the refining requirement was reviewed
@@ -513,11 +524,12 @@ export const coveredRequirements = (index: ProjectIndex) => verification(index).
 export function coverage(index: ProjectIndex): Coverage {
   const requirements = index.items.filter((i) => i.kind === 'requirement');
   const testcases = index.items.filter((i) => i.kind === 'testcase');
-  const links = requirements.flatMap((r) => linksOf(index, r));
+  const tests = index.items.filter((i) => isRunnable(index.config, i.kind)); // test cases and other runnable types
+  const links = index.items.filter((i) => isVerifiable(index.config, i.kind)).flatMap((r) => linksOf(index, r));
   const { covered, exempt } = verification(index);
   const tested = requirements.filter((r) => live(r) && covered.has(r.id));
   const refines = requirements.flatMap((r) => refinesOf(index, r).up);
-  const testedComponents = new Set(testcases.filter(live).flatMap((t) => t.components));
+  const testedComponents = new Set(tests.filter(live).flatMap((t) => t.components));
   const declared = index.items.flatMap((i) => itemLinks(index, i).out).filter((l) => live(l.from) && live(l.to));
   return {
     requirements,
@@ -528,7 +540,7 @@ export function coverage(index: ProjectIndex): Coverage {
     byEvidence: tested.filter((r) => covered.get(r.id) === 'evidence'),
     untested: requirements.filter((r) => live(r) && !covered.has(r.id) && !exempt.has(r.id)),
     exempt: requirements.filter((r) => exempt.has(r.id)),
-    orphans: testcases.filter((t) => live(t) && t.verifies.length === 0),
+    orphans: tests.filter((t) => live(t) && t.verifies.length === 0),
     suspect: links.filter((l) => l.state === 'suspect' && live(l.test) && live(l.req)),
     unreviewed: links.filter((l) => l.state === 'unreviewed' && live(l.test) && live(l.req)),
     suspectRefines: refines.filter((l) => l.state === 'suspect' && live(l.child) && live(l.parent)),
@@ -605,6 +617,7 @@ export function newItemText(
     variants?: string[];
     reviewed?: Record<string, string>;
     type?: boolean;
+    steps?: boolean; // start with Steps and Expected headings (test cases, and runnable types)
   },
 ): string {
   const yamlString = (s: string) => (/^[\w .,()/-]*$/.test(s) && !/^[\s-]|:\s|\s$/.test(s) && s !== '' ? s : JSON.stringify(s));
@@ -614,12 +627,12 @@ export function newItemText(
   lines.push(`title: ${yamlString(fields.title)}`, `status: ${fields.status}`);
   if (fields.components?.length) lines.push(`components: [${fields.components.join(', ')}]`);
   if (fields.variants?.length) lines.push(`variants: [${fields.variants.join(', ')}]`);
-  if (kind === 'testcase') lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);
+  if (kind === 'testcase' || fields.verifies) lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);
   if (kind === 'requirement' && fields.refines?.length) lines.push(`refines: [${fields.refines.join(', ')}]`);
   for (const [key, ids] of Object.entries(fields.links ?? {})) if (ids.length) lines.push(`${key}: [${ids.join(', ')}]`);
   const r = Object.entries(fields.reviewed ?? {});
   if (r.length) lines.push('reviewed:', ...r.map(([k, v]) => `  ${k}: "${v}"`));
-  const body = kind === 'testcase' ? '## Steps\n\n1. \n\n## Expected\n\n' : '';
+  const body = kind === 'testcase' || fields.steps ? '## Steps\n\n1. \n\n## Expected\n\n' : '';
   return `---\n${lines.join('\n')}\n---\n${body}`;
 }
 

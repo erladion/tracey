@@ -8,7 +8,7 @@
 // item naming it. Refining requirements get a column each level down, and each declared
 // item type a column of its own. Pure, so it's tested without a browser.
 import { byEvidence, checkRules, itemLinks, linksOf, refinesOf, verification, type Item, type LinkState, type ProjectIndex } from './model';
-import { typeOf, type TraceConfig } from './config';
+import { isRunnable, isVerifiable, typeOf, type TraceConfig } from './config';
 import type { LinkedCommit } from './commits';
 import { buildIssueLinks, type IssueLinks, type LinkSource } from './links';
 import type { JiraIssue } from '../shared/api';
@@ -133,7 +133,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
     }
     if (it.kind === 'requirement') {
       const tests = linksOf(index, it).filter((l) => !filter.hideObsolete || live(l.test));
-      for (const l of tests) edges.push({ from: key, to: `test:${l.test.id}`, state: l.state });
+      for (const l of tests) edges.push({ from: key, to: nodeKey(l.test), state: l.state });
       const { up, down } = refinesOf(index, it);
       for (const l of down) if (!filter.hideObsolete || live(l.child)) edges.push({ from: key, to: `req:${l.child.id}`, state: l.state });
       const missing = it.refines.filter((v) => index.byId.get(v)?.kind !== 'requirement');
@@ -146,20 +146,26 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
         if (byEvidence(it.verification) && !down.length) [node.gap, node.tag] = [`To be verified by ${it.verification}, but no evidence is recorded, and no test case verifies it.`, 'No evidence'];
         else [node.gap, node.tag] = [down.length ? 'No test case verifies this requirement, nor all the requirements refining it.' : 'No test case verifies this requirement.', 'No tests'];
       }
-    } else if (it.kind === 'testcase') {
+    } else if (isRunnable(index.config, it.kind)) {
       for (const c of it.components) {
         usedComponents.add(c);
         edges.push({ from: key, to: `component:${c}` });
       }
       if (live(it)) {
         const links = linksOf(index, it);
-        const missing = it.verifies.filter((v) => index.byId.get(v)?.kind !== 'requirement');
+        const missing = it.verifies.filter((v) => {
+          const t = index.byId.get(v);
+          return !t || t === it || !isVerifiable(index.config, t.kind);
+        });
         const suspect = links.filter((l) => l.state === 'suspect').map((l) => l.req.id);
-        if (missing.length) [node.gap, node.warn, node.tag] = [`Verifies ${missing.join(', ')}, which ${missing.length === 1 ? "doesn't" : "don't"} exist.`, true, 'Broken link'];
-        else if (suspect.length) [node.gap, node.warn, node.tag] = [`${suspect.join(', ')} changed since this test case was reviewed.`, true, 'Suspect'];
-        else if (!it.verifies.length) [node.gap, node.tag] = ['Verifies no requirement.', 'No requirement'];
+        if (missing.length) [node.gap, node.warn, node.tag] = [`Verifies ${missing.join(', ')}, which ${missing.length === 1 ? "doesn't" : "don't"} exist or can't be verified.`, true, 'Broken link'];
+        else if (suspect.length) [node.gap, node.warn, node.tag] = [`${suspect.join(', ')} changed since this ${typeOf(index.config, it.kind).name.toLowerCase()} was reviewed.`, true, 'Suspect'];
+        else if (!it.verifies.length) [node.gap, node.tag] = it.kind === 'testcase' ? ['Verifies no requirement.', 'No requirement'] : ['Verifies nothing.', 'Verifies nothing'];
       }
     }
+    // Tests verifying an item of another type than requirements (architecture…).
+    if (it.kind !== 'requirement' && isVerifiable(index.config, it.kind))
+      for (const l of linksOf(index, it)) if (!filter.hideObsolete || live(l.test)) edges.push({ from: key, to: nodeKey(l.test), state: l.state });
     // Links of the declared types: edges, and what's wrong with them.
     const { out } = itemLinks(index, it);
     for (const l of out) if (!filter.hideObsolete || live(l.to)) edges.push({ from: nodeKey(l.to), to: key, state: l.state });
@@ -195,7 +201,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
   // Issues that code changed for, but nothing links to a requirement or test case.
   for (const j of [...commitIssues].filter((j) => !issues.has(j)).sort())
     nodes.push({ ...issueNode(j), gap: 'Commits name this issue, but it’s linked to no requirement or test case.', tag: 'Not linked' });
-  const testedComponents = new Set(items.filter((i) => i.kind === 'testcase' && live(i)).flatMap((i) => i.components));
+  const testedComponents = new Set(items.filter((i) => isRunnable(index.config, i.kind) && live(i)).flatMap((i) => i.components));
   for (const key of new Set([...components.keys(), ...usedComponents])) {
     const c = components.get(key);
     nodes.push({

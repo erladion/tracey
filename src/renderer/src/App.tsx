@@ -215,7 +215,9 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                   onOpenId={openId}
                   onNewTest={(req) => setNewItem({ kind: 'testcase', verifies: [req.id], components: req.components, variants: req.variants })}
                   onNewRefinement={(req) => setNewItem({ kind: 'requirement', refines: [req.id], components: req.components, variants: req.variants })}
-                  onNewLinked={(k, link, target) => setNewItem({ kind: k, links: { [link]: [target.id] }, components: target.components, variants: target.variants })}
+                  onNewLinked={(k, link, target) =>
+                    setNewItem({ kind: k, ...(link === 'verifies' ? { verifies: [target.id] } : { links: { [link]: [target.id] } }), components: target.components, variants: target.variants })
+                  }
                   onShowInGraph={(it) => {
                     setGraphFocus(nodeKey(it));
                     setView('graph');

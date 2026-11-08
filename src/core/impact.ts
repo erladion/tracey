@@ -10,6 +10,7 @@
 import type { LinkedCommit } from './commits';
 import { componentsForPath, type Item, type ProjectIndex } from './model';
 import { buildIssueLinks, type IssueLinks } from './links';
+import { isRunnable } from './config';
 
 export type Reason =
   // req null: the issue links to the test case itself. fixVersion: the issue is in it.
@@ -63,7 +64,8 @@ export function impact(index: ProjectIndex, commits: LinkedCommit[], opts: Impac
   let commitsWithoutKeys = 0;
 
   const reqs = index.items.filter((i) => i.kind === 'requirement' && live(i));
-  const tests = index.items.filter((i) => i.kind === 'testcase' && live(i));
+  const runnable = (it: Item) => isRunnable(index.config, it.kind);
+  const tests = index.items.filter((i) => runnable(i) && live(i));
   const testsOf = (reqId: string) => (index.verifiedBy.get(reqId) ?? []).filter(live);
 
   // An issue → the requirements and test cases linked to it → those requirements' test cases.
@@ -76,7 +78,9 @@ export function impact(index: ProjectIndex, commits: LinkedCommit[], opts: Impac
         const reason: Reason = { kind: 'issue', issue, req: it.id, ...how };
         add(requirements, it.id, reason);
         for (const t of testsOf(it.id)) add(cases, t.id, reason);
-      } else add(cases, it.id, { kind: 'issue', issue, req: null, ...how });
+      } else if (runnable(it)) add(cases, it.id, { kind: 'issue', issue, req: null, ...how });
+      // Something else verified (an architecture element…): the tests verifying it.
+      else for (const t of testsOf(it.id)) add(cases, t.id, { kind: 'issue', issue, req: null, ...how });
     }
   };
   for (const issue of opts.fixVersion?.issues ?? []) linkIssue(issue, { commits: [], fixVersion: opts.fixVersion!.name });
@@ -94,7 +98,8 @@ export function impact(index: ProjectIndex, commits: LinkedCommit[], opts: Impac
       if (it.kind === 'requirement') {
         add(requirements, id, reason);
         for (const t of testsOf(id)) add(cases, t.id, reason);
-      } else add(cases, id, reason);
+      } else if (runnable(it)) add(cases, id, reason);
+      else for (const t of testsOf(id)) add(cases, t.id, reason);
     }
 
     for (const component of lc.components) {

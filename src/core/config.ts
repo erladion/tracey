@@ -13,8 +13,10 @@
 //   jira: { url: https://jira.example.com }
 //   types:                       item types beyond requirements and test cases
 //     risk: { name: Risk, prefix: RSK-, dir: risks, statuses: [open, mitigated, closed] }
+//     integration-test: { prefix: IT-, dir: integration-tests, runnable: true }
 //   links:                       link types beyond verifies and refines
 //     mitigates: { name: Mitigates, reverse: Mitigated by, from: requirement, to: risk }
+//     verifies: { to: [requirement, architecture] }   what tests may verify, besides requirements
 //   rules:                       what counts as a gap, besides requirements without tests
 //     - { every: risk, needs: mitigates }
 import { isMap, isScalar, parse, parseDocument, stringify } from 'yaml';
@@ -43,6 +45,7 @@ export interface TypeDef extends KindConfig {
   plural: string; // "Risks"
   statuses: string[];
   builtIn: boolean;
+  runnable: boolean; // run in test runs, with results and estimates, and verifies things (test cases, and types declared so)
 }
 
 // A link type: items of the `from` types name items of the `to` types in a front-matter
@@ -144,16 +147,16 @@ export const DEFAULT_CONFIG: TraceConfig = {
   rules: [],
   notes: [],
 };
-const BUILT_IN_LINKS: LinkDef[] = [
+const BUILT_IN_LINKS: readonly LinkDef[] = [
   { key: 'verifies', name: 'Verifies', reverse: 'Verified by', from: ['testcase'], to: ['requirement'], builtIn: true },
   { key: 'refines', name: 'Refines', reverse: 'Refined by', from: ['requirement'], to: ['requirement'], builtIn: true },
 ];
 const builtInTypes = (c: Pick<TraceConfig, 'requirements' | 'testcases' | 'statuses' | 'testcaseStatuses'>): TypeDef[] => [
-  { key: 'requirement', name: 'Requirement', plural: 'Requirements', statuses: c.statuses, builtIn: true, ...c.requirements },
-  { key: 'testcase', name: 'Test case', plural: 'Test cases', statuses: c.testcaseStatuses, builtIn: true, ...c.testcases },
+  { key: 'requirement', name: 'Requirement', plural: 'Requirements', statuses: c.statuses, builtIn: true, runnable: false, ...c.requirements },
+  { key: 'testcase', name: 'Test case', plural: 'Test cases', statuses: c.testcaseStatuses, builtIn: true, runnable: true, ...c.testcases },
 ];
 DEFAULT_CONFIG.types = builtInTypes(DEFAULT_CONFIG);
-DEFAULT_CONFIG.links = BUILT_IN_LINKS;
+DEFAULT_CONFIG.links = BUILT_IN_LINKS.map((l) => ({ ...l }));
 
 export interface ConfigResult {
   config: TraceConfig;
@@ -206,8 +209,8 @@ export function parseConfig(text: string | null): ConfigResult {
   const testcases = kind(o.testcases, DEFAULT_CONFIG.testcases);
   const statuses = strList(o.statuses, DEFAULT_CONFIG.statuses);
   const testcaseStatuses = strList(o.testcaseStatuses ?? o['testcase-statuses'], DEFAULT_CONFIG.testcaseStatuses);
-  const types = [...builtInTypes({ requirements, testcases, statuses, testcaseStatuses }), ...typeDefs(o.types, statuses, notes)];
-  const links = [...BUILT_IN_LINKS, ...linkDefs(o.links, types, notes)];
+  const types = [...builtInTypes({ requirements, testcases, statuses, testcaseStatuses }), ...typeDefs(o.types, statuses, testcaseStatuses, notes)];
+  const links = [...builtInLinks(o.links, types, notes), ...linkDefs(o.links, types, notes)];
   const linkKeys = new Set(links.map((l) => l.key));
   const fields = (o.fields && typeof o.fields === 'object' && !Array.isArray(o.fields) ? Object.entries(o.fields as Record<string, unknown>).map(([k, v]) => fieldDef(k, v, types)).filter((f): f is FieldDef => !!f) : []).filter((f) => {
     if (!linkKeys.has(f.key)) return true;
@@ -310,7 +313,7 @@ export function typeKey(types: TypeDef[], name: string): string | null {
 const RESERVED = new Set(['requirement', 'testcase', 'commit', 'issue', 'component', 'item', 'req', 'test']);
 
 //   risk: { name: Risk, plural: Risks, prefix: RSK-, dir: risks, digits: 2, statuses: [open, closed] }
-function typeDefs(v: unknown, statuses: string[], notes: string[]): TypeDef[] {
+function typeDefs(v: unknown, statuses: string[], testStatuses: string[], notes: string[]): TypeDef[] {
   if (!v || typeof v !== 'object' || Array.isArray(v)) {
     if (v != null) notes.push('types: should list item types by key, like  risk: { prefix: RSK- }.');
     return [];
@@ -324,7 +327,8 @@ function typeDefs(v: unknown, statuses: string[], notes: string[]): TypeDef[] {
     const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const name = str(o.name, label(key));
     const k = kind(o, { dir: key, prefix: `${key.slice(0, 4).toUpperCase()}-`, digits: 2 });
-    out.push({ key, name, plural: str(o.plural, /s$/i.test(name) ? name : `${name}s`), statuses: strList(o.statuses, statuses), builtIn: false, ...k });
+    const runnable = o.runnable === true;
+    out.push({ key, name, plural: str(o.plural, /s$/i.test(name) ? name : `${name}s`), statuses: strList(o.statuses, runnable ? testStatuses : statuses), builtIn: false, runnable, ...k });
   }
   return out;
 }
@@ -341,6 +345,7 @@ function linkDefs(v: unknown, types: TypeDef[], notes: string[]): LinkDef[] {
       notes.push(`links: “${key}” isn't a usable key: use lower-case letters, digits and dashes.`);
       continue;
     }
+    if (key === 'verifies') continue; // built in; what it may link is extended in builtInLinks
     if (BUILT_IN_FIELDS.has(key)) {
       notes.push(`links: “${key}” is one of Tracey's own fields, so it can't be a link type.`);
       continue;
@@ -365,6 +370,22 @@ function linkDefs(v: unknown, types: TypeDef[], notes: string[]): LinkDef[] {
     out.push({ key, name, reverse: str(o.reverse, `${name} (from)`), from, to, builtIn: false });
   }
   return out;
+}
+
+// The built-in links. Test cases and the runnable types verify; requirements, and the
+// types `links: verifies: { to: […] }` adds, are verified.
+function builtInLinks(v: unknown, types: TypeDef[], notes: string[]): LinkDef[] {
+  const o = (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>).verifies : null) as Record<string, unknown> | null;
+  const named = (side: string) =>
+    strList(o?.[side], []).flatMap((n) => {
+      const k = typeKey(types, n);
+      if (!k) notes.push(`links: verifies names “${n}” under ${side}:, which isn't an item type.`);
+      return k ? [k] : [];
+    });
+  for (const k of named('from')) if (!types.find((t) => t.key === k)?.runnable) notes.push(`links: verifies from ${k}: only runnable types verify (runnable: true on the type).`);
+  const from = types.filter((t) => t.runnable).map((t) => t.key);
+  const to = [...new Set(['requirement', ...named('to')])];
+  return BUILT_IN_LINKS.map((l) => (l.key === 'verifies' ? { ...l, from, to } : { ...l }));
 }
 
 //   - { every: risk, needs: mitigates }                    something must mitigate each risk
@@ -405,8 +426,14 @@ export const fieldsFor = (config: TraceConfig, k: Kind) => config.fields.filter(
 
 // An item type's settings; one the config doesn't know gets the requirements' statuses.
 export function typeOf(config: TraceConfig, k: Kind): TypeDef {
-  return config.types.find((t) => t.key === k) ?? { key: k, name: label(k), plural: `${label(k)}s`, statuses: config.statuses, builtIn: false, dir: '', prefix: '', digits: 2 };
+  return config.types.find((t) => t.key === k) ?? { key: k, name: label(k), plural: `${label(k)}s`, statuses: config.statuses, builtIn: false, runnable: false, dir: '', prefix: '', digits: 2 };
 }
+
+const verifiesDef = (config: TraceConfig) => config.links.find((l) => l.key === 'verifies');
+// Run in test runs (test cases, and types declared runnable); they verify.
+export const isRunnable = (config: TraceConfig, k: Kind) => typeOf(config, k).runnable;
+// What test cases (and other runnable types) can verify: requirements, and types added to verifies.
+export const isVerifiable = (config: TraceConfig, k: Kind) => verifiesDef(config)?.to.includes(k) ?? k === 'requirement';
 
 export const statusesFor = (config: TraceConfig, k: Kind): string[] => typeOf(config, k).statuses;
 export const typeName = (config: TraceConfig, k: Kind) => typeOf(config, k).name;

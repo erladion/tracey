@@ -1,6 +1,6 @@
 // The list of requirements, test cases or another item type, with search and filters.
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { fieldsFor, statusesFor, type Kind } from '../../../core/config';
+import { fieldsFor, isRunnable, statusesFor, typeWord, type Kind } from '../../../core/config';
 import { checkRules, itemLinks, linksOf, verification, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
@@ -189,7 +189,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
               <span className="item-row-bottom">
                 <StatusPill status={it.status} />
                 <VariantTag variants={it.variants} config={index.config} />
-                {it.kind === 'testcase' && it.verifies.length > 0 && <span className="muted small mono">→ {it.verifies.join(', ')}</span>}
+                {it.verifies.length > 0 && <span className="muted small mono">→ {it.verifies.join(', ')}</span>}
               </span>
             </button>
           </li>
@@ -197,7 +197,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
         {items.length === 0 && !project.loading && <li className="muted list-empty">Nothing matches.</li>}
       </ul>
       <button type="button" className="button sidebar-new" onClick={onNew}>
-        <Icon name="plus" /> New {kind === 'requirement' ? 'requirement' : 'test case'}
+        <Icon name="plus" /> New {typeWord(index.config, kind)}
       </button>
     </aside>
   );
@@ -220,7 +220,11 @@ function RowBadge({ project, item, how }: { project: Project; item: Item; how: R
     );
   if (item.status === 'obsolete') return null;
   const rule = how.rules.get(item.id);
-  if (item.kind !== 'requirement' && item.kind !== 'testcase') return rule ? <span className="row-badge gap">{rule.toLowerCase()}</span> : null;
+  const cfg = project.index.config;
+  if (item.kind !== 'requirement' && !isRunnable(cfg, item.kind)) {
+    if (rule) return <span className="row-badge gap">{rule.toLowerCase()}</span>;
+    return links.length ? <span className="row-badge">{links.length} test{links.length === 1 ? '' : 's'}</span> : null;
+  }
   if (item.kind === 'requirement') {
     const covered = how.covered.get(item.id);
     if (links.length)

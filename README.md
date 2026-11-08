@@ -162,6 +162,13 @@ rules:
 - **A type** gets its own tab in the list, ID prefix, folder, statuses and declared
   fields (`for: risk`). Its plural defaults to the name plus "s"; `plural:` sets it.
   An item is of a type by its ID prefix, by `type: risk` in the file, or by its folder.
+- **A runnable type** (`runnable: true`, say `integration-test`) is a test like test
+  cases are: it verifies (`verifies:`), has an estimate, goes in test runs, and is picked
+  for a run through what it verifies and its components. Its statuses default to the
+  test cases'. **What tests verify** goes beyond requirements with
+  `links: verifies: { to: [architecture] }`: integration tests (or test cases) then
+  verify architecture elements, with suspect links, results beside them, and rules
+  (`- { every: architecture, needs: verifies }`).
 - **A link** is a front-matter list on the linking item, named by its key
   (`mitigates: [RSK-01]`), edited above the text with suggestions of the right type.
   Both items list it in the side panel (*Mitigates* on one, *Mitigated by* on the

@@ -5,7 +5,7 @@
 //   priority:high      items whose priority contains "high"
 //   doors:Payments     a field holding an object or list matches on any part of it
 //   retry timeout      every word somewhere in the ID, title, text or any field
-import { linksFrom, type FieldDef, type Kind, type TraceConfig } from './config';
+import { isRunnable, linksFrom, type FieldDef, type Kind, type TraceConfig } from './config';
 import type { Item } from './model';
 
 // The fields Tracey edits itself; `reviewed` is its bookkeeping, never shown. Every type
@@ -17,7 +17,7 @@ const OWN: Record<string, string[]> = {
 };
 
 export function ownFields(kind: Kind, config?: TraceConfig): Set<string> {
-  return new Set([...COMMON, ...(OWN[kind] ?? []), ...(config ? linksFrom(config, kind).map((l) => l.key) : [])]);
+  return new Set([...COMMON, ...(OWN[kind] ?? []), ...(config ? linksFrom(config, kind).map((l) => l.key) : []), ...(config && isRunnable(config, kind) ? ['estimate'] : [])]);
 }
 
 export const isOwnField = (kind: Kind, key: string, config?: TraceConfig) => ownFields(kind, config).has(key);

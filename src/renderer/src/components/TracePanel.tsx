@@ -2,7 +2,7 @@
 // components, its problems, and its history.
 import { useEffect, useState } from 'react';
 import { byEvidence, itemLinks, linksOf, refinesOf, verification, type Item, type ItemLink, type RefineLink } from '../../../core/model';
-import { linksFrom, linksTo, typeOf, typeWord } from '../../../core/config';
+import { isRunnable, isVerifiable, linksFrom, linksTo, typeOf, typeWord } from '../../../core/config';
 import { commitsFor } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import type { FileCommit } from '../../../shared/api';
@@ -37,7 +37,11 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
   const declared = itemLinks(index, item);
   const outDefs = linksFrom(index.config, item.kind).filter((l) => !l.builtIn && (item.links[l.key]?.length ?? 0) > 0);
   const inDefs = linksTo(index.config, item.kind).filter((l) => !l.builtIn);
-  const builtIn = item.kind === 'requirement' || item.kind === 'testcase';
+  const verifiable = isVerifiable(index.config, item.kind);
+  const runnable = isRunnable(index.config, item.kind);
+  const builtIn = verifiable || runnable;
+  // What can verify it: test cases, and other runnable types.
+  const testers = verifiable ? index.config.types.filter((t) => t.runnable).map((t) => t.key) : [];
 
   return (
     <aside className="trace-panel" aria-label="Traceability">
@@ -47,13 +51,22 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
       {builtIn && (
       <section>
         <div className="panel-head">
-          <h3>{item.kind === 'requirement' ? 'Verified by' : 'Verifies'}</h3>
-          {item.kind === 'requirement' && (
-            <button type="button" className="link-button" onClick={() => onNewTest(item)}>
-              <Icon name="plus" size={14} /> New test case
+          <h3>{verifiable ? 'Verified by' : 'Verifies'}</h3>
+          {testers.length === 1 && (
+            <button type="button" className="link-button" onClick={() => (testers[0] === 'testcase' && item.kind === 'requirement' ? onNewTest(item) : onNewLinked(testers[0], 'verifies', item))}>
+              <Icon name="plus" size={14} /> New {typeWord(index.config, testers[0])}
             </button>
           )}
         </div>
+        {testers.length > 1 && (
+          <div className="panel-new">
+            {testers.map((k) => (
+              <button key={k} type="button" className="link-button" onClick={() => onNewLinked(k, 'verifies', item)}>
+                <Icon name="plus" size={14} /> New {typeWord(index.config, k)}
+              </button>
+            ))}
+          </div>
+        )}
         {links.length === 0 ? (
           how?.covered.get(item.id) === 'evidence' ? (
             <p className="muted small">
@@ -64,20 +77,26 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
           ) : how?.exempt.has(item.id) ? (
             <p className="muted small">No test case, and none needed: its verification is set to none.</p>
           ) : (
-            <p className={`muted small${item.kind === 'requirement' && item.status !== 'obsolete' ? ' gap-note' : ''}`}>
-              {item.kind === 'requirement'
+            <p className={`muted small${verifiable && item.status !== 'obsolete' && (item.kind === 'requirement' || index.config.rules.some((r) => r.type === item.kind && r.link === 'verifies')) ? ' gap-note' : ''}`}>
+              {item.kind !== 'requirement'
+                ? verifiable
+                  ? `No test verifies this ${typeWord(index.config, item.kind)} yet.`
+                  : item.kind === 'testcase'
+                    ? 'This test case doesn’t verify a requirement yet. Add one under Verifies.'
+                    : `This ${typeWord(index.config, item.kind)} doesn’t verify anything yet. Add it under Verifies.`
+                : item.kind === 'requirement'
                 ? byEvidence(item.verification) && !refines.down.length
                   ? `It’s to be verified by ${item.verification}, but no evidence is recorded yet. Add it under Evidence.`
                   : refines.down.length
                     ? 'No test case verifies this requirement, nor all the requirements refining it.'
                     : 'No test case verifies this requirement yet.'
-                : 'This test case doesn’t verify a requirement yet. Add one under Verifies.'}
+                : ''}
             </p>
           )
         ) : (
           <ul className="link-list">
             {links.map((l) => {
-              const other = item.kind === 'requirement' ? l.test : l.req;
+              const other = verifiable ? l.test : l.req;
               return (
                 <li key={other.id} className={`link-card ${l.state}`}>
                   <button type="button" className="link-target" onClick={() => onOpenId(other.id)}>
@@ -88,7 +107,7 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
                     <StatusPill status={other.status} />
                     <VariantTag variants={other.variants} config={index.config} />
                     <LinkBadge state={l.state} />
-                    {item.kind === 'requirement' && <LastRun result={lastResult(project.runs, other.id)} config={index.config} onOpenRun={onOpenRun} />}
+                    {verifiable && <LastRun result={lastResult(project.runs, other.id)} config={index.config} onOpenRun={onOpenRun} />}
                   </div>
                   {l.state !== 'ok' && (
                     <div className="link-actions">
@@ -107,7 +126,7 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
             })}
           </ul>
         )}
-        {item.kind === 'testcase' && item.verifies.filter((v) => !index.byId.has(v)).length > 0 && (
+        {runnable && item.verifies.filter((v) => !index.byId.has(v)).length > 0 && (
           <p className="warn-text small">Not found: {item.verifies.filter((v) => !index.byId.has(v)).join(', ')}</p>
         )}
       </section>
@@ -169,7 +188,7 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
         );
       })}
 
-      {item.kind === 'testcase' && <Results project={project} item={item} onOpenRun={onOpenRun} />}
+      {runnable && <Results project={project} item={item} onOpenRun={onOpenRun} />}
 
       {components.length > 0 && (
         <section>
@@ -255,7 +274,7 @@ function Commits({ project, item }: { project: Project; item: Item }) {
       <h3>Code commits</h3>
       {found.length === 0 ? (
         <p className="muted small">
-          No commits in {project.code.repo.name} name {item.kind === 'testcase' ? 'its ID, its Jira issues or those of the requirements it verifies' : 'its ID or its Jira issues'}.
+          No commits in {project.code.repo.name} name {isRunnable(project.index.config, item.kind) ? 'its ID, its Jira issues or those of the requirements it verifies' : 'its ID or its Jira issues'}.
         </p>
       ) : (
         <ul className="history">

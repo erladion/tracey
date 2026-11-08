@@ -5,7 +5,7 @@ import { byEvidence, coverage, itemLinks, linksOf, METHOD_LABEL, variantNames, v
 import { DOC_CSS, esc } from './report';
 import type { TestRun } from './runs';
 import { outcomeText, RESULT_MARK, resultMatrix, VERDICT_MARK, verdictSummary, verdictText } from './verdict';
-import { customTypes, fieldsFor } from './config';
+import { customTypes, fieldsFor, isRunnable, isVerifiable } from './config';
 import { fieldText } from './fields';
 
 // Raw HTML in the Markdown is shown as text, never run.
@@ -76,8 +76,11 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
       const into = declared.in.filter((l) => l.def === def && keep(l.from));
       if (into.length) rows.push([esc(def.reverse), into.map((l) => ref(l.from.id) + mark(l.state)).join(', ')]);
     }
-    if (it.kind === 'testcase') rows.push(['Verifies', it.verifies.map(ref).join(', ') || '<span class="muted">nothing</span>']);
-    else if (it.kind === 'requirement') {
+    if (isRunnable(index.config, it.kind)) rows.push(['Verifies', it.verifies.map(ref).join(', ') || '<span class="muted">nothing</span>']);
+    else if (it.kind !== 'requirement' && isVerifiable(index.config, it.kind)) {
+      const t = linksOf(index, it).filter((l) => keep(l.test));
+      rows.push(['Verified by', t.map((l) => ref(l.test.id) + mark(l.state)).join(', ') || '<span class="muted">nothing</span>']);
+    } else if (it.kind === 'requirement') {
       const t = linksOf(index, it);
       rows.push(['Verified by', t.map((l) => ref(l.test.id) + (l.state === 'suspect' ? ' <span class="pill suspect">changed since review</span>' : '')).join(', ') || otherwise(it, down)]);
     }

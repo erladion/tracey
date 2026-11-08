@@ -121,9 +121,15 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
   // those of every declared type.
   const otherTypes = customTypes(index.config);
   const otherItems = otherTypes.flatMap((t) => index.items.filter((i) => i.kind === t.key && keep(i)));
+  // Their links: the declared ones, and verifies when tests or verified items are among them.
+  const otherLinks = index.config.links.filter((l) => !l.builtIn || l.key === 'verifies');
+  const isOther = (k: string) => otherTypes.some((t) => t.key === k);
+  const outOf = (it: Item, key: string) => (key === 'verifies' ? it.verifies : (it.links[key] ?? []));
+  const intoOf = (it: Item, key: string) =>
+    key === 'verifies' ? (index.verifiedBy.get(it.id) ?? []).filter(keep).map((t) => t.id) : itemLinks(index, it).in.filter((x) => x.def.key === key && keep(x.from)).map((x) => x.from.id);
   const otherLinkCols = [
-    ...declaredLinks.filter((l) => l.from.some((k) => otherTypes.some((t) => t.key === k))).map((l) => ({ header: l.name, width: 16, wrap: true })),
-    ...declaredLinks.filter((l) => l.to.some((k) => otherTypes.some((t) => t.key === k))).map((l) => ({ header: l.reverse, width: 16, wrap: true })),
+    ...otherLinks.filter((l) => l.from.some(isOther)).map((l) => ({ header: l.name, width: 16, wrap: true })),
+    ...otherLinks.filter((l) => l.to.some(isOther)).map((l) => ({ header: l.reverse, width: 16, wrap: true })),
   ];
   const otherFieldDefs = index.config.fields.filter((f) => f.kinds.some((k) => otherTypes.some((t) => t.key === k)));
   const others: Sheet = {
@@ -141,7 +147,6 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'File', width: 36 },
     ],
     rows: otherItems.map((it) => {
-      const { in: into } = itemLinks(index, it);
       return [
         it.id,
         typeOf(index.config, it.kind).name,
@@ -150,8 +155,8 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         variantNames(index.config, it),
         componentNames(it),
         issues(it),
-        ...declaredLinks.filter((l) => l.from.some((k) => otherTypes.some((t) => t.key === k))).map((l) => (it.links[l.key] ?? []).join(', ')),
-        ...declaredLinks.filter((l) => l.to.some((k) => otherTypes.some((t) => t.key === k))).map((l) => into.filter((x) => x.def === l && keep(x.from)).map((x) => x.from.id).join(', ')),
+        ...otherLinks.filter((l) => l.from.some(isOther)).map((l) => (l.from.includes(it.kind) ? outOf(it, l.key).join(', ') : '')),
+        ...otherLinks.filter((l) => l.to.some(isOther)).map((l) => (l.to.includes(it.kind) ? intoOf(it, l.key).join(', ') : '')),
         ...otherFieldDefs.map((f) => (f.kinds.includes(it.kind) ? (f.type === 'number' && typeof it.data[f.key] === 'number' ? (it.data[f.key] as number) : fieldText(it.data[f.key]) || null) : null)),
         it.path,
       ];

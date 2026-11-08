@@ -2,7 +2,7 @@
 // and fields all at once. The files change like any edit and are committed from the
 // bottom bar.
 import { useMemo, useState } from 'react';
-import { fieldsFor, linksFrom, statusesFor, typeOf, type FieldDef } from '../../../core/config';
+import { fieldsFor, isRunnable, linksFrom, statusesFor, typeOf, type FieldDef } from '../../../core/config';
 import { bulkChanges, emptyEdit, type BulkEdit as Edit } from '../../../core/bulk';
 import { fieldInput } from '../../../core/fields';
 import { durationText, parseDuration } from '../../../core/estimate';
@@ -34,7 +34,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
   const declared = fieldsFor(index.config, kind);
   const singles: Single[] = [
     { key: 'status', name: 'Status', kind: 'pick', values: statusesFor(index.config, kind), clearable: false },
-    ...(kind === 'testcase' ? [{ key: 'estimate', name: 'Estimate', kind: 'type', type: 'estimate' } as Single] : []),
+    ...(isRunnable(index.config, kind) ? [{ key: 'estimate', name: 'Estimate', kind: 'type', type: 'estimate' } as Single] : []),
     ...(kind === 'requirement' ? [{ key: 'verification', name: 'Verification', kind: 'pick', values: [...METHODS], clearable: false } as Single] : []),
     ...declared
       .filter((f) => f.type !== 'list' && f.type !== 'choices')

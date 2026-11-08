@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { Project } from '../project';
 import { forVariant, type Item } from '../../../core/model';
+import { isRunnable } from '../../../core/config';
 import { linkCommits } from '../../../core/commits';
 import { buildIssueLinks, projectsOf } from '../../../core/links';
 import type { Commit, JiraIssue } from '../../../shared/api';
@@ -399,7 +400,7 @@ function AddCasesDialog({ project, run, onClose }: { project: Project; run: Test
   const q = query.trim().toLowerCase();
   const pool = run.variant ? forVariant(project.allIndex, run.variant) : project.allIndex;
   const tests = pool.items.filter(
-    (i) => i.kind === 'testcase' && i.status !== 'obsolete' && !inRun.has(i.id) && (!q || i.id.toLowerCase().includes(q) || i.title.toLowerCase().includes(q) || i.components.some((c) => c.includes(q))),
+    (i) => isRunnable(pool.config, i.kind) && i.status !== 'obsolete' && !inRun.has(i.id) && (!q || i.id.toLowerCase().includes(q) || i.title.toLowerCase().includes(q) || i.components.some((c) => c.includes(q))),
   );
   return (
     <Dialog title="Add test cases" onClose={onClose} wide>
@@ -617,7 +618,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
   const fixVersions = useMemo(() => [...new Set(project.jira.issues.flatMap((i) => i.fixVersions))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })), [project.jira.issues]);
 
   const componentName = (k: string) => index.config.components.find((c) => c.key === k)?.name ?? k;
-  const allTests = useMemo(() => index.items.filter((i) => i.kind === 'testcase' && i.status !== 'obsolete'), [index]);
+  const allTests = useMemo(() => index.items.filter((i) => isRunnable(index.config, i.kind) && i.status !== 'obsolete'), [index]);
   const picked: { item: Item; reason: string[] }[] = useMemo(() => {
     if (scope === 'all') return allTests.map((item) => ({ item, reason: ['Full regression'] }));
     if (scope === 'none' || !preview) return [];
@@ -672,7 +673,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
             Changed in a release
           </button>
           <button type="button" role="radio" aria-checked={scope === 'all'} className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
-            All test cases ({allTests.length})
+            {allTests.some((t) => t.kind !== 'testcase') ? 'All tests' : 'All test cases'} ({allTests.length})
           </button>
           <button type="button" role="radio" aria-checked={scope === 'none'} className={scope === 'none' ? 'on' : ''} onClick={() => setScope('none')}>
             Choose myself

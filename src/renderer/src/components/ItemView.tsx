@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Node as PMNode } from 'prosemirror-model';
 import { decodeText, encodeText, joinFrontMatter, readFrontMatter, setFields, splitFrontMatter } from '../../../core/frontmatter';
 import { parseBody, serializeBody, type ParsedBody } from '../../../core/markdown/markdown';
-import { linksFrom, statusesFor, typeOf, typeWord } from '../../../core/config';
+import { isRunnable, isVerifiable, linksFrom, statusesFor, typeOf, typeWord } from '../../../core/config';
 import { byEvidence, fingerprint, linkedIds, METHOD_LABEL, METHODS, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Editor } from '../editor/Editor';
@@ -385,14 +385,14 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
             aria-label="Title"
           />
           <div className="fields">
-            {item.kind === 'testcase' && (
+            {isRunnable(index.config, item.kind) && (
               <ChipInput
                 label="Verifies"
                 mono
                 values={item.verifies}
-                suggestions={reqSuggestions}
+                suggestions={index.items.filter((i) => i !== item && isVerifiable(index.config, i.kind)).map((i) => ({ value: i.id, label: i.title }))}
                 onOpen={onOpenId}
-                placeholder="REQ-…"
+                placeholder={`${index.config.types.filter((t) => isVerifiable(index.config, t.key)).map((t) => t.prefix || t.name).join(' / ')}…`}
                 onChange={(verifies) => setField({ verifies, reviewed: reviewedFor(item, item.verifies, verifies, 'verifies') })}
               />
             )}
@@ -460,7 +460,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
                 placeholder={item.variants.length ? 'Add variant' : 'All variants'}
               />
             )}
-            {item.kind === 'testcase' && <EstimateField raw={item.data.estimate == null ? '' : String(item.data.estimate)} onChange={(estimate) => setField({ estimate })} />}
+            {isRunnable(index.config, item.kind) && <EstimateField raw={item.data.estimate == null ? '' : String(item.data.estimate)} onChange={(estimate) => setField({ estimate })} />}
             <ChipInput label="Jira" mono values={item.jira} href={jira ? (k) => `${jira}/browse/${encodeURIComponent(k)}` : undefined} onChange={(v) => setField({ jira: v })} placeholder="PROJ-123" />
             {fieldsFor(index.config, item.kind).map((f) => (
               <DeclaredField key={f.key} def={f} value={item.data[f.key]} onChange={(v) => setField({ [f.key]: v })} />
