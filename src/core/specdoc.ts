@@ -1,11 +1,11 @@
 // The specification document: every requirement and test case with their text, the
 // traceability matrix and coverage, as one HTML page to print or save as PDF.
 import MarkdownIt from 'markdown-it';
-import { byEvidence, coverage, linksOf, METHOD_LABEL, variantNames, verification, type Item, type ProjectIndex } from './model';
+import { byEvidence, coverage, itemLinks, linksOf, METHOD_LABEL, variantNames, verification, type Item, type ProjectIndex } from './model';
 import { DOC_CSS, esc } from './report';
 import type { TestRun } from './runs';
 import { outcomeText, RESULT_MARK, resultMatrix, VERDICT_MARK, verdictSummary, verdictText } from './verdict';
-import { fieldsFor } from './config';
+import { customTypes, fieldsFor } from './config';
 import { fieldText } from './fields';
 
 // Raw HTML in the Markdown is shown as text, never run.
@@ -15,6 +15,7 @@ export interface SpecOptions {
   title: string;
   requirements: boolean;
   testcases: boolean;
+  others?: boolean; // items of the types trace.yml declares (risks…); default: yes
   matrix: boolean;
   obsolete: boolean; // include obsolete items
   component: string | null; // only items tagged with it
@@ -39,6 +40,7 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
   const keep = (i: Item) => (o.obsolete || i.status !== 'obsolete') && (!o.component || i.components.includes(o.component));
   const reqs = index.items.filter((i) => i.kind === 'requirement' && keep(i));
   const tests = index.items.filter((i) => i.kind === 'testcase' && keep(i));
+  const others = o.others === false ? [] : customTypes(index.config).map((t) => ({ t, items: index.items.filter((i) => i.kind === t.key && keep(i)) })).filter((x) => x.items.length);
   // Only links between items in the document.
   const suspect = coverage(index).suspect.filter((l) => keep(l.req) && keep(l.test));
   const { covered, exempt } = verification(index);
@@ -65,8 +67,17 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
     if (down.length) rows.push(['Refined by', down.map((c) => ref(c.id)).join(', ')]);
     if (it.kind === 'requirement' && it.verification !== 'test') rows.push(['Verification', esc(METHOD_LABEL[it.verification])]);
     if (it.evidence.length) rows.push(['Evidence', esc(it.evidence.join(', '))]);
+    // Links of the declared types, both ways.
+    const declared = itemLinks(index, it);
+    const mark = (state: string) => (state === 'suspect' ? ' <span class="pill suspect">changed since review</span>' : '');
+    for (const def of index.config.links.filter((l) => !l.builtIn)) {
+      const out = (it.links[def.key] ?? []).map((id) => ref(id) + mark(declared.out.find((l) => l.def === def && l.to.id === id)?.state ?? ''));
+      if (out.length) rows.push([esc(def.name), out.join(', ')]);
+      const into = declared.in.filter((l) => l.def === def && keep(l.from));
+      if (into.length) rows.push([esc(def.reverse), into.map((l) => ref(l.from.id) + mark(l.state)).join(', ')]);
+    }
     if (it.kind === 'testcase') rows.push(['Verifies', it.verifies.map(ref).join(', ') || '<span class="muted">nothing</span>']);
-    else {
+    else if (it.kind === 'requirement') {
       const t = linksOf(index, it);
       rows.push(['Verified by', t.map((l) => ref(l.test.id) + (l.state === 'suspect' ? ' <span class="pill suspect">changed since review</span>' : '')).join(', ') || otherwise(it, down)]);
     }
@@ -83,6 +94,7 @@ ${fields(it)}
   const toc = [
     o.requirements && reqs.length ? `<li><a href="#requirements">Requirements</a> (${reqs.length})</li>` : '',
     o.testcases && tests.length ? `<li><a href="#testcases">Test cases</a> (${tests.length})</li>` : '',
+    ...others.map(({ t, items }) => `<li><a href="#type-${t.key}">${esc(t.plural)}</a> (${items.length})</li>`),
     o.matrix && reqs.length ? `<li><a href="#matrix">Traceability matrix</a></li>` : '',
   ].join('');
 
@@ -136,6 +148,7 @@ ${toc ? `<h2>Contents</h2><ol class="toc">${toc}</ol>` : ''}
 </div>
 ${o.requirements && reqs.length ? `<h2 id="requirements">Requirements</h2>${reqs.map(section).join('\n')}` : ''}
 ${o.testcases && tests.length ? `<h2 id="testcases">Test cases</h2>${tests.map(section).join('\n')}` : ''}
+${others.map(({ t, items }) => `<h2 id="type-${t.key}">${esc(t.plural)}</h2>${items.map(section).join('\n')}`).join('\n')}
 ${o.matrix && reqs.length ? matrixHtml() : ''}
 </main></body></html>
 `;

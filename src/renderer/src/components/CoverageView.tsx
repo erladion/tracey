@@ -2,6 +2,7 @@
 // look, and what's broken.
 import { useMemo, useState } from 'react';
 import { byEvidence, coverage, forVariant, type Item, type Link } from '../../../core/model';
+import { typeOf } from '../../../core/config';
 import { describeSource, outcomeText, RESULT_MARK, resultMatrix, sourceRuns, verdictCounts, verdictSummary, type ResultSource } from '../../../core/verdict';
 import { loadSource, saveSource, SourceSelect, VerdictPill } from './ResultSource';
 import type { Project } from '../project';
@@ -32,6 +33,8 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const counted = cov.counted;
   const pct = counted.length ? Math.round((cov.tested.length / counted.length) * 100) : 0;
   const errors = cov.problems.filter((p) => p.severity === 'error');
+  const toReview = cov.suspect.length + cov.suspectRefines.length + cov.suspectLinks.length;
+  const ruleGaps = cov.rules.filter((r) => r.missing.length);
   const coveredIds = useMemo(() => new Set(cov.tested.map((r) => r.id)), [cov]);
   const through = useMemo(() => new Set(cov.throughRefinements.map((r) => r.id)), [cov]);
   const exempt = useMemo(() => new Set(cov.exempt.map((r) => r.id)), [cov]);
@@ -145,10 +148,68 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
         </div>
         <div className="tile">
           <span className="tile-label">Links to review</span>
-          <span className={`tile-value${cov.suspect.length + cov.suspectRefines.length ? ' warn' : ''}`}>{cov.suspect.length + cov.suspectRefines.length}</span>
-          <span className="tile-sub">changed since review · {cov.unreviewed.length} never reviewed</span>
+          <span className={`tile-value${toReview ? ' warn' : ''}`}>{toReview}</span>
+          <span className="tile-sub">changed since review · {cov.unreviewed.length + cov.unreviewedLinks.length} never reviewed</span>
         </div>
       </div>
+
+      {cov.rules.length > 0 && (
+        <section className="card">
+          <div className="card-head">
+            <h2>Rules</h2>
+            <span className="muted small">From trace.yml: what each item of a type needs.</span>
+          </div>
+          <div className="table-scroll">
+            <table className="matrix variant-table">
+              <thead>
+                <tr>
+                  <th>Every</th>
+                  <th>Needs</th>
+                  <th>Met</th>
+                  <th>Missing</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cov.rules.map((r, i) => {
+                  const link = index.config.links.find((l) => l.key === r.rule.link)!;
+                  const pct = r.items.length ? Math.round(((r.items.length - r.missing.length) / r.items.length) * 100) : 100;
+                  return (
+                    <tr key={i}>
+                      <td>{typeOf(index.config, r.rule.type).name.toLowerCase()}</td>
+                      <td>
+                        {r.rule.incoming ? link.reverse.toLowerCase() : link.name.toLowerCase()} something
+                      </td>
+                      <td>
+                        <span className="variant-meter">
+                          <span className="meter" aria-hidden="true">
+                            <span style={{ width: `${pct}%` }} />
+                          </span>
+                          <span className="num">
+                            {pct}% <span className="muted small">({r.items.length - r.missing.length} of {r.items.length})</span>
+                          </span>
+                        </span>
+                      </td>
+                      <td>
+                        {r.missing.length ? (
+                          <span className="id-list">
+                            {r.missing.map((it) => (
+                              <button key={it.path} type="button" className="link-button mono" onClick={() => onOpenId(it.id)} title={it.title}>
+                                {it.id}
+                              </button>
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="muted small">None</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       {!project.variant && index.config.variants.length > 0 && <ByVariant project={project} onVariant={onVariant} />}
 
@@ -264,7 +325,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
 
         <aside className="card attention">
           <h2>Needs attention</h2>
-          {cov.suspect.length === 0 && cov.suspectRefines.length === 0 && cov.untested.length === 0 && cov.orphans.length === 0 && errors.length === 0 && cov.componentsWithoutTests.length === 0 && (
+          {toReview === 0 && cov.untested.length === 0 && cov.orphans.length === 0 && errors.length === 0 && cov.componentsWithoutTests.length === 0 && ruleGaps.length === 0 && (
             <p className="muted">Nothing. Every requirement is covered, and every link is reviewed.</p>
           )}
           {cov.suspect.length > 0 && (
@@ -311,6 +372,42 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
               ))}
             </div>
           )}
+          {cov.suspectLinks.length > 0 && (
+            <div className="attention-group">
+              <h3>Items changed since what links to them was reviewed</h3>
+              {cov.suspectLinks.map((l) => (
+                <div key={`${l.def.key}-${l.from.id}-${l.to.id}`} className="attention-item">
+                  <span>
+                    <button type="button" className="link-button mono" onClick={() => onOpenId(l.to.id)}>
+                      {l.to.id}
+                    </button>{' '}
+                    changed;{' '}
+                    <button type="button" className="link-button mono" onClick={() => onOpenId(l.from.id)}>
+                      {l.from.id}
+                    </button>{' '}
+                    {l.def.name.toLowerCase()} it.
+                  </span>
+                  <button type="button" className="button small" onClick={() => project.markReviewed(l.from, [l.to.id])}>
+                    Mark reviewed
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {ruleGaps.map((r, i) => (
+            <div key={`rule-${i}`} className="attention-group">
+              <h3>
+                {typeOf(index.config, r.rule.type).plural}: {r.rule.tag.toLowerCase()}
+              </h3>
+              <p className="id-list">
+                {r.missing.map((it) => (
+                  <button key={it.path} type="button" className="link-button mono" onClick={() => onOpenId(it.id)} title={it.title}>
+                    {it.id}
+                  </button>
+                ))}
+              </p>
+            </div>
+          ))}
           {cov.untested.length > 0 && (
             <div className="attention-group">
               <h3>Not covered</h3>
@@ -445,7 +542,7 @@ function ByVariant({ project, onVariant }: { project: Project; onVariant: (varia
       project.allIndex.config.variants.map((v) => {
         const c = coverage(forVariant(project.allIndex, v.key));
         const live = c.counted.length;
-        return { v, live, tested: c.tested.length, untested: c.untested.length, suspect: c.suspect.length + c.suspectRefines.length, pct: live ? Math.round((c.tested.length / live) * 100) : 0 };
+        return { v, live, tested: c.tested.length, untested: c.untested.length, suspect: c.suspect.length + c.suspectRefines.length + c.suspectLinks.length, pct: live ? Math.round((c.tested.length / live) * 100) : 0 };
       }),
     [project.allIndex],
   );

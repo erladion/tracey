@@ -2,7 +2,7 @@
 // a release and now, or tags in the requirements repository. Exportable as PDF.
 import { useEffect, useMemo, useState } from 'react';
 import { forVariant, slug, type ProjectIndex } from '../../../core/model';
-import { changeCounts, changesHtml, compareVersions, countsText, untouchedTests, type ItemChange } from '../../../core/changes';
+import { changeCounts, changedTypes, changesHtml, compareVersions, countsText, untouchedTests, type ItemChange } from '../../../core/changes';
 import { releases } from '../../../core/verdict';
 import type { Project } from '../project';
 import { api } from '../api';
@@ -99,7 +99,7 @@ export function ChangesDialog({ project, onOpenId, onClose }: { project: Project
       const title = `${project.repo.name}: changes from ${name(from)} to ${name(to)}`;
       const meta: [string, string][] = [['Repository', project.repo.name]];
       if (project.variant) meta.push(['Variant', project.allIndex.config.variants.find((v) => v.key === project.variant)?.name ?? project.variant]);
-      const html = changesHtml(changes, { title, from: sides.from.label, to: sides.to.label, meta, image: (itemPath, src) => imageUrl(repo, itemPath, src) });
+      const html = changesHtml(changes, { title, from: sides.from.label, to: sides.to.label, meta, image: (itemPath, src) => imageUrl(repo, itemPath, src), types: project.allIndex.config.types });
       await savePdf(html, `${slug(title) || 'changes'}.pdf`);
     } catch (e) {
       notify(`Couldn’t export: ${(e as Error).message}`, 'error');
@@ -207,7 +207,7 @@ export function ChangesDialog({ project, onOpenId, onClose }: { project: Project
     );
   };
 
-  const section = (kind: 'requirement' | 'testcase', title: string) => {
+  const section = (kind: string, title: string) => {
     const list = changes?.filter((c) => c.kind === kind) ?? [];
     if (!list.length) return null;
     return (
@@ -247,8 +247,9 @@ export function ChangesDialog({ project, onOpenId, onClose }: { project: Project
                 </p>
               )}
               {changes.length === 0 ? <p className="muted">Nothing changed in the requirements or test cases.</p> : null}
-              {section('requirement', 'Requirements')}
-              {section('testcase', 'Test cases')}
+              {changedTypes(changes, project.allIndex.config.types).map((t) => (
+                <div key={t.key}>{section(t.key, t.plural)}</div>
+              ))}
             </>
           )
         )}

@@ -1289,6 +1289,12 @@ h3 {
   font-family: var(--font-ui);
   font-weight: 600;
 }
+.panel-new {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: -4px 0 8px;
+}
 .panel-head {
   display: flex;
   align-items: center;
@@ -2124,6 +2130,12 @@ h3 {
 .gnode.issue {
   background: var(--surface-2);
 }
+.gnode.item {
+  box-shadow: inset 4px 0 0 var(--accent-line);
+}
+.gnode.item:hover {
+  box-shadow: inset 4px 0 0 var(--accent-line), 0 0 0 2px var(--accent-line);
+}
 .gnode.req {
   background: var(--accent-soft);
   border-color: var(--accent-line);
@@ -2228,6 +2240,10 @@ h3 {
 }
 .swatch.issue {
   background: var(--surface-2);
+}
+.swatch.item {
+  background: var(--surface);
+  box-shadow: inset 3px 0 0 var(--accent-line);
 }
 .swatch.req {
   background: var(--accent-soft);

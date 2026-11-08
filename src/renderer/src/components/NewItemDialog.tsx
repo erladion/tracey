@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Kind } from '../../../core/config';
+import { typeWord, type Kind } from '../../../core/config';
 import { checkNewId, nextId, type ProjectIndex } from '../../../core/model';
 import { Dialog } from './Dialog';
 
@@ -7,6 +7,7 @@ export interface NewItemRequest {
   kind: Kind;
   verifies?: string[];
   refines?: string[]; // a requirement breaking these down
+  links?: Record<string, string[]>; // declared link types: what it links to
   components?: string[];
   variants?: string[];
 }
@@ -15,7 +16,7 @@ interface Props {
   request: NewItemRequest;
   index: ProjectIndex;
   onClose: () => void;
-  onCreate: (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[] }) => void;
+  onCreate: (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; refines?: string[]; links?: Record<string, string[]>; components?: string[]; variants?: string[] }) => void;
 }
 
 export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
@@ -29,24 +30,37 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
   const check = typedId == null ? { error: null, warning: null } : checkNewId(index, kind, typedId);
   const verifies = kind === 'testcase' ? request.verifies : undefined;
   const refines = kind === 'requirement' ? request.refines : undefined;
+  const links = request.links;
+  const linked = Object.entries(links ?? {}).filter(([, ids]) => ids.length);
+  const fixedKind = !!(request.verifies || request.refines || linked.length);
+  const linkDef = linked.length ? index.config.links.find((l) => l.key === linked[0][0]) : undefined;
   const canCreate = !!title.trim() && !check.error && !busy;
 
   return (
-    <Dialog title={refines?.length ? `New requirement refining ${refines.join(', ')}` : `New ${kind === 'requirement' ? 'requirement' : 'test case'}`} onClose={onClose}>
+    <Dialog
+      title={
+        refines?.length
+          ? `New requirement refining ${refines.join(', ')}`
+          : linkDef
+            ? `New ${typeWord(index.config, kind)} that ${linkDef.name.toLowerCase()} ${linked[0][1].join(', ')}`
+            : `New ${typeWord(index.config, kind)}`
+      }
+      onClose={onClose}
+    >
       <form
         className="dialog-body"
         onSubmit={(e) => {
           e.preventDefault();
           if (!canCreate) return;
           setBusy(true);
-          onCreate(kind, title.trim(), { id: typedId?.trim() || undefined, verifies, refines, components: request.components, variants });
+          onCreate(kind, title.trim(), { id: typedId?.trim() || undefined, verifies, refines, links, components: request.components, variants });
         }}
       >
-        {!request.verifies && !request.refines && (
-          <div className="segmented" role="radiogroup" aria-label="Kind">
-            {(['requirement', 'testcase'] as const).map((k) => (
-              <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>
-                {k === 'requirement' ? 'Requirement' : 'Test case'}
+        {!fixedKind && (
+          <div className={`segmented${index.config.types.length > 2 ? ' wrap' : ''}`} role="radiogroup" aria-label="Kind">
+            {index.config.types.map((t) => (
+              <button key={t.key} type="button" role="radio" aria-checked={kind === t.key} className={kind === t.key ? 'on' : ''} onClick={() => setKind(t.key)}>
+                {t.name}
               </button>
             ))}
           </div>

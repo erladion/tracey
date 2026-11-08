@@ -6,7 +6,7 @@
 // file names, so files can be renamed or moved freely.
 import { parseDuration } from './estimate';
 import { fieldIssue } from './fields';
-import { parseConfig, type Component, type Kind, type TraceConfig, statusesFor } from './config';
+import { customLinks, linksFrom, parseConfig, typeOf, type Component, type Kind, type LinkDef, type RuleDef, type TraceConfig, statusesFor } from './config';
 import { decodeText, readFrontMatter, splitFrontMatter } from './frontmatter';
 
 export interface SourceFile {
@@ -24,6 +24,7 @@ export interface Item {
   jira: string[];
   verifies: string[]; // test cases: the requirements they verify
   refines: string[]; // requirements: the requirements they break down (their parents)
+  links: Record<string, string[]>; // declared link types (trace.yml links:) → the IDs it names
   verification: Method; // requirements: how it's verified (test cases unless said otherwise)
   evidence: string[]; // requirements verified other than by test: the documents or records showing it
   estimate: number | null; // test cases: minutes to run it (see estimate.ts); null: none or unreadable
@@ -56,7 +57,8 @@ export interface Problem {
     | 'bad-estimate'
     | 'bad-field'
     | 'refine-loop'
-    | 'bad-verification';
+    | 'bad-verification'
+    | 'wrong-link-type';
   message: string;
   path?: string;
   id?: string;
@@ -84,6 +86,14 @@ export interface Link {
   state: LinkState;
 }
 
+// A link of a declared type: `from` names `to` under the link's key.
+export interface ItemLink {
+  def: LinkDef;
+  from: Item;
+  to: Item;
+  state: LinkState;
+}
+
 // A requirement breaking down another: the child names its parent under `refines:`.
 export interface RefineLink {
   child: Item;
@@ -98,21 +108,26 @@ export interface ProjectIndex {
   byPath: Map<string, Item>;
   verifiedBy: Map<string, Item[]>; // requirement ID → test cases verifying it
   refinedBy: Map<string, Item[]>; // requirement ID → requirements refining it
+  linkedBy: Map<string, Map<string, Item[]>>; // declared link type → ID → the items linking to it
   problems: Problem[];
 }
 
 const list = (v: unknown): string[] =>
   Array.isArray(v) ? v.filter((x) => x != null && x !== '').map((x) => String(x).trim()) : v == null || v === '' ? [] : String(v).split(/[,\s]+/).filter(Boolean);
 
+// The type said in the file (`type: risk`), else the longest ID prefix that matches,
+// else the folder it's in. Test cases win a tie with requirements, as they always have.
 function kindOf(id: string, data: Record<string, unknown>, path: string, config: TraceConfig): Kind | null {
-  const type = typeof data.type === 'string' ? data.type.toLowerCase() : '';
+  const type = typeof data.type === 'string' ? data.type.toLowerCase().trim() : '';
   if (/^req(uirement)?$/.test(type)) return 'requirement';
   if (/^(test|testcase|test-case|tc)$/.test(type)) return 'testcase';
-  if (id.startsWith(config.testcases.prefix)) return 'testcase';
-  if (id.startsWith(config.requirements.prefix)) return 'requirement';
-  if (id && inDir(path, config.testcases.dir)) return 'testcase';
-  if (id && inDir(path, config.requirements.dir)) return 'requirement';
-  return null;
+  const declared = config.types.find((t) => !t.builtIn && (t.key === type || t.name.toLowerCase() === type));
+  if (declared) return declared.key;
+  const order = [...config.types].sort((a, b) => Number(b.key === 'testcase') - Number(a.key === 'testcase'));
+  const byPrefix = order.filter((t) => t.prefix && id.startsWith(t.prefix)).sort((a, b) => b.prefix.length - a.prefix.length)[0];
+  if (byPrefix) return byPrefix.key;
+  const byDir = id ? order.filter((t) => t.dir && inDir(path, t.dir)).sort((a, b) => b.dir.length - a.dir.length)[0] : undefined;
+  return byDir?.key ?? null;
 }
 
 const inDir = (path: string, dir: string) => !!dir && (path === dir || path.startsWith(dir + '/'));
@@ -122,7 +137,7 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
   const { front, body } = splitFrontMatter(text);
   const problems: Problem[] = [];
   const { data, error } = readFrontMatter(front);
-  const configured = inDir(file.path, config.requirements.dir) || inDir(file.path, config.testcases.dir);
+  const configured = config.types.some((t) => t.dir && inDir(file.path, t.dir));
   if (error) {
     if (configured || front?.includes('id:')) problems.push({ severity: 'error', code: 'yaml', message: `Front matter can't be read: ${error}`, path: file.path });
     return { item: null, problems };
@@ -158,6 +173,7 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       jira: list(data.jira),
       verifies: kind === 'testcase' ? list(data.verifies) : [],
       refines: kind === 'requirement' ? list(data.refines) : [],
+      links: Object.fromEntries(linksFrom(config, kind).filter((l) => !l.builtIn).map((l) => [l.key, list(data[l.key])])),
       verification: method ?? 'test',
       evidence: kind === 'requirement' ? (Array.isArray(data.evidence) ? data.evidence : data.evidence == null || data.evidence === '' ? [] : [data.evidence]).map((x) => String(x).trim()).filter(Boolean) : [],
       estimate: kind === 'testcase' ? (parseDuration(data.estimate) ?? null) : null,
@@ -198,6 +214,8 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
 
   const verifiedBy = new Map<string, Item[]>();
   const refinedBy = new Map<string, Item[]>();
+  const linkedBy = new Map<string, Map<string, Item[]>>(customLinks(config).map((l) => [l.key, new Map()]));
+  const typeName = (k: Kind) => typeOf(config, k).name.toLowerCase();
   const componentKeys = new Set(config.components.map((c) => c.key));
   const variantKeys = new Set(config.variants.map((v) => v.key));
   for (const it of items) {
@@ -263,6 +281,31 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
       }
     }
   }
+  // Links of the declared types.
+  for (const it of items)
+    for (const [key, targets] of Object.entries(it.links)) {
+      const def = config.links.find((l) => l.key === key)!;
+      const into = linkedBy.get(key)!;
+      for (const target of targets) {
+        const to = byId.get(target);
+        const where = { path: it.path, id: it.id };
+        if (!to) problems.push({ severity: 'error', code: 'broken-link', message: `${it.id} ${def.name.toLowerCase()} ${target}, which doesn't exist.`, ...where });
+        else if (to === it) problems.push({ severity: 'error', code: 'wrong-link-type', message: `${it.id} ${def.name.toLowerCase()} itself.`, ...where });
+        else if (!def.to.includes(to.kind))
+          problems.push({
+            severity: 'error',
+            code: 'wrong-link-type',
+            message: `${it.id} ${def.name.toLowerCase()} ${target}, which is a ${typeName(to.kind)}: ${def.key} links go to ${def.to.map((k) => typeOf(config, k).plural.toLowerCase()).join(' or ')}.`,
+            ...where,
+          });
+        else {
+          into.set(target, [...(into.get(target) ?? []), it]);
+          if (!sharesVariant(it, to))
+            problems.push({ severity: 'warning', code: 'variant-mismatch', message: `${it.id} is for ${it.variants.join(', ')} and ${to.id} for ${to.variants.join(', ')}, so the link never applies.`, ...where });
+        }
+      }
+    }
+  for (const n of config.notes) problems.push({ severity: 'warning', code: 'config', message: n, path: 'trace.yml' });
   // A requirement that, through its parents, refines itself.
   for (const it of items) {
     if (it.kind !== 'requirement' || !it.refines.length) continue;
@@ -280,7 +323,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
       if (p && p !== it && p.kind === 'requirement') queue.push(...p.refines);
     }
   }
-  return { config, items, byId, byPath, verifiedBy, refinedBy, problems };
+  return { config, items, byId, byPath, verifiedBy, refinedBy, linkedBy, problems };
 }
 
 // ---- variants ------------------------------------------------------------------------
@@ -313,14 +356,16 @@ export function forVariant(index: ProjectIndex, variant: string): ProjectIndex {
   };
   const verifiedBy = keep(index.verifiedBy);
   const refinedBy = keep(index.refinedBy);
+  const linkedBy = new Map([...index.linkedBy].map(([k, m]) => [k, keep(m)]));
   // Problems about items the variant doesn't have aren't its problems.
   const problems = index.problems.filter((p) => !p.path || !index.byPath.has(p.path) || byPath.has(p.path));
-  return { config: index.config, items, byId, byPath, verifiedBy, refinedBy, problems };
+  return { config: index.config, items, byId, byPath, verifiedBy, refinedBy, linkedBy, problems };
 }
 
 // REQ-2 before REQ-10.
+const kindRank = (k: Kind) => (k === 'requirement' ? 0 : k === 'testcase' ? 1 : 2);
 export function compareItems(a: Item, b: Item): number {
-  if (a.kind !== b.kind) return a.kind === 'requirement' ? -1 : 1;
+  if (a.kind !== b.kind) return kindRank(a.kind) - kindRank(b.kind) || a.kind.localeCompare(b.kind);
   return a.id.localeCompare(b.id, undefined, { numeric: true });
 }
 
@@ -363,6 +408,28 @@ export function linksOf(index: ProjectIndex, item: Item): Link[] {
   });
 }
 
+// An item's links of the declared types: out to what it names, in from what names it.
+export function itemLinks(index: ProjectIndex, item: Item): { out: ItemLink[]; in: ItemLink[] } {
+  const out: ItemLink[] = [];
+  for (const [key, targets] of Object.entries(item.links)) {
+    const def = index.config.links.find((l) => l.key === key);
+    if (!def) continue;
+    for (const id of targets) {
+      const to = index.byId.get(id);
+      if (to && to !== item && def.to.includes(to.kind)) out.push({ def, from: item, to, state: linkState(item, to) });
+    }
+  }
+  const incoming: ItemLink[] = [];
+  for (const [key, by] of index.linkedBy) {
+    const def = index.config.links.find((l) => l.key === key)!;
+    for (const from of by.get(item.id) ?? []) incoming.push({ def, from, to: item, state: linkState(from, item) });
+  }
+  return { out, in: incoming };
+}
+
+// Every link an item makes, of any type: the IDs it names. For review fingerprints.
+export const linkedIds = (item: Item): string[] => [...new Set([...item.verifies, ...item.refines, ...Object.values(item.links).flat()])];
+
 // ---- coverage ----------------------------------------------------------------------
 
 export interface Coverage {
@@ -378,6 +445,9 @@ export interface Coverage {
   suspect: Link[];
   unreviewed: Link[];
   suspectRefines: RefineLink[]; // parents changed since the refining requirement was reviewed
+  suspectLinks: ItemLink[]; // declared link types: the linked item changed since review
+  unreviewedLinks: ItemLink[];
+  rules: RuleResult[]; // trace.yml rules: the items each leaves without a needed link
   componentsWithoutTests: Component[];
   problems: Problem[];
 }
@@ -385,6 +455,28 @@ export interface Coverage {
 const live = (it: Item) => it.status !== 'obsolete';
 
 export type CoveredBy = 'tests' | 'evidence' | 'refinements';
+
+export interface RuleResult {
+  rule: RuleDef;
+  items: Item[]; // the live items of its type
+  missing: Item[]; // of those, the ones without the link
+}
+
+// Each rule: the items (not obsolete) of its type without a link of its type, to them
+// (incoming) or from them (outgoing). Links from or to obsolete items don't count.
+export function checkRules(index: ProjectIndex): RuleResult[] {
+  return index.config.rules.map((rule) => {
+    const items = index.items.filter((i) => i.kind === rule.type && live(i));
+    const has = (it: Item) =>
+      rule.incoming
+        ? (index.linkedBy.get(rule.link) ?? (rule.link === 'verifies' ? index.verifiedBy : rule.link === 'refines' ? index.refinedBy : new Map<string, Item[]>())).get(it.id)?.some(live)
+        : (rule.link === 'verifies' ? it.verifies : rule.link === 'refines' ? it.refines : (it.links[rule.link] ?? [])).some((id) => {
+            const t = index.byId.get(id);
+            return !!t && t !== it && live(t);
+          });
+    return { rule, items, missing: items.filter((i) => !has(i)) };
+  });
+}
 
 // Which requirements are covered, and how: verified by a test case, by evidence (when
 // verified by analysis, inspection or demonstration), or broken down into requirements
@@ -426,6 +518,7 @@ export function coverage(index: ProjectIndex): Coverage {
   const tested = requirements.filter((r) => live(r) && covered.has(r.id));
   const refines = requirements.flatMap((r) => refinesOf(index, r).up);
   const testedComponents = new Set(testcases.filter(live).flatMap((t) => t.components));
+  const declared = index.items.flatMap((i) => itemLinks(index, i).out).filter((l) => live(l.from) && live(l.to));
   return {
     requirements,
     testcases,
@@ -439,6 +532,9 @@ export function coverage(index: ProjectIndex): Coverage {
     suspect: links.filter((l) => l.state === 'suspect' && live(l.test) && live(l.req)),
     unreviewed: links.filter((l) => l.state === 'unreviewed' && live(l.test) && live(l.req)),
     suspectRefines: refines.filter((l) => l.state === 'suspect' && live(l.child) && live(l.parent)),
+    suspectLinks: declared.filter((l) => l.state === 'suspect'),
+    unreviewedLinks: declared.filter((l) => l.state === 'unreviewed'),
+    rules: checkRules(index),
     componentsWithoutTests: index.config.components.filter((c) => !testedComponents.has(c.key)),
     problems: index.problems,
   };
@@ -447,7 +543,7 @@ export function coverage(index: ProjectIndex): Coverage {
 // ---- new items -------------------------------------------------------------------------
 
 export function nextId(index: ProjectIndex, kind: Kind): string {
-  const { prefix, digits } = kind === 'requirement' ? index.config.requirements : index.config.testcases;
+  const { prefix, digits } = typeOf(index.config, kind);
   let max = 0;
   for (const it of index.items) {
     if (!it.id.startsWith(prefix)) continue;
@@ -460,16 +556,16 @@ export function nextId(index: ProjectIndex, kind: Kind): string {
 // An ID someone typed for a new item: an error stops it, a warning only informs.
 export function checkNewId(index: ProjectIndex, kind: Kind, raw: string): { error: string | null; warning: string | null } {
   const id = raw.trim();
-  const own = (kind === 'requirement' ? index.config.requirements : index.config.testcases).prefix;
-  const other = (kind === 'requirement' ? index.config.testcases : index.config.requirements).prefix;
+  const own = typeOf(index.config, kind).prefix;
+  // Another type's prefix, unless this type's is a longer one starting with it.
+  const otherType = index.config.types.find((t) => t.key !== kind && t.prefix && id.startsWith(t.prefix) && !(own.startsWith(t.prefix) && id.startsWith(own)));
   const ok = (warning: string | null = null) => ({ error: null, warning });
   if (!id) return { error: 'Enter an ID.', warning: null };
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) return { error: 'Use letters, digits and . - _ only, without spaces.', warning: null };
   if (id.length > 64) return { error: 'That ID is too long (64 characters at most).', warning: null };
   const taken = index.items.find((i) => i.id.toLowerCase() === id.toLowerCase());
   if (taken) return { error: `${taken.id} is already used by ${taken.path}.`, warning: null };
-  if (other && !other.startsWith(own) && id.startsWith(other))
-    return { error: `IDs starting with ${other} are ${kind === 'requirement' ? 'test cases' : 'requirements'}. Use one starting with ${own}.`, warning: null };
+  if (otherType) return { error: `IDs starting with ${otherType.prefix} are ${otherType.plural.toLowerCase()}. Use one starting with ${own}.`, warning: null };
   if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(id))
     return ok(`Tracey recognizes IDs in text, commit messages and Jira when they look like ${own || 'TC-'}123 (capital letters, a dash, a number). This one is only linked through fields such as Verifies.`);
   if (own && !id.startsWith(own)) return ok(`It doesn’t start with ${own}, so the file says what it is (type: ${kind}).`);
@@ -488,7 +584,7 @@ export function slug(title: string): string {
 }
 
 export function newItemPath(index: ProjectIndex, kind: Kind, id: string, title: string): string {
-  const dir = (kind === 'requirement' ? index.config.requirements : index.config.testcases).dir;
+  const dir = typeOf(index.config, kind).dir;
   const s = slug(title);
   const base = `${dir ? dir + '/' : ''}${id}${s ? '-' + s : ''}`;
   let path = `${base}.md`;
@@ -498,7 +594,18 @@ export function newItemPath(index: ProjectIndex, kind: Kind, id: string, title: 
 
 export function newItemText(
   kind: Kind,
-  fields: { id: string; title: string; status: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[]; reviewed?: Record<string, string>; type?: boolean },
+  fields: {
+    id: string;
+    title: string;
+    status: string;
+    verifies?: string[];
+    refines?: string[];
+    links?: Record<string, string[]>;
+    components?: string[];
+    variants?: string[];
+    reviewed?: Record<string, string>;
+    type?: boolean;
+  },
 ): string {
   const yamlString = (s: string) => (/^[\w .,()/-]*$/.test(s) && !/^[\s-]|:\s|\s$/.test(s) && s !== '' ? s : JSON.stringify(s));
   const lines = [`id: ${yamlString(fields.id)}`];
@@ -509,6 +616,7 @@ export function newItemText(
   if (fields.variants?.length) lines.push(`variants: [${fields.variants.join(', ')}]`);
   if (kind === 'testcase') lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);
   if (kind === 'requirement' && fields.refines?.length) lines.push(`refines: [${fields.refines.join(', ')}]`);
+  for (const [key, ids] of Object.entries(fields.links ?? {})) if (ids.length) lines.push(`${key}: [${ids.join(', ')}]`);
   const r = Object.entries(fields.reviewed ?? {});
   if (r.length) lines.push('reviewed:', ...r.map(([k, v]) => `  ${k}: "${v}"`));
   const body = kind === 'testcase' ? '## Steps\n\n1. \n\n## Expected\n\n' : '';

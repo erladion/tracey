@@ -5,21 +5,28 @@
 //   priority:high      items whose priority contains "high"
 //   doors:Payments     a field holding an object or list matches on any part of it
 //   retry timeout      every word somewhere in the ID, title, text or any field
-import type { FieldDef, Kind, TraceConfig } from './config';
+import { linksFrom, type FieldDef, type Kind, type TraceConfig } from './config';
 import type { Item } from './model';
 
-// The fields Tracey edits itself; `reviewed` is its bookkeeping, never shown.
-const OWN: Record<Kind, Set<string>> = {
-  requirement: new Set(['id', 'title', 'status', 'components', 'variants', 'jira', 'reviewed', 'refines', 'verification', 'evidence']),
-  testcase: new Set(['id', 'title', 'status', 'components', 'variants', 'jira', 'reviewed', 'verifies', 'estimate']),
+// The fields Tracey edits itself; `reviewed` is its bookkeeping, never shown. Every type
+// has the common ones, and its link types from trace.yml.
+const COMMON = ['id', 'title', 'status', 'components', 'variants', 'jira', 'reviewed'];
+const OWN: Record<string, string[]> = {
+  requirement: ['refines', 'verification', 'evidence'],
+  testcase: ['verifies', 'estimate'],
 };
 
-export const isOwnField = (kind: Kind, key: string) => OWN[kind].has(key);
+export function ownFields(kind: Kind, config?: TraceConfig): Set<string> {
+  return new Set([...COMMON, ...(OWN[kind] ?? []), ...(config ? linksFrom(config, kind).map((l) => l.key) : [])]);
+}
+
+export const isOwnField = (kind: Kind, key: string, config?: TraceConfig) => ownFields(kind, config).has(key);
 
 // The fields neither Tracey nor trace.yml knows, in the file's order, without empty ones.
 export function otherFields(item: Pick<Item, 'kind' | 'data'>, config?: TraceConfig): [string, unknown][] {
   const declared = new Set((config?.fields ?? []).filter((f) => f.kinds.includes(item.kind)).map((f) => f.key));
-  return Object.entries(item.data).filter(([k, v]) => !OWN[item.kind].has(k) && !declared.has(k) && v != null && v !== '');
+  const own = ownFields(item.kind, config);
+  return Object.entries(item.data).filter(([k, v]) => !own.has(k) && !declared.has(k) && v != null && v !== '');
 }
 
 // A declared field's value as a list (choices, list) or a single text (the rest).

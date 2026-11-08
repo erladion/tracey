@@ -1,12 +1,12 @@
 // The repository as spreadsheet tables: requirements, test cases, the traceability
 // matrix, test runs and their results, and coverage over time.
-import { linksOf, METHOD_LABEL, variantNames, verification, type Item, type LinkState, type ProjectIndex } from './model';
+import { itemLinks, linksOf, METHOD_LABEL, variantNames, verification, type Item, type LinkState, type ProjectIndex } from './model';
 import { lastResult, releaseOf, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
 import { runEstimate } from './estimate';
 import { outcomeText, resultMatrix, verdictText, type Outcome, type Verdict } from './verdict';
 import type { Cell, Sheet, Tone } from './xlsx';
-import { fieldsFor } from './config';
+import { customTypes, fieldsFor, typeOf, type Kind } from './config';
 import { fieldText } from './fields';
 
 export interface TableOptions {
@@ -19,11 +19,12 @@ export interface TableOptions {
   results?: { runs: TestRun[]; name: string; oneRun: boolean } | null;
 }
 
-export type TableKey = 'requirements' | 'testcases' | 'matrix' | 'runs' | 'results' | 'trend';
+export type TableKey = 'requirements' | 'testcases' | 'others' | 'matrix' | 'runs' | 'results' | 'trend';
 
 export const TABLE_LABEL: Record<TableKey, string> = {
   requirements: 'Requirements',
   testcases: 'Test cases',
+  others: 'Other items',
   matrix: 'Traceability matrix',
   runs: 'Test runs',
   results: 'Test results',
@@ -48,6 +49,19 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
   const extraColumns = (k: Item['kind']) => extra(k).map((f) => ({ header: f.name, width: Math.min(30, Math.max(10, f.name.length + 2, ...f.values.map((v) => v.length + 2))), wrap: f.type === 'list' || f.type === 'choices' || f.type === 'text' }));
   const extraCells = (it: Item) => extra(it.kind).map((f) => (f.type === 'number' && typeof it.data[f.key] === 'number' ? (it.data[f.key] as number) : fieldText(it.data[f.key]) || null));
   const { covered, exempt } = verification(index);
+  // Links of the declared types: a column each way, for the types they connect.
+  const declaredLinks = index.config.links.filter((l) => !l.builtIn);
+  const linkCols = (k: Kind) => [
+    ...declaredLinks.filter((l) => l.from.includes(k)).map((l) => ({ header: l.name, width: 16, wrap: true })),
+    ...declaredLinks.filter((l) => l.to.includes(k)).map((l) => ({ header: l.reverse, width: 16, wrap: true })),
+  ];
+  const linkCells = (it: Item, k: Kind = it.kind) => {
+    const { in: into } = itemLinks(index, it);
+    return [
+      ...declaredLinks.filter((l) => l.from.includes(k)).map((l) => (it.links[l.key] ?? []).join(', ')),
+      ...declaredLinks.filter((l) => l.to.includes(k)).map((l) => into.filter((x) => x.def === l && keep(x.from)).map((x) => x.from.id).join(', ')),
+    ];
+  };
   const runCases = (r: TestRun) => r.cases.filter((c) => !index.byId.has(c.id) || keep(index.byId.get(c.id)!));
 
   const requirements: Sheet = {
@@ -67,6 +81,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Covered', width: 16 },
       { header: 'To review', width: 18, wrap: true },
       { header: 'Last results', width: 36, wrap: true },
+      ...linkCols('requirement'),
       ...extraColumns('requirement'),
       { header: 'File', width: 36 },
     ],
@@ -95,8 +110,50 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
             return `${l.test.id}: ${res ? `${res.case.result} (${res.run.name})` : 'never run'}`;
           })
           .join('\n'),
+        ...linkCells(r),
         ...extraCells(r),
         r.path,
+      ];
+    }),
+  };
+
+  // Items of the declared types, all in one sheet with their type: the link columns are
+  // those of every declared type.
+  const otherTypes = customTypes(index.config);
+  const otherItems = otherTypes.flatMap((t) => index.items.filter((i) => i.kind === t.key && keep(i)));
+  const otherLinkCols = [
+    ...declaredLinks.filter((l) => l.from.some((k) => otherTypes.some((t) => t.key === k))).map((l) => ({ header: l.name, width: 16, wrap: true })),
+    ...declaredLinks.filter((l) => l.to.some((k) => otherTypes.some((t) => t.key === k))).map((l) => ({ header: l.reverse, width: 16, wrap: true })),
+  ];
+  const otherFieldDefs = index.config.fields.filter((f) => f.kinds.some((k) => otherTypes.some((t) => t.key === k)));
+  const others: Sheet = {
+    name: 'Other items',
+    columns: [
+      { header: 'ID', width: 10 },
+      { header: 'Type', width: 14 },
+      { header: 'Title', width: 40, wrap: true },
+      { header: 'Status', width: 11 },
+      { header: 'Variants', width: 16 },
+      { header: 'Components', width: 16 },
+      { header: 'Jira', width: 16 },
+      ...otherLinkCols,
+      ...otherFieldDefs.map((f) => ({ header: f.name, width: 16, wrap: f.type === 'list' || f.type === 'choices' || f.type === 'text' })),
+      { header: 'File', width: 36 },
+    ],
+    rows: otherItems.map((it) => {
+      const { in: into } = itemLinks(index, it);
+      return [
+        it.id,
+        typeOf(index.config, it.kind).name,
+        it.title,
+        it.status,
+        variantNames(index.config, it),
+        componentNames(it),
+        issues(it),
+        ...declaredLinks.filter((l) => l.from.some((k) => otherTypes.some((t) => t.key === k))).map((l) => (it.links[l.key] ?? []).join(', ')),
+        ...declaredLinks.filter((l) => l.to.some((k) => otherTypes.some((t) => t.key === k))).map((l) => into.filter((x) => x.def === l && keep(x.from)).map((x) => x.from.id).join(', ')),
+        ...otherFieldDefs.map((f) => (f.kinds.includes(it.kind) ? (f.type === 'number' && typeof it.data[f.key] === 'number' ? (it.data[f.key] as number) : fieldText(it.data[f.key]) || null) : null)),
+        it.path,
       ];
     }),
   };
@@ -118,6 +175,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Tester', width: 16 },
       { header: 'Date', width: 11 },
       { header: 'Note', width: 40, wrap: true },
+      ...linkCols('testcase'),
       ...extraColumns('testcase'),
       { header: 'File', width: 36 },
     ],
@@ -140,6 +198,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         res?.case.tester ?? '',
         res ? res.case.date || res.run.created : '',
         res?.case.note ?? '',
+        ...linkCells(t),
         ...extraCells(t),
         t.path,
       ];
@@ -254,5 +313,5 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     ]),
   };
 
-  return { requirements, testcases, matrix, runs, results, trend };
+  return { requirements, testcases, others, matrix, runs, results, trend };
 }

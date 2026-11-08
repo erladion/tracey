@@ -1,7 +1,7 @@
-// The list of requirements or test cases, with search and filters.
+// The list of requirements, test cases or another item type, with search and filters.
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
-import { fieldsFor, type Kind } from '../../../core/config';
-import { linksOf, verification, type Item } from '../../../core/model';
+import { fieldsFor, statusesFor, type Kind } from '../../../core/config';
+import { checkRules, itemLinks, linksOf, verification, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill, VariantTag } from './bits';
@@ -29,18 +29,19 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
   const [component, setComponent] = useState('');
   // Declared choice fields to filter on: key → value ('' any, NONE without one).
   const [byField, setByField] = useState<Record<string, string>>({});
-  const how = useMemo(() => verification(index), [index]);
+  const how = useMemo(() => ({ ...verification(index), rules: ruleGaps(index) }), [index]);
   const choiceFields = useMemo(() => fieldsFor(index.config, kind).filter((f) => f.type === 'choice' || f.type === 'choices'), [index.config, kind]);
 
-  const counts = useMemo(
-    () => ({
-      requirement: index.items.filter((i) => i.kind === 'requirement').length,
-      testcase: index.items.filter((i) => i.kind === 'testcase').length,
-    }),
-    [index],
-  );
+  const counts = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const i of index.items) out.set(i.kind, (out.get(i.kind) ?? 0) + 1);
+    return out;
+  }, [index]);
+  // Requirements, test cases, then the declared types; and any type an item names that
+  // trace.yml doesn't (so it can still be found).
+  const tabs = [...index.config.types, ...[...counts.keys()].filter((k) => !index.config.types.some((t) => t.key === k)).map((k) => ({ key: k, plural: k }))];
 
-  const statuses = kind === 'requirement' ? index.config.statuses : index.config.testcaseStatuses;
+  const statuses = statusesFor(index.config, kind);
   const components = useMemo(() => {
     const keys = new Set([...index.config.components.map((c) => c.key), ...index.items.flatMap((i) => i.components)]);
     return [...keys].sort();
@@ -101,10 +102,10 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
 
   return (
     <aside className="sidebar" aria-label="Items">
-      <div className="segmented" role="tablist">
-        {(['requirement', 'testcase'] as const).map((k) => (
-          <button key={k} type="button" role="tab" aria-selected={kind === k} className={kind === k ? 'on' : ''} onClick={() => onKind(k)}>
-            {k === 'requirement' ? 'Requirements' : 'Test cases'} <span className="count">{counts[k]}</span>
+      <div className={`segmented${tabs.length > 2 ? ' wrap kinds' : ''}`} role="tablist">
+        {tabs.map((t) => (
+          <button key={t.key} type="button" role="tab" aria-selected={kind === t.key} className={kind === t.key ? 'on' : ''} onClick={() => onKind(t.key)}>
+            {t.plural} <span className="count">{counts.get(t.key) ?? 0}</span>
           </button>
         ))}
       </div>
@@ -202,16 +203,25 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
   );
 }
 
-function RowBadge({ project, item, how }: { project: Project; item: Item; how: ReturnType<typeof verification> }) {
+// The first rule each item misses: ID → the gap in a word or two.
+function ruleGaps(index: Project['index']): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of checkRules(index)) for (const it of r.missing) if (!out.has(it.id)) out.set(it.id, r.rule.tag);
+  return out;
+}
+
+function RowBadge({ project, item, how }: { project: Project; item: Item; how: ReturnType<typeof verification> & { rules: Map<string, string> } }) {
   const links = linksOf(project.index, item);
-  if (links.some((l) => l.state === 'suspect'))
+  if (links.some((l) => l.state === 'suspect') || itemLinks(project.index, item).out.some((l) => l.state === 'suspect'))
     return (
       <span className="row-badge warn" title="A linked requirement changed since review">
         <Icon name="warn" size={13} /> suspect
       </span>
     );
+  if (item.status === 'obsolete') return null;
+  const rule = how.rules.get(item.id);
+  if (item.kind !== 'requirement' && item.kind !== 'testcase') return rule ? <span className="row-badge gap">{rule.toLowerCase()}</span> : null;
   if (item.kind === 'requirement') {
-    if (item.status === 'obsolete') return null;
     const covered = how.covered.get(item.id);
     if (links.length)
       return (
@@ -244,5 +254,6 @@ function RowBadge({ project, item, how }: { project: Project; item: Item; how: R
       </span>
     );
   }
-  return item.verifies.length ? null : <span className="row-badge gap">verifies nothing</span>;
+  if (!item.verifies.length) return <span className="row-badge gap">verifies nothing</span>;
+  return rule ? <span className="row-badge gap">{rule.toLowerCase()}</span> : null;
 }

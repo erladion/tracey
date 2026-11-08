@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Commit, GitStatus, JiraIssue, JiraServer, JiraStatus, RepoEntry } from '../../shared/api';
 import { buildIssueLinks, linkQuery, type IssueLinks } from '../../core/links';
-import { parseConfig } from '../../core/config';
+import { parseConfig, typeOf } from '../../core/config';
 import { linkCommits, type LinkedCommit } from '../../core/commits';
 import { readRun, type TestRun } from '../../core/runs';
 import { load, save } from './storage';
@@ -41,7 +41,7 @@ export interface Project {
   updateFields(path: string, changes: Record<string, unknown>): void;
   markReviewed(test: Item, reqIds: string[]): void;
   writeConfig(text: string): Promise<void>;
-  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[] }): Promise<string>;
+  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; refines?: string[]; links?: Record<string, string[]>; components?: string[]; variants?: string[] }): Promise<string>;
   deleteItem(path: string): Promise<void>; // any file: items and test runs
   runs: TestRun[];
   createFile(path: string, text: string): Promise<void>;
@@ -379,7 +379,7 @@ export function useProject(repo: RepoEntry): Project {
   );
 
   const createItem = useCallback(
-    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[] } = {}) => {
+    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; refines?: string[]; links?: Record<string, string[]>; components?: string[]; variants?: string[] } = {}) => {
       const idx = indexRef.current;
       // A chosen ID is checked again here: another change may have taken it meanwhile.
       const id = opts.id?.trim() || nextId(idx, kind);
@@ -387,16 +387,29 @@ export function useProject(repo: RepoEntry): Project {
         const { error } = checkNewId(idx, kind, id);
         if (error) throw new Error(error);
       }
-      const prefix = (kind === 'requirement' ? idx.config.requirements : idx.config.testcases).prefix;
+      const type = typeOf(idx.config, kind);
+      const prefix = type.prefix;
       const path = newItemPath(idx, kind, id, title);
       const reviewed: Record<string, string> = {};
       // New links start reviewed: they're made against the text as it is now.
-      for (const r of [...(opts.verifies ?? []), ...(opts.refines ?? [])]) {
+      for (const r of [...(opts.verifies ?? []), ...(opts.refines ?? []), ...Object.values(opts.links ?? {}).flat()]) {
         const req = idx.byId.get(r);
         if (req) reviewed[r] = fingerprint(req);
       }
-      const status = (kind === 'requirement' ? idx.config.statuses : idx.config.testcaseStatuses)[0] ?? 'draft';
-      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, refines: kind === 'requirement' ? opts.refines : undefined, components: opts.components, variants: opts.variants, reviewed, type: !!prefix && !id.startsWith(prefix) });
+      const status = type.statuses[0] ?? 'draft';
+      const links = Object.fromEntries(Object.entries(opts.links ?? {}).filter(([k]) => idx.config.links.some((l) => l.key === k && !l.builtIn && l.from.includes(kind))));
+      const text = newItemText(kind, {
+        id,
+        title,
+        status,
+        verifies: opts.verifies,
+        refines: kind === 'requirement' ? opts.refines : undefined,
+        links,
+        components: opts.components,
+        variants: opts.variants,
+        reviewed,
+        type: !!prefix && !id.startsWith(prefix),
+      });
       await api.writeFile(repo.id, path, text);
       const next = new Map(textsRef.current);
       next.set(path, text);

@@ -8,6 +8,7 @@ import { graphSvg, type GraphPicture } from '../../../core/graphsvg';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import { byEvidence } from '../../../core/model';
+import { typeName, typePlural, typeWord } from '../../../core/config';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill } from './bits';
@@ -29,9 +30,9 @@ const MIN_GAP = 56; // between columns, where the edges run
 const MAX_GAP = 160;
 const TOP = 36; // room for the column headings
 
-const LABELS: Record<NodeType, string> = { commit: 'Commits', issue: 'Jira issues', req: 'Requirements', test: 'Test cases', component: 'Components' };
-const TYPE_LABEL: Record<NodeType, string> = { commit: 'Commit', issue: 'Jira issue', req: 'Requirement', test: 'Test case', component: 'Component' };
-const REL: Record<NodeType, string> = { commit: 'commit', issue: 'issue', req: 'requirement', test: 'test case', component: 'component' };
+const LABELS: Record<NodeType, string> = { commit: 'Commits', issue: 'Jira issues', req: 'Requirements', test: 'Test cases', item: 'Items', component: 'Components' };
+const TYPE_LABEL: Record<NodeType, string> = { commit: 'Commit', issue: 'Jira issue', req: 'Requirement', test: 'Test case', item: 'Item', component: 'Component' };
+const REL: Record<NodeType, string> = { commit: 'commit', issue: 'issue', req: 'requirement', test: 'test case', item: 'item', component: 'component' };
 
 export function GraphView({ project, focus, onOpenId }: Props) {
   const { index } = project;
@@ -77,7 +78,10 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const cols = useMemo(() => columns(shown).filter((c) => c.nodes.length > 0), [shown]);
   // With requirements refining others, a column per level.
   const levels = cols.filter((c) => c.type === 'req').length;
-  const colLabel = (c: { type: NodeType; depth: number }) => (c.type === 'req' && levels > 1 ? (c.depth ? `Level ${c.depth + 1}` : 'Requirements, level 1') : LABELS[c.type]);
+  const colLabel = (c: { type: NodeType; depth: number; itemType?: string }) =>
+    c.type === 'req' && levels > 1 ? (c.depth ? `Level ${c.depth + 1}` : 'Requirements, level 1') : c.type === 'item' ? typePlural(index.config, c.itemType!) : LABELS[c.type];
+  // What a node is, in a word: "risk", "test case".
+  const word = (n: GNode) => (n.type === 'item' ? typeWord(index.config, n.itemType!) : REL[n.type]);
 
   // Spread the columns over the width there is; scroll (or zoom out) when it's not enough.
   const scroller = useRef<HTMLDivElement>(null);
@@ -111,6 +115,10 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     const y1 = p.y + H / 2;
     const x2 = q.x;
     const y2 = q.y + H / 2;
+    // In the same column (a link between items of one type): a loop out to the right.
+    if (q.x === p.x) return `M ${x1} ${y1} C ${x1 + GAP / 2} ${y1}, ${x1 + GAP / 2} ${y2}, ${x1} ${y2}`;
+    // Backwards (link types in a cycle): from the left side to the right side.
+    if (q.x < p.x) return `M ${p.x} ${y1} C ${p.x - GAP / 2} ${y1}, ${q.x + W + GAP / 2} ${y2}, ${q.x + W} ${y2}`;
     return `M ${x1} ${y1} C ${x1 + GAP / 2} ${y1}, ${x2 - GAP / 2} ${y2}, ${x2} ${y2}`;
   };
 
@@ -235,7 +243,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                   })}
                 </svg>
                 {cols.map((c) => (
-                  <div key={`${c.type}${c.depth}`} className="graph-col-head" style={{ left: layout.pos.get(c.nodes[0].key)!.x, width: W }}>
+                  <div key={`${c.type}${c.depth}${c.itemType ?? ''}`} className="graph-col-head" style={{ left: layout.pos.get(c.nodes[0].key)!.x, width: W }}>
                     <span className="strong">{colLabel(c)}</span> <span className="muted">{c.nodes.length}</span>
                   </div>
                 ))}
@@ -287,6 +295,15 @@ export function GraphView({ project, focus, onOpenId }: Props) {
               <i className="swatch plain" />
               Test case or component
             </span>
+            {index.config.types.some((t) => !t.builtIn) && (
+              <span>
+                <i className="swatch item" />
+                {index.config.types
+                  .filter((t) => !t.builtIn)
+                  .map((t) => t.name)
+                  .join(', ')}
+              </span>
+            )}
             <span>
               <i className="swatch selected" />
               Selected
@@ -321,7 +338,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
           ) : sel ? (
             <>
               <div className="sel-head">
-                <span className="kind-label">{TYPE_LABEL[sel.type]}</span>
+                <span className="kind-label">{sel.type === 'item' ? typeName(index.config, sel.itemType!) : TYPE_LABEL[sel.type]}</span>
                 <h2>{sel.label}</h2>
                 <span className="muted">{sel.sub}</span>
               </div>
@@ -362,7 +379,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                         {edge?.state === 'suspect' && <Icon name="warn" size={12} />} {n.label}
                       </span>
                       <span className="muted small">
-                        {dir === 'up' ? `← ${REL[n.type]}` : `${REL[n.type]} →`}
+                        {dir === 'up' ? `← ${word(n)}` : `${word(n)} →`}
                         {edge?.sources && ` · ${edge.sources.map((x) => SOURCE_LABEL[x]).join(', ')}`}
                       </span>
                     </button>
@@ -422,6 +439,7 @@ function statusText(n: GNode, down: string[], up: string[]): string {
   }
   if (n.type === 'commit') return `Names ${downstream} issue${downstream === 1 ? '' : 's'} or item${downstream === 1 ? '' : 's'}.`;
   if (n.type === 'test') return `Verifies ${upstream} requirement${upstream === 1 ? '' : 's'}.`;
+  if (n.type === 'item') return downstream + upstream ? `Linked with ${downstream + upstream} item${downstream + upstream === 1 ? '' : 's'}.` : 'Nothing is linked to it yet.';
   if (n.type === 'issue') return `Linked to ${downstream} requirement${downstream === 1 ? '' : 's'} or test case${downstream === 1 ? '' : 's'}.`;
   return `Covered by ${upstream} test case${upstream === 1 ? '' : 's'}.`;
 }

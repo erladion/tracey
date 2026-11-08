@@ -142,6 +142,44 @@ Payment fails with a retry-exhausted message after 3 attempts.
   edit them. Search finds every field: any word searches them all, and `field:value`
   one (`priority:high`, `doors:payments`).
 
+### Item and link types of your own
+
+Requirements and test cases are built in. `trace.yml` can add more item types, link
+types between any of them, and rules for what counts as a gap:
+
+```yaml
+types:
+  risk:         { name: Risk, prefix: RSK-, dir: risks, statuses: [open, mitigated, closed, obsolete] }
+  architecture: { name: Architecture element, prefix: ARC-, dir: architecture }
+links:
+  mitigates:  { name: Mitigates, reverse: Mitigated by, from: [requirement, testcase], to: risk }
+  implements: { name: Implements, reverse: Implemented by, from: architecture, to: requirement }
+rules:
+  - { every: risk, needs: mitigates }             # something must mitigate each risk
+  - { every: architecture, needs: implements }    # each element must implement something
+```
+
+- **A type** gets its own tab in the list, ID prefix, folder, statuses and declared
+  fields (`for: risk`). Its plural defaults to the name plus "s"; `plural:` sets it.
+  An item is of a type by its ID prefix, by `type: risk` in the file, or by its folder.
+- **A link** is a front-matter list on the linking item, named by its key
+  (`mitigates: [RSK-01]`), edited above the text with suggestions of the right type.
+  Both items list it in the side panel (*Mitigates* on one, *Mitigated by* on the
+  other, with **New requirement** to start one already linked). Links are checked
+  (broken, wrong type, to itself), reviewed like test links (they turn *suspect* when
+  the linked item changes), drawn in the graph, changed in bulk, renamed with IDs,
+  and exported (a column each way, and an *Other items* sheet; a section per type in
+  the PDF).
+- **A rule** names a type and a link: by default something must link *to* each item
+  when the type is a link's target, else each item must link to something
+  (`direction: in | out` to choose). Items that miss it are gaps on the Coverage page
+  (a *Rules* table and *Needs attention*), in the graph and the list, and in `check`.
+  `tag:` and `text:` change how the gap is worded.
+- The graph puts each type in its own column, in the order the links go: from the
+  item linked to, to the item naming it (risks, requirements, architecture, test cases).
+- Without `types:`, `links:` or `rules:`, nothing changes. Anything in them that can't
+  be used is listed under Problems and in Settings, with why.
+
 ### trace.yml
 
 ```yaml
@@ -529,9 +567,9 @@ the light colours, for a document or a slide.
 
 ```
 src/core/       pure TypeScript, shared by everything (and unit-tested)
-  config.ts       trace.yml
+  config.ts       trace.yml, with the item types, link types and rules
   frontmatter.ts  front matter: read, and change fields keeping the rest as written
-  model.ts        items, links, fingerprints, problems, coverage, new IDs, component globs
+  model.ts        items, links, fingerprints, problems, coverage, rules, new IDs, component globs
   graph.ts        the traceability graph: nodes, edges, gaps, filters, column order
   graphsvg.ts     the graph as a standalone SVG picture
   fields.ts       declared fields (checked, parsed) and the others (read-only); search

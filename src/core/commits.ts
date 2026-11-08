@@ -19,7 +19,7 @@ const NOT_JIRA = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'HTTP', 'TLS', 'SSL', 'X',
 
 export function linkCommits(commits: Commit[], index: ProjectIndex, links: IssueLinks = buildIssueLinks(index)): LinkedCommit[] {
   const projects = projectsOf(index, links);
-  const itemPrefixes = [index.config.requirements.prefix, index.config.testcases.prefix];
+  const itemPrefixes = index.config.types.map((t) => t.prefix).filter(Boolean);
   return commits.map((commit) => {
     const text = `${commit.subject}\n${commit.body}`;
     const issues = new Set<string>();

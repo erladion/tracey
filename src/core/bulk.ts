@@ -1,7 +1,7 @@
 // One change to many items: set or clear single fields, add or remove values in list
 // fields. Gives each file's field changes, only where something actually changes.
 import { listValue } from './fields';
-import { fingerprint, type Item, type ProjectIndex } from './model';
+import { fingerprint, linkedIds, type Item, type ProjectIndex } from './model';
 
 export interface BulkEdit {
   set: Record<string, unknown>; // field → new value; null clears it
@@ -13,6 +13,7 @@ export const emptyEdit = (): BulkEdit => ({ set: {}, add: {}, remove: {} });
 
 function current(item: Item, key: string): string[] {
   if (key === 'components' || key === 'variants' || key === 'jira' || key === 'verifies' || key === 'refines' || key === 'evidence') return item[key];
+  if (key in item.links) return item.links[key];
   return listValue(item.data[key]);
 }
 
@@ -30,20 +31,24 @@ export function bulkChanges(items: Item[], edit: BulkEdit, index: ProjectIndex):
       if (!same(it.data[key] === '' ? undefined : it.data[key], now)) changes[key] = now;
     }
     for (const key of new Set([...Object.keys(edit.add), ...Object.keys(edit.remove)])) {
-      if ((key === 'verifies' && it.kind !== 'testcase') || ((key === 'refines' || key === 'evidence') && it.kind !== 'requirement')) continue;
+      const link = index.config.links.find((l) => l.key === key);
+      if (link && !link.from.includes(it.kind)) continue;
+      if (key === 'evidence' && it.kind !== 'requirement') continue;
       const before = current(it, key);
       const drop = new Set(edit.remove[key] ?? []);
-      // (A requirement can't refine itself.)
-      const adding = (edit.add[key] ?? []).filter((v) => !before.includes(v) && !drop.has(v) && !(key === 'refines' && v === it.id));
+      // (Nothing links to itself.)
+      const adding = (edit.add[key] ?? []).filter((v) => !before.includes(v) && !drop.has(v) && !(link && v === it.id));
       const after = [...before.filter((v) => !drop.has(v)), ...adding];
       if (same(before, after)) continue;
       changes[key] = after.length ? after : undefined;
       // A link added here counts as reviewed now; one removed loses its review. The
       // reviews of the other links stay.
-      if (key === 'verifies' || key === 'refines') {
+      if (link) {
         const base = 'reviewed' in changes ? ((changes.reviewed as Record<string, string> | undefined) ?? {}) : it.reviewed;
         const reviewed: Record<string, string> = {};
-        for (const [k, v] of Object.entries(base)) if (!before.includes(k) || after.includes(k)) reviewed[k] = v;
+        // A review stays while any of its links does (it may also be linked another way).
+        const elsewhere = new Set(linkedIds({ ...it, [key]: [], links: { ...it.links, [key]: [] } } as Item));
+        for (const [k, v] of Object.entries(base)) if (!before.includes(k) || after.includes(k) || elsewhere.has(k)) reviewed[k] = v;
         for (const v of after)
           if (!reviewed[v] && !before.includes(v)) {
             const req = index.byId.get(v);

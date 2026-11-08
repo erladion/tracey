@@ -1,6 +1,6 @@
 // trace.yml, edited as text, with what each setting does.
-import { useEffect, useState } from 'react';
-import { parseConfig, SAMPLE_CONFIG } from '../../../core/config';
+import { Fragment, useEffect, useState } from 'react';
+import { parseConfig, SAMPLE_CONFIG, typePlural, typeWord } from '../../../core/config';
 import type { Project } from '../project';
 import { notify } from '../notify';
 import { CodeRepoCard } from './CodeRepoCard';
@@ -57,18 +57,61 @@ export function SettingsView({ project }: { project: Project }) {
         <aside className="card attention">
           <h2>Now in effect</h2>
           <dl className="settings-summary">
-            <dt>Requirements</dt>
+            {config.types.map((t) => (
+              <Fragment key={t.key}>
+                <dt>{t.plural}</dt>
+                <dd>
+                  <code>{t.dir}/</code>, IDs like <code>{t.prefix + '1'.padStart(t.digits, '0')}</code>
+                  <br />
+                  <span className="muted small">Statuses: {t.statuses.join(', ')}</span>
+                </dd>
+              </Fragment>
+            ))}
+            <dt>Links</dt>
             <dd>
-              <code>{config.requirements.dir}/</code>, IDs like <code>{config.requirements.prefix + '1'.padStart(config.requirements.digits, '0')}</code>
+              <ul className="plain-list">
+                {config.links.map((l) => (
+                  <li key={l.key}>
+                    <span className="strong">{l.name}</span>{' '}
+                    <span className="muted small">
+                      <code>{l.key}:</code> from {l.from.map((k) => typeWord(config, k)).join(' or ')} to {l.to.map((k) => typeWord(config, k)).join(' or ')} · shown as “{l.reverse}”
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </dd>
-            <dt>Test cases</dt>
-            <dd>
-              <code>{config.testcases.dir}/</code>, IDs like <code>{config.testcases.prefix + '1'.padStart(config.testcases.digits, '0')}</code>
-            </dd>
-            <dt>Requirement statuses</dt>
-            <dd>{config.statuses.join(', ')}</dd>
-            <dt>Test case statuses</dt>
-            <dd>{config.testcaseStatuses.join(', ')}</dd>
+            {config.rules.length > 0 && (
+              <>
+                <dt>Rules</dt>
+                <dd>
+                  <ul className="plain-list">
+                    {config.rules.map((r, i) => {
+                      const l = config.links.find((x) => x.key === r.link)!;
+                      return (
+                        <li key={i}>
+                          Every {typeWord(config, r.type)} {r.incoming ? `is ${l.reverse.toLowerCase()} something` : `${l.name.toLowerCase()} something`}{' '}
+                          <span className="muted small">(else: {r.tag})</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </dd>
+              </>
+            )}
+            {config.notes.length > 0 && (
+              <>
+                <dt>Not used</dt>
+                <dd>
+                  <ul className="plain-list">
+                    {config.notes.map((n, i) => (
+                      <li key={i} className="warn-text small">
+                        {n}
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </>
+            )}
             <dt>Components</dt>
             <dd>
               {config.components.length ? (
@@ -94,7 +137,7 @@ export function SettingsView({ project }: { project: Project }) {
                       <span className="strong">{f.name}</span>{' '}
                       <span className="muted small">
                         {f.type === 'choice' ? `one of ${f.values.join(', ')}` : f.type === 'choices' ? `any of ${f.values.join(', ')}` : f.type}
-                        {f.kinds.length === 1 ? (f.kinds[0] === 'requirement' ? ', requirements only' : ', test cases only') : ''}
+                        {f.kinds.length < config.types.length ? `, ${f.kinds.map((k) => typePlural(config, k).toLowerCase()).join(' and ')} only` : ''}
                       </span>
                     </li>
                   ))}

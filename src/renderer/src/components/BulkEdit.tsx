@@ -2,7 +2,7 @@
 // and fields all at once. The files change like any edit and are committed from the
 // bottom bar.
 import { useMemo, useState } from 'react';
-import { fieldsFor, statusesFor, type FieldDef } from '../../../core/config';
+import { fieldsFor, linksFrom, statusesFor, typeOf, type FieldDef } from '../../../core/config';
 import { bulkChanges, emptyEdit, type BulkEdit as Edit } from '../../../core/bulk';
 import { fieldInput } from '../../../core/fields';
 import { durationText, parseDuration } from '../../../core/estimate';
@@ -26,7 +26,8 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
   const { index } = project;
   const items = useMemo(() => paths.map((p) => index.byPath.get(p)).filter((i): i is Item => !!i), [paths, index]);
   const kind = items[0]?.kind ?? 'requirement';
-  const noun = kind === 'requirement' ? 'requirement' : 'test case';
+  const noun = typeOf(index.config, kind).name.toLowerCase();
+  const nouns = typeOf(index.config, kind).plural.toLowerCase();
   const [edit, setEdit] = useState<Edit>(emptyEdit);
   const [typed, setTyped] = useState<Record<string, string>>({}); // text being typed for "Set to…"
 
@@ -42,12 +43,12 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
   const multis: Multi[] = [
     { key: 'components', name: 'Components', suggestions: index.config.components.map((c) => ({ value: c.key, label: c.name })) },
     ...(index.config.variants.length ? [{ key: 'variants', name: 'Variants', suggestions: index.config.variants.map((v) => ({ value: v.key, label: v.name })) }] : []),
-    {
-      key: kind === 'testcase' ? 'verifies' : 'refines',
-      name: kind === 'testcase' ? 'Verifies' : 'Refines',
+    ...linksFrom(index.config, kind).map((l) => ({
+      key: l.key,
+      name: l.name,
       mono: true,
-      suggestions: index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title })),
-    },
+      suggestions: index.items.filter((i) => l.to.includes(i.kind)).map((i) => ({ value: i.id, label: i.title })),
+    })),
     ...(kind === 'requirement' ? [{ key: 'evidence', name: 'Evidence', suggestions: [] }] : []),
     { key: 'jira', name: 'Jira', mono: true, suggestions: [] },
     ...declared.filter((f) => f.type === 'list' || f.type === 'choices').map((f) => ({ key: f.key, name: f.name, suggestions: f.values.map((v) => ({ value: v, label: v })) })),
@@ -76,7 +77,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
 
   const apply = () => {
     for (const [path, c] of changes) project.updateFields(path, c);
-    notify(`Changed ${changes.size} ${noun}${changes.size === 1 ? '' : 's'}. Commit them from the bottom bar.`, 'success');
+    notify(`Changed ${changes.size} ${changes.size === 1 ? noun : nouns}. Commit them from the bottom bar.`, 'success');
     setEdit(emptyEdit());
     setTyped({});
   };
@@ -86,8 +87,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
     <div className="bulk-edit">
       <div className="bulk-head">
         <h1>
-          {items.length} {noun}
-          {items.length === 1 ? '' : 's'} picked
+          {items.length} {items.length === 1 ? noun : nouns} picked
         </h1>
         <button type="button" className="button" onClick={onClear}>
           Clear selection
@@ -208,7 +208,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
             Reset
           </button>
           <button type="button" className="button primary" disabled={!changes.size} onClick={apply}>
-            Change {changes.size || ''} {changes.size === 1 ? noun : `${noun}s`}
+            Change {changes.size || ''} {changes.size === 1 ? noun : nouns}
           </button>
         </div>
       </section>

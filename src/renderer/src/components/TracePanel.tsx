@@ -1,7 +1,8 @@
 // Beside an item: what it's linked to and whether those links still hold, its
 // components, its problems, and its history.
 import { useEffect, useState } from 'react';
-import { byEvidence, linksOf, refinesOf, verification, type Item, type RefineLink } from '../../../core/model';
+import { byEvidence, itemLinks, linksOf, refinesOf, verification, type Item, type ItemLink, type RefineLink } from '../../../core/model';
+import { linksFrom, linksTo, typeOf, typeWord } from '../../../core/config';
 import { commitsFor } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import type { FileCommit } from '../../../shared/api';
@@ -20,11 +21,12 @@ interface Props {
   onOpenId: (id: string) => void;
   onNewTest: (req: Item) => void;
   onNewRefinement: (req: Item) => void;
+  onNewLinked: (kind: string, link: string, target: Item) => void; // a new item of `kind` linking to `target`
   onShowInGraph: (item: Item) => void;
   onOpenRun: (focus: RunFocus) => void;
 }
 
-export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement, onShowInGraph, onOpenRun }: Props) {
+export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement, onNewLinked, onShowInGraph, onOpenRun }: Props) {
   const { index } = project;
   const links = linksOf(index, item);
   const problems = index.problems.filter((p) => p.path === item.path);
@@ -32,12 +34,17 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
   const refines = refinesOf(index, item);
   const how = item.kind === 'requirement' && !links.length ? verification(index) : null;
   const throughRefinements = how?.covered.get(item.id) === 'refinements';
+  const declared = itemLinks(index, item);
+  const outDefs = linksFrom(index.config, item.kind).filter((l) => !l.builtIn && (item.links[l.key]?.length ?? 0) > 0);
+  const inDefs = linksTo(index.config, item.kind).filter((l) => !l.builtIn);
+  const builtIn = item.kind === 'requirement' || item.kind === 'testcase';
 
   return (
     <aside className="trace-panel" aria-label="Traceability">
       <button type="button" className="button small graph-link" onClick={() => onShowInGraph(item)}>
         <Icon name="logo" size={14} /> Show in traceability graph
       </button>
+      {builtIn && (
       <section>
         <div className="panel-head">
           <h3>{item.kind === 'requirement' ? 'Verified by' : 'Verifies'}</h3>
@@ -104,6 +111,7 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
           <p className="warn-text small">Not found: {item.verifies.filter((v) => !index.byId.has(v)).join(', ')}</p>
         )}
       </section>
+      )}
 
       {item.kind === 'requirement' && (refines.up.length > 0 || item.refines.some((r) => !index.byId.has(r))) && (
         <section>
@@ -127,6 +135,39 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
           )}
         </section>
       )}
+
+      {outDefs.map((def) => {
+        const missing = (item.links[def.key] ?? []).filter((id) => !declared.out.some((l) => l.def === def && l.to.id === id));
+        return (
+          <section key={`out-${def.key}`}>
+            <h3>{def.name}</h3>
+            <LinkList links={declared.out.filter((l) => l.def === def)} other={(l) => l.to} project={project} onOpenId={onOpenId} />
+            {missing.length > 0 && <p className="warn-text small">Not found, or not a {def.to.map((k) => typeWord(index.config, k)).join(' or ')}: {missing.join(', ')}</p>}
+          </section>
+        );
+      })}
+      {inDefs.map((def) => {
+        const links = declared.in.filter((l) => l.def === def);
+        return (
+          <section key={`in-${def.key}`}>
+            <h3>{def.reverse}</h3>
+            <div className="panel-new">
+              {def.from.map((k) => (
+                <button key={k} type="button" className="link-button" onClick={() => onNewLinked(k, def.key, item)}>
+                  <Icon name="plus" size={14} /> New {typeWord(index.config, k)}
+                </button>
+              ))}
+            </div>
+            {links.length === 0 ? (
+              <p className="muted small">
+                Nothing yet. {article(def.from.map((k) => typeWord(index.config, k)).join(' or '))} that does names it under {def.name}.
+              </p>
+            ) : (
+              <LinkList links={links} other={(l) => l.from} project={project} onOpenId={onOpenId} />
+            )}
+          </section>
+        );
+      })}
 
       {item.kind === 'testcase' && <Results project={project} item={item} onOpenRun={onOpenRun} />}
 
@@ -214,7 +255,7 @@ function Commits({ project, item }: { project: Project; item: Item }) {
       <h3>Code commits</h3>
       {found.length === 0 ? (
         <p className="muted small">
-          No commits in {project.code.repo.name} name {item.kind === 'requirement' ? 'its ID or its Jira issues' : 'its ID, its Jira issues or those of the requirements it verifies'}.
+          No commits in {project.code.repo.name} name {item.kind === 'testcase' ? 'its ID, its Jira issues or those of the requirements it verifies' : 'its ID or its Jira issues'}.
         </p>
       ) : (
         <ul className="history">
@@ -371,3 +412,43 @@ function RefineList({ links, other, project, onOpenId }: { links: RefineLink[]; 
     </ul>
   );
 }
+
+// Links of a declared type (mitigates, implements…), with whether each still holds.
+function LinkList({ links, other, project, onOpenId }: { links: ItemLink[]; other: (l: ItemLink) => Item; project: Project; onOpenId: (id: string) => void }) {
+  return (
+    <ul className="link-list">
+      {links.map((l) => {
+        const o = other(l);
+        return (
+          <li key={`${l.def.key}:${o.id}`} className={`link-card ${l.state}`}>
+            <button type="button" className="link-target" onClick={() => onOpenId(o.id)}>
+              <span className="item-id">{o.id}</span>
+              <span className="link-title">{o.title}</span>
+            </button>
+            <div className="link-meta">
+              <span className="muted small">{typeOf(project.index.config, o.kind).name}</span>
+              <StatusPill status={o.status} />
+              <VariantTag variants={o.variants} config={project.index.config} />
+              <LinkBadge state={l.state} />
+            </div>
+            {l.state !== 'ok' && (
+              <div className="link-actions">
+                {l.state === 'suspect' && (
+                  <span className="muted small">
+                    {l.to.id} changed. Check {l.from.id} still {l.def.name.toLowerCase()} it, then mark it reviewed.
+                  </span>
+                )}
+                <button type="button" className="button small" onClick={() => project.markReviewed(l.from, [l.to.id])}>
+                  <Icon name="check" size={14} /> Mark reviewed
+                </button>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+// "a requirement", "an architecture element": the article, capitalized to start a sentence.
+const article = (words: string) => `${/^[aeiou]/i.test(words) ? 'An' : 'A'} ${words}`;

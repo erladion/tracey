@@ -19,6 +19,17 @@ describe('reading a repository', () => {
     expect(files.map((f) => f.path).sort()).toEqual(['requirements/a.md', 'test-runs/r.yml', 'tests/b.md']);
   });
 
+  it('reads the folders of the item types trace.yml declares', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'trace-repo-'));
+    for (const d of ['requirements', 'risks', 'elsewhere']) mkdirSync(join(dir, d), { recursive: true });
+    writeFileSync(join(dir, 'trace.yml'), 'types:\n  risk: { prefix: RSK-, dir: risks }\n');
+    writeFileSync(join(dir, 'requirements/a.md'), '---\nid: REQ-01\n---\n');
+    writeFileSync(join(dir, 'risks/r.md'), '---\nid: RSK-01\n---\n');
+    writeFileSync(join(dir, 'elsewhere/x.md'), '---\nid: RSK-02\n---\n');
+    const { files } = await readProjectFiles(dir);
+    expect(files.map((f) => f.path).sort()).toEqual(['requirements/a.md', 'risks/r.md']);
+  });
+
   it('keeps paths inside the repository', () => {
     expect(() => safePath('/r', '../x')).toThrow();
     expect(() => safePath('/r', '.git/config')).toThrow();

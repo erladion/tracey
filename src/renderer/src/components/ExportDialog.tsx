@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { Project } from '../project';
 import { specHtml } from '../../../core/specdoc';
 import { slug, type Item } from '../../../core/model';
+import { customTypes } from '../../../core/config';
 import { tables, TABLE_LABEL, type TableKey } from '../../../core/spreadsheet';
 import { csv, xlsx } from '../../../core/xlsx';
 import { imageUrl, savePdf } from '../pdf';
@@ -23,11 +24,12 @@ const FORMATS: [Format, string][] = [
   ['csv', 'CSV'],
 ];
 
-const SHEETS: TableKey[] = ['requirements', 'testcases', 'matrix', 'runs', 'results', 'trend'];
+const ALL_SHEETS: TableKey[] = ['requirements', 'testcases', 'others', 'matrix', 'runs', 'results', 'trend'];
 
 const SHEET_HINT: Record<TableKey, string> = {
   requirements: 'with their test cases, coverage and last results',
   testcases: 'with what they verify and their last result',
+  others: 'the item types trace.yml declares, with their links',
   matrix: 'requirements down, test cases across',
   runs: 'one row per run, with its totals',
   results: 'every result in every run',
@@ -42,6 +44,10 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
   const [requirements, setRequirements] = useState(true);
   const [testcases, setTestcases] = useState(true);
   const [matrix, setMatrix] = useState(true);
+  const otherTypes = customTypes(index.config);
+  // "Other items" only when trace.yml declares item types.
+  const SHEETS = ALL_SHEETS.filter((k) => k !== 'others' || otherTypes.length > 0);
+  const [others, setOthers] = useState(true);
   const [sheets, setSheets] = useState<Set<TableKey>>(() => new Set(SHEETS));
   const [csvTable, setCsvTable] = useState<TableKey>('requirements');
   const [obsolete, setObsolete] = useState(false);
@@ -70,6 +76,7 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
       title: title.trim() || repo.name,
       requirements,
       testcases,
+      others,
       matrix,
       obsolete,
       component: component || null,
@@ -110,7 +117,7 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
     }
   };
 
-  const nothing = format === 'pdf' ? !(requirements || testcases || matrix) : format === 'xlsx' ? sheets.size === 0 : false;
+  const nothing = format === 'pdf' ? !(requirements || testcases || matrix || (others && otherTypes.length > 0)) : format === 'xlsx' ? sheets.size === 0 : false;
   const check = (label: string, on: boolean, set: (v: boolean) => void, hint?: string) => (
     <label className="check">
       <input type="checkbox" checked={on} onChange={(e) => set(e.target.checked)} />
@@ -141,6 +148,7 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
           <div className="stack tight">
             {check('Requirements, with their text', requirements, setRequirements)}
             {check('Test cases, with their steps', testcases, setTestcases)}
+            {otherTypes.length > 0 && check(`${otherTypes.map((t) => t.plural).join(', ')}, with their text`, others, setOthers)}
             {check('Traceability matrix', matrix, setMatrix)}
           </div>
         )}

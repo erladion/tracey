@@ -62,7 +62,8 @@ export async function readProjectFiles(root: string): Promise<ProjectFiles> {
   }
   // With settings, look where they say items are; without, anywhere in the repository.
   const cfg = parseConfig(config).config;
-  const dirs = configFound ? [...new Set([cfg.requirements.dir, cfg.testcases.dir])].filter((d) => existsSync(join(root, d))) : [''];
+  // Every item type's folder: requirements, test cases and those trace.yml declares.
+  const dirs = configFound ? [...new Set(cfg.types.map((t) => t.dir))].filter((d) => existsSync(join(root, d))) : [''];
   const paths: string[] = [];
   for (const d of dirs) await walk(root, d ? safePath(root, d) : root, paths);
   const files = [];
@@ -87,7 +88,7 @@ export async function readProjectFilesAt(root: string, commit: string): Promise<
   const configEntry = CONFIG_FILES.map((f) => tree.find((e) => e.path === f)).find(Boolean);
   const config = configEntry ? (await git.blobs(root, [configEntry.id]))[0] : null;
   const cfg = parseConfig(config).config;
-  const dirs = config != null ? [...new Set([cfg.requirements.dir, cfg.testcases.dir])] : [''];
+  const dirs = config != null ? [...new Set(cfg.types.map((t) => t.dir))] : [''];
   const inDirs = (p: string) => dirs.some((d) => !d || p.startsWith(d.replace(/\/+$/, '') + '/'));
   const wanted = tree
     .filter((e) => /\.md$/i.test(e.path) && inDirs(e.path) && !e.path.split('/').some((s) => s.startsWith('.') || SKIP_DIRS.has(s)))

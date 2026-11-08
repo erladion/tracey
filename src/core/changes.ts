@@ -4,7 +4,7 @@
 // same item.
 import MarkdownIt from 'markdown-it';
 import { blockChanges, blockText, bodyBlocks, fieldChanges, wordDiff, type FieldChange } from './diff';
-import type { Kind } from './config';
+import { DEFAULT_CONFIG, type Kind, type TypeDef } from './config';
 import type { Item, ProjectIndex } from './model';
 import { DOC_CSS, esc } from './report';
 
@@ -23,7 +23,7 @@ export interface ItemChange {
   tests: { id: string; changed: boolean }[];
 }
 
-const KIND_ORDER: Record<Kind, number> = { requirement: 0, testcase: 1 };
+const kindOrder = (k: Kind) => (k === 'requirement' ? 0 : k === 'testcase' ? 1 : 2);
 const CHANGE_ORDER: Record<ChangeKind, number> = { added: 0, changed: 1, removed: 2 };
 
 const sameText = (a: string, b: string) => {
@@ -58,7 +58,7 @@ export function compareVersions(old: ProjectIndex, now: ProjectIndex): ItemChang
   for (const c of out)
     if (c.kind === 'requirement' && c.now) c.tests = (now.verifiedBy.get(c.id) ?? []).map((t) => ({ id: t.id, changed: touched.has(t.id) }));
 
-  return out.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || CHANGE_ORDER[a.change] - CHANGE_ORDER[b.change] || a.id.localeCompare(b.id, undefined, { numeric: true }));
+  return out.sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || a.kind.localeCompare(b.kind) || CHANGE_ORDER[a.change] - CHANGE_ORDER[b.change] || a.id.localeCompare(b.id, undefined, { numeric: true }));
 }
 
 export interface ChangeCounts {
@@ -92,6 +92,14 @@ export interface ChangesDocOptions {
   to: string;
   meta: [string, string][];
   image: (itemPath: string, src: string) => string;
+  types?: TypeDef[]; // the item types, for headings (default: requirements and test cases)
+}
+
+// The item types with changes, in the project's order, then any it doesn't know.
+export function changedTypes(changes: ItemChange[], types: Pick<TypeDef, 'key' | 'plural'>[] = DEFAULT_CONFIG.types): { key: Kind; plural: string }[] {
+  const kinds = [...new Set(changes.map((c) => c.kind))];
+  const known = types.filter((t) => kinds.includes(t.key));
+  return [...known, ...kinds.filter((k) => !types.some((t) => t.key === k)).map((k) => ({ key: k, plural: k }))];
 }
 
 function renderBlock(md_: string, path: string, image: ChangesDocOptions['image']) {
@@ -154,9 +162,9 @@ function itemHtml(c: ItemChange, o: ChangesDocOptions): string {
 
 export function changesHtml(changes: ItemChange[], o: ChangesDocOptions, generated = new Date()): string {
   const reqs = changes.filter((c) => c.kind === 'requirement');
-  const tests = changes.filter((c) => c.kind === 'testcase');
-  const rc = changeCounts(changes, 'requirement');
-  const tc = changeCounts(changes, 'testcase');
+  const types = o.types ?? DEFAULT_CONFIG.types;
+  // Requirements and test cases always get a line; other types when they changed.
+  const rows = [...types.filter((t) => t.builtIn), ...changedTypes(changes, types).filter((t) => t.key !== 'requirement' && t.key !== 'testcase')];
   const stale = reqs.filter(untouchedTests);
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -179,12 +187,17 @@ ins{background:#dff3ec;color:#0b5a48;text-decoration:none}del{background:#fbe3d8
 <table class="meta">${[['From', o.from], ['To', o.to], ...o.meta, ['Generated', generated.toLocaleString()] as [string, string]].map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('')}</table>
 <h2>Summary</h2>
 <table class="counts"><tr><th></th><th>Added</th><th>Changed</th><th>Removed</th></tr>
-<tr><td>Requirements</td><td>${rc.added}</td><td>${rc.changed}</td><td>${rc.removed}</td></tr>
-<tr><td>Test cases</td><td>${tc.added}</td><td>${tc.changed}</td><td>${tc.removed}</td></tr></table>
+${rows
+  .map((t) => {
+    const c = changeCounts(changes, t.key);
+    return `<tr><td>${esc(t.plural)}</td><td>${c.added}</td><td>${c.changed}</td><td>${c.removed}</td></tr>`;
+  })
+  .join('\n')}</table>
 ${stale.length ? `<p>${stale.length} requirement${stale.length === 1 ? '' : 's'} changed text while ${stale.length === 1 ? 'its' : 'their'} test cases didn’t: ${stale.map((c) => `<span class="mono">${esc(c.id)}</span>`).join(', ')}.</p>` : ''}
 ${!changes.length ? '<p>Nothing changed in the requirements or test cases.</p>' : ''}
-${reqs.length ? `<h2>Requirements</h2>${reqs.map((c) => itemHtml(c, o)).join('\n')}` : ''}
-${tests.length ? `<h2>Test cases</h2>${tests.map((c) => itemHtml(c, o)).join('\n')}` : ''}
+${changedTypes(changes, types)
+  .map((t) => `<h2>${esc(t.plural)}</h2>${changes.filter((c) => c.kind === t.key).map((c) => itemHtml(c, o)).join('\n')}`)
+  .join('\n')}
 </main></body></html>
 `;
 }

@@ -48,8 +48,15 @@ export async function check(dirArg: string): Promise<number> {
   const errors = index.problems.filter((p) => p.severity === 'error').length;
   console.log(
     `\n${cov.requirements.length} requirements, ${cov.testcases.length} test cases; ${cov.untested.length} requirements not covered; ` +
-      `${cov.suspect.length + cov.suspectRefines.length} suspect links; ${errors} errors, ${index.problems.length - errors} warnings.`,
+      `${cov.suspect.length + cov.suspectRefines.length + cov.suspectLinks.length} suspect links; ${errors} errors, ${index.problems.length - errors} warnings.`,
   );
+  for (const r of cov.rules) {
+    const t = index.config.types.find((x) => x.key === r.rule.type);
+    console.log(
+      `  Rule: every ${t?.name.toLowerCase() ?? r.rule.type} needs ${r.rule.link}: ${r.items.length - r.missing.length} of ${r.items.length} do` +
+        (r.missing.length ? `; ${r.rule.tag.toLowerCase()}: ${r.missing.map((i) => i.id).join(', ')}` : ''),
+    );
+  }
   // Per variant: a requirement counts only when a test case for that variant verifies it.
   for (const v of index.config.variants) {
     const c = coverage(forVariant(index, v.key));

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { RepoEntry } from '../../shared/api';
-import type { Kind } from '../../core/config';
+import { typeWord, type Kind } from '../../core/config';
+import { nodeKey } from '../../core/graph';
 import { api } from './api';
 import { useProject, type Project } from './project';
 import { forVariant } from '../../core/model';
@@ -214,8 +215,9 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                   onOpenId={openId}
                   onNewTest={(req) => setNewItem({ kind: 'testcase', verifies: [req.id], components: req.components, variants: req.variants })}
                   onNewRefinement={(req) => setNewItem({ kind: 'requirement', refines: [req.id], components: req.components, variants: req.variants })}
+                  onNewLinked={(k, link, target) => setNewItem({ kind: k, links: { [link]: [target.id] }, components: target.components, variants: target.variants })}
                   onShowInGraph={(it) => {
-                    setGraphFocus(`${it.kind === 'requirement' ? 'req' : 'test'}:${it.id}`);
+                    setGraphFocus(nodeKey(it));
                     setView('graph');
                   }}
                   onOpenRun={(f) => {
@@ -230,7 +232,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                   {project.loading ? (
                     <p>Loading…</p>
                   ) : index.items.length ? (
-                    <p>Choose a {kind === 'requirement' ? 'requirement' : 'test case'} on the left.</p>
+                    <p>Choose a {typeWord(index.config, kind)} on the left.</p>
                   ) : (
                     <>
                       <h2>No requirements or test cases yet</h2>
