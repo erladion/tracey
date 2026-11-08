@@ -15,6 +15,10 @@
 //       tester: Ana
 //       date: 2026-11-07
 //       reason: [PROJ-466 → REQ-07 (2 commits)]
+//       assignee: Ana                  (who's to run it)
+//       steps: { 1: passed, 2: failed } (per step of the test case's Steps list)
+//       step-notes:
+//         2: Stops after 2 retries.
 //
 // Each case is its own block with a blank line before it, so two testers recording
 // different cases in the same run change separate parts of the file and git merges
@@ -31,8 +35,11 @@ export interface RunCase {
   result: Result;
   tester: string;
   date: string;
-  note: string;
+  note: string; // may span lines
   reason: string[];
+  assignee: string; // who's to run it; empty: nobody yet
+  steps: Record<number, Result>; // per step (1, 2…), when recorded step by step
+  stepNotes: Record<number, string>;
 }
 
 export interface RunGaps {
@@ -61,6 +68,17 @@ export interface TestRun {
 }
 
 const str = (v: unknown) => (v == null ? '' : String(v));
+// { 1: x, 2: y } with step numbers as keys; anything else is left out.
+function numbered<T>(v: unknown, read: (x: unknown) => T | null): Record<number, T> {
+  const out: Record<number, T> = {};
+  if (v && typeof v === 'object' && !Array.isArray(v))
+    for (const [k, x] of Object.entries(v)) {
+      const n = Number(k);
+      const r = read(x);
+      if (Number.isInteger(n) && n > 0 && r != null) out[n] = r;
+    }
+  return out;
+}
 const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : v == null || v === '' ? [] : [String(v)]);
 
 export function readRun(path: string, text: string): TestRun {
@@ -116,6 +134,9 @@ export function readRun(path: string, text: string): TestRun {
         date: str(c?.date),
         note: str(c?.note),
         reason: list(c?.reason),
+        assignee: str(c?.assignee).trim(),
+        steps: numbered(c?.steps, (v) => (RESULTS.includes(str(v) as Result) ? (str(v) as Result) : null)),
+        stepNotes: numbered(c?.['step-notes'], (v) => str(v) || null),
       };
     }),
   };
@@ -177,7 +198,7 @@ export function newRunText(r: NewRun): string {
 }
 
 // Changes one case's fields (empty removes a field).
-export function setCase(text: string, id: string, changes: Partial<Pick<RunCase, 'result' | 'tester' | 'date' | 'note'>>): string {
+export function setCase(text: string, id: string, changes: Partial<Pick<RunCase, 'result' | 'tester' | 'date' | 'note' | 'assignee'>>): string {
   const doc = parseDocument(text);
   if (!doc.hasIn(['cases', id])) doc.setIn(['cases', id], doc.createNode({ result: 'not-run' }));
   for (const [k, v] of Object.entries(changes)) {
@@ -186,6 +207,52 @@ export function setCase(text: string, id: string, changes: Partial<Pick<RunCase,
   }
   spaceCases(doc);
   return doc.toString({ lineWidth: 0, flowCollectionPadding: false });
+}
+
+// One step's result and note (null or empty removes them). Steps and their notes are
+// small maps inside the case, so two testers on different steps merge cleanly.
+export function setStep(text: string, id: string, step: number, change: { result?: Result | null; note?: string | null }): string {
+  const doc = parseDocument(text);
+  if (!doc.hasIn(['cases', id])) doc.setIn(['cases', id], doc.createNode({ result: 'not-run' }));
+  const put = (field: string, value: unknown) => {
+    if (value == null || value === '' || value === 'not-run') doc.deleteIn(['cases', id, field, step]);
+    else {
+      if (!isMap(doc.getIn(['cases', id, field], true))) doc.setIn(['cases', id, field], doc.createNode({}));
+      const m = doc.getIn(['cases', id, field], true) as YAMLMap;
+      m.set(doc.createNode(step), value);
+      m.items.sort((a, b) => Number((a as Pair<{ value: unknown }>).key.value) - Number((b as Pair<{ value: unknown }>).key.value));
+    }
+    const m = doc.getIn(['cases', id, field], true);
+    if (isMap(m) && !m.items.length) doc.deleteIn(['cases', id, field]);
+  };
+  if ('result' in change) put('steps', change.result);
+  if ('note' in change) put('step-notes', change.note);
+  const steps = doc.getIn(['cases', id, 'steps'], true);
+  if (isMap(steps)) steps.flow = true;
+  spaceCases(doc);
+  return doc.toString({ lineWidth: 0, flowCollectionPadding: false });
+}
+
+// A case's result from its steps: failed if any step failed, else blocked if any is
+// blocked, passed when all `count` passed; not run while steps are left.
+export function resultFromSteps(steps: Record<number, Result>, count: number): Result {
+  const rs = Object.values(steps);
+  if (rs.includes('failed')) return 'failed';
+  if (rs.includes('blocked')) return 'blocked';
+  let passed = 0;
+  for (let n = 1; n <= count; n++) if (steps[n] === 'passed') passed++;
+  return count > 0 && passed === count ? 'passed' : 'not-run';
+}
+
+// "Step 3 failed: Stops after 2 retries." for the steps that failed or are blocked.
+export function stepProblems(c: Pick<RunCase, 'steps' | 'stepNotes'>, stepText: string[] = []): string[] {
+  return Object.entries(c.steps)
+    .filter(([, r]) => r === 'failed' || r === 'blocked')
+    .map(([n, r]) => {
+      const text = stepText[Number(n) - 1];
+      const note = c.stepNotes[Number(n)];
+      return `Step ${n}${text ? ` (${text})` : ''} ${r === 'failed' ? 'failed' : 'blocked'}${note ? `: ${note}` : ''}`;
+    });
 }
 
 export function addCases(text: string, cases: { id: string; reason: string[] }[]): string {

@@ -1,7 +1,8 @@
 // The repository as spreadsheet tables: requirements, test cases, the traceability
 // matrix, test runs and their results, and coverage over time.
 import { itemLinks, linksOf, METHOD_LABEL, variantNames, verification, type Item, type LinkState, type ProjectIndex } from './model';
-import { lastResult, releaseOf, summarize, type TestRun } from './runs';
+import { lastResult, releaseOf, stepProblems, summarize, type TestRun } from './runs';
+import { stepsOf } from './steps';
 import type { TrendPoint } from './trend';
 import { runEstimate } from './estimate';
 import { outcomeText, resultMatrix, verdictText, type Outcome, type Verdict } from './verdict';
@@ -275,13 +276,19 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Result', width: 9 },
       { header: 'Tester', width: 16 },
       { header: 'Date', width: 11 },
+      { header: 'Assigned to', width: 16 },
+      { header: 'Steps', width: 40, wrap: true },
       { header: 'Note', width: 40, wrap: true },
       { header: 'Why it was picked', width: 40, wrap: true },
     ],
     rows: o.runs.flatMap((r) =>
       runCases(r).map((c) => {
         const it = index.byId.get(c.id);
-        return [r.name, r.created, c.id, it?.title ?? '(no longer in the repository)', it?.verifies.join(', ') ?? '', c.result, c.tester, c.date, c.note, c.reason.join('\n')];
+        const steps = it ? stepsOf(it.body).steps : [];
+        const stepText = Object.keys(c.steps).length
+          ? [`${Object.values(c.steps).filter((x) => x === 'passed').length} of ${steps.length || Object.keys(c.steps).length} passed`, ...stepProblems(c, steps)].join('\n')
+          : '';
+        return [r.name, r.created, c.id, it?.title ?? '(no longer in the repository)', it?.verifies.join(', ') ?? '', c.result, c.tester, c.date, c.assignee, stepText, c.note, c.reason.join('\n')];
       }),
     ),
   };

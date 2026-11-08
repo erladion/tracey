@@ -9,7 +9,8 @@ import type { FileCommit } from '../../../shared/api';
 import type { Project } from '../project';
 import { api } from '../api';
 import { Icon } from '../icons';
-import { lastResult, resultsFor, type CaseResult } from '../../../core/runs';
+import { lastResult, resultsFor, stepProblems, type CaseResult } from '../../../core/runs';
+import { stepsOf } from '../../../core/steps';
 import { LinkBadge, ResultPill, StatusPill, VariantTag, timeAgo } from './bits';
 import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
@@ -381,6 +382,11 @@ function Results({ project, item, onOpenRun }: { project: Project; item: Item; o
                   {r.case.result === 'not-run' ? `To do · run created ${r.run.created}` : runWhen(r)}
                   {r.run.to ? ` · code ${r.run.to}` : ''}
                 </span>
+                {stepProblems(r.case, stepsOf(item.body).steps).map((p) => (
+                  <span key={p} className="small warn-text">
+                    {p}
+                  </span>
+                ))}
                 {r.case.note && <span className="small result-note">{r.case.note}</span>}
               </button>
             </li>

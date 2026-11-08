@@ -362,8 +362,8 @@ commits that name no issue. Or start a run with every test case, or an empty one
 
 A run is a YAML file in the requirements repository (`test-runs/release-2-4-0.yml`,
 folder set by `runs.dir`), recording the versions, the exact code and requirements
-commits, and per test case its result (passed, failed, blocked, not run), tester, date
-and note. Commit it like anything else. Each case is a separate block, so testers
+commits, and per test case its result (passed, failed, blocked, not run), tester, date,
+note, who it's assigned to and, when tested step by step, each step's result. Commit it like anything else. Each case is a separate block, so testers
 recording different cases in the same run merge without conflicts.
 
 Results show beside the items too: a test case's side panel lists every run it's in,
@@ -380,7 +380,24 @@ belongs to no release unless one is set.
 **Estimated time.** The New test run dialog adds up the test cases' estimates, and a
 run shows how much is left (the cases not run yet), saying how many have no estimate.
 
-Expand a case to read its steps while testing. **Report (HTML)** downloads a standalone
+**Step by step.** Expand a case to test it: the numbered list under its **Steps**
+heading becomes a checklist, each step marked passed (✓), failed (✕) or blocked (!),
+with a note on a step that went wrong ("Stops after 2 retries, not 3"). The case's
+result follows its steps: failed if any step failed, else blocked if one is, passed
+when all passed. Marking the whole case directly still works. Notes on a case take
+several lines. The run file keeps steps as small maps inside the case
+(`steps: {1: passed, 2: failed}`, `step-notes:`), so testers on different steps of one
+case merge too.
+
+**Who runs what.** Assign a case to someone in its expanded view, or all the shown
+cases at once (filter first, say To do, then **Assign**). **Assigned → Mine** shows the
+cases assigned to the name entered as tester, and a line above the list says how far
+each person is ("Ana: 3 of 5 done"). The assignee is saved in the run (`assignee: Ana`).
+
+Reports, the Excel export and the test case's side panel show which step failed or
+was blocked, with its note, and who each case was for.
+
+**Report (HTML)** downloads a standalone
 page (print it to PDF), **Report (Markdown)** a text version; **Save report to
 repository** puts the Markdown next to the run, to commit with it.
 
@@ -622,7 +639,8 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   links.ts        Jira issue ↔ item links from every source
   commits.ts      commits → Jira keys, item IDs and components
   impact.ts       which test cases a range of commits calls for, and why
-  runs.ts         test run files: read, create, record results; a test case's results; releases
+  runs.ts         test run files: read, create, record results (per step too); a test case's results; releases
+  steps.ts        a test case's steps, from its Steps list
   verdict.ts      results in the matrix: where they come from, each requirement's verdict
   rename.ts       changing an ID, and everything that names it
   estimate.ts     test case time estimates and run totals

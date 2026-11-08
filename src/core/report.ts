@@ -2,7 +2,8 @@
 // page (to send, or print to PDF).
 import type { Item, ProjectIndex } from './model';
 import { estimateText, formatDuration, runEstimate } from './estimate';
-import { releaseOf, summarize, type Result, type RunCase, type TestRun } from './runs';
+import { releaseOf, stepProblems, summarize, type Result, type RunCase, type TestRun } from './runs';
+import { stepsOf } from './steps';
 
 const LABEL: Record<Result, string> = { passed: 'Passed', failed: 'Failed', blocked: 'Blocked', 'not-run': 'Not run' };
 
@@ -59,6 +60,12 @@ function header(run: TestRun, index?: ProjectIndex): [string, string][] {
 
 const pct = (n: number, d: number) => (d ? Math.round((n / d) * 100) : 0);
 
+// What went wrong at which step, with the step's text: "Step 3 (Submit a payment) failed: …".
+const problemsOf = (c: RunCase, index: ProjectIndex) => {
+  const it = index.byId.get(c.id);
+  return stepProblems(c, it ? stepsOf(it.body).steps : []);
+};
+
 export function reportMarkdown(run: TestRun, index: ProjectIndex, generated = new Date()): string {
   const s = summarize(run);
   const cell = (t: string) => t.replace(/\|/g, '\\|').replace(/\n+/g, ' ');
@@ -74,7 +81,8 @@ export function reportMarkdown(run: TestRun, index: ProjectIndex, generated = ne
     out.push('## Failed and blocked', '');
     for (const c of bad) {
       const it = index.byId.get(c.id);
-      out.push(`- **${c.id}** ${it?.title ?? ''}: ${LABEL[c.result]}${c.tester ? ` (${c.tester}, ${c.date})` : ''}${c.note ? `. ${c.note.replace(/\n+/g, ' ')}` : ''}`);
+      out.push(`- **${c.id}** ${it?.title ?? ''}: ${LABEL[c.result]}${c.tester ? ` (${c.tester}, ${c.date})` : ''}${c.note ? `. ${c.note.replace(/\n+/g, '; ')}` : ''}`);
+      for (const p of problemsOf(c, index)) out.push(`  - ${p}`);
     }
     out.push('');
   }
@@ -86,10 +94,11 @@ export function reportMarkdown(run: TestRun, index: ProjectIndex, generated = ne
     );
   out.push('');
 
-  out.push('## Test cases', '', '| Test case | Result | Tester | Date | Note | Why in this run |', '| --- | --- | --- | --- | --- | --- |');
+  out.push('## Test cases', '', '| Test case | Result | Tester | Date | Assigned to | Note | Why in this run |', '| --- | --- | --- | --- | --- | --- | --- |');
   for (const c of run.cases) {
     const it = index.byId.get(c.id);
-    out.push(`| ${c.id} ${cell(it?.title ?? '(deleted)')} | ${LABEL[c.result]} | ${cell(c.tester)} | ${c.date} | ${cell(c.note)} | ${cell(c.reason.join('; '))} |`);
+    const note = [...problemsOf(c, index), c.note].filter(Boolean).join('; ');
+    out.push(`| ${c.id} ${cell(it?.title ?? '(deleted)')} | ${LABEL[c.result]} | ${cell(c.tester)} | ${c.date} | ${cell(c.assignee)} | ${cell(note)} | ${cell(c.reason.join('; '))} |`);
   }
   out.push('');
 
@@ -120,12 +129,15 @@ th{font-size:12px;color:var(--muted);font-weight:600}
 .pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
 .pill.passed{background:var(--okbg);color:var(--ok)}.pill.failed{background:var(--badbg);color:var(--bad)}
 .pill.blocked{background:var(--warnbg);color:var(--warn)}.pill.not-run{background:#f0f0ec;color:var(--muted)}
-.muted{color:var(--muted)}.nowrap{white-space:nowrap}ul{padding-left:20px}
+.muted{color:var(--muted)}.nowrap{white-space:nowrap}ul{padding-left:20px}.step-problem{color:var(--bad);font-weight:600}
 @page{size:A4;margin:16mm 14mm 18mm;@bottom-center{content:counter(page) " / " counter(pages);font:9px system-ui,sans-serif;color:#888}}
 @media print{main{padding:0;max-width:none}h1,h2,h3{break-after:avoid}tr,.tile,.keep{break-inside:avoid}a{color:inherit;text-decoration:none}}
 `;
 
 export const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// A note as HTML: its lines kept, and the steps that went wrong before it.
+const noteHtml = (c: RunCase, index: ProjectIndex) =>
+  [...problemsOf(c, index).map((p) => `<span class="step-problem">${esc(p)}</span>`), c.note ? esc(c.note).replace(/\n/g, '<br>') : ''].filter(Boolean).join('<br>');
 
 export function reportHtml(run: TestRun, index: ProjectIndex, generated = new Date()): string {
   const s = summarize(run);
@@ -158,7 +170,7 @@ export function reportHtml(run: TestRun, index: ProjectIndex, generated = new Da
 ${
   bad.length
     ? `<h2>Failed and blocked</h2><table><tr><th>Test case</th><th>Result</th><th>Tester</th><th>Note</th></tr>${bad
-        .map((c) => `<tr><td><span class="mono">${esc(c.id)}</span> ${esc(index.byId.get(c.id)?.title ?? '')}</td><td>${pill(c.result)}</td><td>${esc(c.tester)}<br><span class="muted nowrap">${esc(c.date)}</span></td><td>${esc(c.note)}</td></tr>`)
+        .map((c) => `<tr><td><span class="mono">${esc(c.id)}</span> ${esc(index.byId.get(c.id)?.title ?? '')}</td><td>${pill(c.result)}</td><td>${esc(c.tester)}<br><span class="muted nowrap">${esc(c.date)}</span></td><td>${noteHtml(c, index)}</td></tr>`)
         .join('')}</table>`
     : ''
 }
@@ -175,7 +187,7 @@ ${
 <table><tr><th>Test case</th><th>Result</th><th>Tester</th><th>Note</th><th>Why in this run</th></tr>${run.cases
     .map(
       (c) =>
-        `<tr><td><span class="mono">${esc(c.id)}</span> ${esc(index.byId.get(c.id)?.title ?? '(deleted)')}</td><td>${pill(c.result)}</td><td>${esc(c.tester)}<br><span class="muted nowrap">${esc(c.date)}</span></td><td>${esc(c.note)}</td><td class="muted">${esc(c.reason.join('; '))}</td></tr>`,
+        `<tr><td><span class="mono">${esc(c.id)}</span> ${esc(index.byId.get(c.id)?.title ?? '(deleted)')}${c.assignee ? `<br><span class="muted">for ${esc(c.assignee)}</span>` : ''}</td><td>${pill(c.result)}</td><td>${esc(c.tester)}<br><span class="muted nowrap">${esc(c.date)}</span></td><td>${noteHtml(c, index)}</td><td class="muted">${esc(c.reason.join('; '))}</td></tr>`,
     )
     .join('')}</table>
 ${gaps ? `<h2>Not covered by this run</h2><ul>${gaps}</ul>` : ''}

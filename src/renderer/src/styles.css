@@ -2510,6 +2510,117 @@ h3 {
   background: var(--surface);
   font-size: 13px;
 }
+textarea.note-input {
+  resize: vertical;
+  padding-top: 6px;
+  line-height: 1.4;
+  font: inherit;
+}
+.assign-shown {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 4px 0 8px;
+}
+.assign-shown input {
+  min-height: 30px;
+  width: 150px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--fg);
+}
+.who-progress {
+  margin-left: auto;
+}
+.assign-field {
+  align-self: flex-start;
+}
+.step-list {
+  list-style: none;
+  margin: 4px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.step {
+  padding: 6px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.step.passed {
+  box-shadow: inset 3px 0 0 var(--res-passed);
+}
+.step.failed {
+  box-shadow: inset 3px 0 0 var(--res-failed);
+}
+.step.blocked {
+  box-shadow: inset 3px 0 0 var(--res-blocked);
+}
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.step-n {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+}
+.step-text {
+  flex: 1;
+  min-width: 0;
+}
+.step-buttons {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--surface-2);
+  border-radius: 8px;
+}
+.step-result {
+  width: 30px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-2);
+  font-weight: 700;
+  cursor: pointer;
+}
+.step-result:hover {
+  background: var(--surface);
+}
+.step-result.on {
+  color: #fff;
+}
+.step-result.passed.on {
+  background: var(--res-passed);
+}
+.step-result.failed.on {
+  background: var(--res-failed);
+}
+.step-result.blocked.on {
+  background: var(--res-blocked);
+}
+.step-note {
+  flex: none;
+  margin-left: 32px;
+}
 .run-case-body {
   padding: 4px 12px 14px 32px;
   display: flex;
@@ -2900,8 +3011,10 @@ h3 {
 .result-note {
   color: var(--fg-2);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-line;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
 }
 .last-run {
   display: inline-flex;

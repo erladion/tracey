@@ -9,7 +9,8 @@ import { linkCommits } from '../../../core/commits';
 import { buildIssueLinks, projectsOf } from '../../../core/links';
 import type { Commit, JiraIssue } from '../../../shared/api';
 import { impact, reasonText, type Impact } from '../../../core/impact';
-import { addCases, newRunText, releaseFrom, removeCase, runPath, setCase, setRelease as setRunRelease, summarize, today, RESULTS, type Result, type RunCase, type TestRun } from '../../../core/runs';
+import { addCases, newRunText, releaseFrom, removeCase, resultFromSteps, runPath, setCase, setRelease as setRunRelease, setStep, stepProblems, summarize, today, RESULTS, type Result, type RunCase, type TestRun } from '../../../core/runs';
+import { stepsOf } from '../../../core/steps';
 import { releases } from '../../../core/verdict';
 import { estimateOf, estimateText, formatDuration, runEstimate } from '../../../core/estimate';
 import { reportHtml, reportMarkdown } from '../../../core/report';
@@ -117,6 +118,7 @@ function ProgressBar({ s }: { s: ReturnType<typeof summarize> }) {
 // ---- one run ----------------------------------------------------------------------
 
 type Filter = 'all' | 'todo' | 'problems' | 'passed';
+const STEP_MARK: Record<'passed' | 'failed' | 'blocked', string> = { passed: '✓', failed: '✕', blocked: '!' };
 
 function RunDetail({
   project,
@@ -145,20 +147,46 @@ function RunDetail({
   const [tester, setTester] = useState(() => load<string>('trace.tester') ?? load<{ name: string }>('trace.author')?.name ?? '');
   useEffect(() => save('trace.tester', tester || null), [tester]);
 
-  const cases = run.cases.filter((c) =>
-    filter === 'todo' ? c.result === 'not-run' : filter === 'problems' ? c.result === 'failed' || c.result === 'blocked' : filter === 'passed' ? c.result === 'passed' : true,
+  // Whose cases: anyone's, mine (the tester's), nobody's yet, or one person's.
+  const [assigned, setAssigned] = useState<string>(() => load<string>(`trace.runAssigned.${run.path}`) ?? '');
+  useEffect(() => save(`trace.runAssigned.${run.path}`, assigned || null), [assigned, run.path]);
+  const me = tester.trim();
+  const whose = (c: RunCase) => (assigned === '' ? true : assigned === '\u0000me' ? !!me && c.assignee === me : assigned === '\u0000none' ? !c.assignee : c.assignee === assigned);
+  const cases = run.cases.filter(
+    (c) =>
+      whose(c) &&
+      (filter === 'todo' ? c.result === 'not-run' : filter === 'problems' ? c.result === 'failed' || c.result === 'blocked' : filter === 'passed' ? c.result === 'passed' : true),
   );
+  // Everyone who has tested or been assigned in any run: suggestions for assigning.
+  const people = useMemo(
+    () => [...new Set([...project.runs.flatMap((r) => r.cases.flatMap((c) => [c.tester, c.assignee])), me].map((x) => x.trim()).filter(Boolean))].sort(),
+    [project.runs, me],
+  );
+  const assignees = [...new Set(run.cases.map((c) => c.assignee).filter(Boolean))].sort();
+  const [assignTo, setAssignTo] = useState('');
 
-  const record = (c: RunCase, result: Result) => {
-    if (result !== 'not-run' && !tester.trim()) {
-      notify('Enter your name as tester first.', 'error');
-      document.getElementById('tester')?.focus();
-      return;
-    }
-    project.updateFile(run.path, (t) =>
-      setCase(t, c.id, result === 'not-run' ? { result, tester: '', date: '' } : { result, tester: tester.trim(), date: today() }),
-    );
+  const needTester = () => {
+    if (me) return false;
+    notify('Enter your name as tester first.', 'error');
+    document.getElementById('tester')?.focus();
+    return true;
   };
+  const record = (c: RunCase, result: Result) => {
+    if (result !== 'not-run' && needTester()) return;
+    project.updateFile(run.path, (t) => setCase(t, c.id, result === 'not-run' ? { result, tester: '', date: '' } : { result, tester: me, date: today() }));
+  };
+  // One step's result (again: clears it); the case's result follows its steps.
+  const recordStep = (c: RunCase, n: number, r: Result, count: number) => {
+    if (needTester()) return;
+    const clear = c.steps[n] === r;
+    const steps = { ...c.steps };
+    if (clear) delete steps[n];
+    else steps[n] = r;
+    const result = resultFromSteps(steps, count);
+    const any = Object.keys(steps).length > 0;
+    project.updateFile(run.path, (t) => setCase(setStep(t, c.id, n, { result: clear ? null : r }), c.id, any ? { result, tester: me, date: today() } : { result: 'not-run', tester: '', date: '' }));
+  };
+  const assign = (ids: string[], who: string) => project.updateFile(run.path, (t) => ids.reduce((x, id) => setCase(x, id, { assignee: who.trim() }), t));
 
   const reportName = slug(run.name) || 'test-run';
 
@@ -269,6 +297,21 @@ function RunDetail({
           </div>
           <div className="dialog-actions">
             <label className="field inline">
+              <span>Assigned</span>
+              <select value={assigned} onChange={(e) => setAssigned(e.target.value)} aria-label="Whose cases">
+                <option value="">Anyone</option>
+                <option value={'\u0000me'} disabled={!me}>
+                  Mine{me ? ` (${me})` : ''}
+                </option>
+                <option value={'\u0000none'}>Nobody yet</option>
+                {assignees.map((a) => (
+                  <option key={a} value={a}>
+                    {a}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field inline">
               <span>Tester</span>
               <input id="tester" value={tester} onChange={(e) => setTester(e.target.value)} placeholder="Your name" />
             </label>
@@ -278,10 +321,39 @@ function RunDetail({
           </div>
         </div>
 
+        <div className="assign-shown">
+          <span className="muted small">
+            Assign the {cases.length} shown to
+          </span>
+          <input list="run-people" value={assignTo} onChange={(e) => setAssignTo(e.target.value)} placeholder="Name" aria-label="Assign the shown cases to" />
+          <button type="button" className="button small" disabled={!cases.length || !assignTo.trim()} onClick={() => assign(cases.map((c) => c.id), assignTo)}>
+            Assign
+          </button>
+          <button type="button" className="link-button small" disabled={!cases.some((c) => c.assignee)} onClick={() => assign(cases.map((c) => c.id), '')}>
+            Unassign
+          </button>
+          {assignees.length > 0 && (
+            <span className="muted small who-progress">
+              {[...assignees, ...(run.cases.some((c) => !c.assignee) ? [''] : [])]
+                .map((a) => {
+                  const mine = run.cases.filter((c) => c.assignee === a);
+                  return `${a || 'Nobody'}: ${mine.filter((c) => c.result !== 'not-run').length} of ${mine.length} done`;
+                })
+                .join(' · ')}
+            </span>
+          )}
+          <datalist id="run-people">
+            {people.map((p) => (
+              <option key={p} value={p} />
+            ))}
+          </datalist>
+        </div>
         <ul className="run-cases">
           {cases.map((c) => {
             const item = index.byId.get(c.id);
             const expanded = open === c.id;
+            const { steps, rest } = item ? stepsOf(item.body) : { steps: [], rest: '' };
+            const problems = stepProblems(c);
             return (
               <li key={c.id} className={`run-case ${c.result}`} data-case={c.id}>
                 <div className="run-case-row">
@@ -293,8 +365,15 @@ function RunDetail({
                       <span>
                         <span className="item-id">{c.id}</span> <span className="strong">{item?.title ?? '(no longer in the repository)'}</span>
                       </span>
-                      {(c.reason.length > 0 || item?.estimate != null) && (
-                        <span className="muted small">{[...c.reason, ...(item?.estimate != null ? [`about ${formatDuration(item.estimate)}`] : [])].join(' · ')}</span>
+                      {(c.reason.length > 0 || item?.estimate != null || c.assignee) && (
+                        <span className="muted small">
+                          {[...(c.assignee ? [`for ${c.assignee}`] : []), ...c.reason, ...(item?.estimate != null ? [`about ${formatDuration(item.estimate)}`] : [])].join(' · ')}
+                        </span>
+                      )}
+                      {steps.length > 0 && Object.keys(c.steps).length > 0 && (
+                        <span className={`small ${problems.length ? 'warn-text' : 'muted'}`}>
+                          {problems.length ? problems.join(' · ') : `${Object.values(c.steps).filter((r) => r === 'passed').length} of ${steps.length} steps passed`}
+                        </span>
                       )}
                     </span>
                   </button>
@@ -313,11 +392,12 @@ function RunDetail({
                         {c.tester} · {c.date}
                       </span>
                     )}
-                    <input
+                    <textarea
                       className="note-input"
+                      rows={Math.min(10, Math.max(1, c.note.split('\n').length))}
                       value={c.note}
                       onChange={(e) => project.updateFile(run.path, (t) => setCase(t, c.id, { note: e.target.value }))}
-                      placeholder={c.result === 'failed' || c.result === 'blocked' ? 'What happened? (defect key, step, observed result)' : 'Note'}
+                      placeholder={c.result === 'failed' || c.result === 'blocked' ? 'What happened? (defect key, observed result; Enter for a new line)' : 'Note'}
                       aria-label={`Note for ${c.id}`}
                     />
                   </div>
@@ -337,7 +417,57 @@ function RunDetail({
                             Remove from run
                           </button>
                         </div>
-                        <div className="prose rendered" dangerouslySetInnerHTML={{ __html: md.render(item.body) }} />
+                        <label className="field inline assign-field">
+                          <span>Assigned to</span>
+                          <input
+                            list="run-people"
+                            value={c.assignee}
+                            placeholder="Nobody"
+                            onChange={(e) => assign([c.id], e.target.value)}
+                            aria-label={`Who's to run ${c.id}`}
+                          />
+                        </label>
+                        {steps.length > 0 && (
+                          <ol className="step-list" aria-label="Steps">
+                            {steps.map((text, i) => {
+                              const n = i + 1;
+                              const r = c.steps[n];
+                              return (
+                                <li key={n} className={`step ${r ?? ''}`}>
+                                  <div className="step-row">
+                                    <span className="step-n">{n}</span>
+                                    <span className="step-text" dangerouslySetInnerHTML={{ __html: md.renderInline(text) }} />
+                                    <span className="step-buttons" role="group" aria-label={`Step ${n}`}>
+                                      {(['passed', 'failed', 'blocked'] as const).map((x) => (
+                                        <button
+                                          key={x}
+                                          type="button"
+                                          className={`step-result ${x}${r === x ? ' on' : ''}`}
+                                          aria-pressed={r === x}
+                                          title={`${RESULT_LABEL[x]}${r === x ? ' (click again to clear)' : ''}`}
+                                          aria-label={`Step ${n}: ${RESULT_LABEL[x]}`}
+                                          onClick={() => recordStep(c, n, x, steps.length)}
+                                        >
+                                          {STEP_MARK[x]}
+                                        </button>
+                                      ))}
+                                    </span>
+                                  </div>
+                                  {(r === 'failed' || r === 'blocked' || c.stepNotes[n]) && (
+                                    <input
+                                      className="note-input step-note"
+                                      value={c.stepNotes[n] ?? ''}
+                                      onChange={(e) => project.updateFile(run.path, (t) => setStep(t, c.id, n, { note: e.target.value }))}
+                                      placeholder="What happened at this step?"
+                                      aria-label={`Note for step ${n} of ${c.id}`}
+                                    />
+                                  )}
+                                </li>
+                              );
+                            })}
+                          </ol>
+                        )}
+                        <div className="prose rendered" dangerouslySetInnerHTML={{ __html: md.render(steps.length ? rest : item.body) }} />
                       </>
                     ) : (
                       <button type="button" className="link-button small" onClick={() => project.updateFile(run.path, (t) => removeCase(t, c.id))}>
