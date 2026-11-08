@@ -5,6 +5,7 @@ import type { GNode } from './graph';
 export interface PictureNode {
   x: number;
   y: number;
+  w?: number; // narrower than the column: indented under the requirement it refines
   node: GNode;
   dim?: boolean;
   selected?: boolean;
@@ -58,7 +59,8 @@ export function fit(text: string, width: number, charW: number): string {
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
 }
 
-function nodeSvg({ x, y, node: n, dim, selected, onPath }: PictureNode, W: number, H: number): string {
+function nodeSvg({ x, y, w, node: n, dim, selected, onPath }: PictureNode, colW: number, H: number): string {
+  const W = w ?? colW;
   const warn = !!n.gap && !!n.warn;
   const gap = !!n.gap && !n.warn;
   let fill = n.type === 'issue' ? C.surface2 : n.type === 'req' ? C.accentSoft : C.surface;

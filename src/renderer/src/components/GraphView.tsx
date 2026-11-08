@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildGraph, columns, subgraph, walk, type GNode, type NodeType } from '../../../core/graph';
 import { graphSvg, type GraphPicture } from '../../../core/graphsvg';
+import { edgePath, layoutGraph } from '../../../core/graphlayout';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import { byEvidence } from '../../../core/model';
@@ -45,6 +46,8 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   useEffect(() => save('trace.graphHideFaded', hideFaded), [hideFaded]);
   const [commitCount, setCommitCount] = useState(() => load<number>('trace.graphCommits') ?? 30);
   useEffect(() => save('trace.graphCommits', commitCount), [commitCount]);
+  const [levelsTogether, setLevelsTogether] = useState(() => load<boolean>('trace.graphLevelsTogether') ?? false);
+  useEffect(() => save('trace.graphLevelsTogether', levelsTogether), [levelsTogether]);
   const [zoom, setZoom] = useState(() => load<number>('trace.graphZoom') ?? 1);
   useEffect(() => save('trace.graphZoom', zoom), [zoom]);
   useEffect(() => {
@@ -75,9 +78,10 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [hiding, graph, mode, sel, up, down],
   );
-  const cols = useMemo(() => columns(shown).filter((c) => c.nodes.length > 0), [shown]);
-  // With requirements refining others, a column per level.
+  const cols = useMemo(() => columns(shown, { levels: levelsTogether ? 'together' : 'separate' }).filter((c) => c.nodes.length > 0), [shown, levelsTogether]);
+  // With requirements refining others, a column per level (unless they're shown together).
   const levels = cols.filter((c) => c.type === 'req').length;
+  const refining = useMemo(() => graph.edges.some((e) => e.from.startsWith('req:') && e.to.startsWith('req:')), [graph]);
   const colLabel = (c: { type: NodeType; depth: number; itemType?: string }) =>
     c.type === 'req' && levels > 1 ? (c.depth ? `Level ${c.depth + 1}` : 'Requirements, level 1') : c.type === 'item' ? typePlural(index.config, c.itemType!) : LABELS[c.type];
   // What a node is, in a word: "risk", "test case".
@@ -97,30 +101,10 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const W = Math.max(MIN_W, Math.min(MAX_W, (room - (cols.length - 1) * MIN_GAP) / Math.max(1, cols.length)));
   const GAP = cols.length > 1 ? Math.max(MIN_GAP, Math.min(MAX_GAP, (room - cols.length * W) / (cols.length - 1))) : MIN_GAP;
 
-  // Positions: columns left to right, each centred on the tallest.
-  const layout = useMemo(() => {
-    const maxRows = Math.max(1, ...cols.map((c) => c.nodes.length));
-    const pos = new Map<string, { x: number; y: number }>();
-    cols.forEach((c, ci) => {
-      const offset = TOP + ((maxRows - c.nodes.length) * ROW) / 2;
-      c.nodes.forEach((n, i) => pos.set(n.key, { x: ci * (W + GAP), y: offset + i * ROW }));
-    });
-    return { pos, width: Math.max(W, cols.length * (W + GAP) - GAP), height: TOP + maxRows * ROW };
-  }, [cols, GAP, W]);
-
-  const curve = (a: string, b: string) => {
-    const p = layout.pos.get(a)!;
-    const q = layout.pos.get(b)!;
-    const x1 = p.x + W;
-    const y1 = p.y + H / 2;
-    const x2 = q.x;
-    const y2 = q.y + H / 2;
-    // In the same column (a link between items of one type): a loop out to the right.
-    if (q.x === p.x) return `M ${x1} ${y1} C ${x1 + GAP / 2} ${y1}, ${x1 + GAP / 2} ${y2}, ${x1} ${y2}`;
-    // Backwards (link types in a cycle): from the left side to the right side.
-    if (q.x < p.x) return `M ${p.x} ${y1} C ${p.x - GAP / 2} ${y1}, ${q.x + W + GAP / 2} ${y2}, ${q.x + W} ${y2}`;
-    return `M ${x1} ${y1} C ${x1 + GAP / 2} ${y1}, ${x2 - GAP / 2} ${y2}, ${x2} ${y2}`;
-  };
+  // Positions: each node level with what it's linked to (see graphlayout.ts).
+  const opts = useMemo(() => ({ W, H, GAP, ROW, TOP, INDENT: 16 }), [W, GAP]);
+  const layout = useMemo(() => layoutGraph(shown, cols, opts), [shown, cols, opts]);
+  const curve = (a: string, b: string) => edgePath(layout, a, b, opts);
 
   // How each node and link is drawn, on screen and in the saved picture alike.
   const nodeLook = (n: GNode) => {
@@ -138,7 +122,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     height: layout.height,
     nodeW: W,
     nodeH: H,
-    heads: cols.map((c) => ({ x: layout.pos.get(c.nodes[0].key)!.x, label: colLabel(c), count: c.nodes.length })),
+    heads: cols.map((c, i) => ({ x: layout.colX[i], label: colLabel(c), count: c.nodes.length })),
     nodes: shown.nodes.map((n) => ({ ...layout.pos.get(n.key)!, node: n, ...nodeLook(n) })),
     edges: shown.edges.map((e) => ({ d: curve(e.from, e.to), ...edgeLook(e) })),
   });
@@ -204,6 +188,15 @@ export function GraphView({ project, focus, onOpenId }: Props) {
           <input type="checkbox" checked={hideObsolete} onChange={(e) => setHideObsolete(e.target.checked)} />
           <span>Hide obsolete</span>
         </label>
+        {refining && (
+          <label className="field inline" title="Requirements refining others: a column for each level, or all in one column, each under the one it refines">
+            <span>Levels</span>
+            <select value={levelsTogether ? 'together' : 'separate'} onChange={(e) => setLevelsTogether(e.target.value === 'together')}>
+              <option value="separate">A column each</option>
+              <option value="together">In one column</option>
+            </select>
+          </label>
+        )}
         <label className="check" title="Leave out what isn't on the selected node's trace, or isn't a gap">
           <input type="checkbox" checked={hideFaded} onChange={(e) => setHideFaded(e.target.checked)} />
           <span>Hide what’s faded</span>
@@ -242,8 +235,8 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                     return <path key={`${e.from}>${e.to}`} d={curve(e.from, e.to)} className={`edge${look.hot ? ' hot' : ''}${look.suspect ? ' suspect' : ''}${look.dim ? ' dim' : ''}`} />;
                   })}
                 </svg>
-                {cols.map((c) => (
-                  <div key={`${c.type}${c.depth}${c.itemType ?? ''}`} className="graph-col-head" style={{ left: layout.pos.get(c.nodes[0].key)!.x, width: W }}>
+                {cols.map((c, i) => (
+                  <div key={`${c.type}${c.depth}${c.itemType ?? ''}`} className="graph-col-head" style={{ left: layout.colX[i], width: W }}>
                     <span className="strong">{colLabel(c)}</span> <span className="muted">{c.nodes.length}</span>
                   </div>
                 ))}
@@ -255,7 +248,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                       key={n.key}
                       type="button"
                       className={`gnode ${n.type}${n.gap ? (n.warn ? ' warn' : ' gap') : ''}${n.status === 'obsolete' ? ' obsolete' : ''}${dim ? ' dim' : ''}${isSel ? ' selected' : ''}${onPath ? ' on-path' : ''}`}
-                      style={{ left: p.x, top: p.y, width: W, height: H }}
+                      style={{ left: p.x, top: p.y, width: p.w, height: H }}
                       aria-pressed={sel?.key === n.key}
                       onClick={() => pick(n.key)}
                       onDoubleClick={() => n.item && onOpenId(n.item.id)}

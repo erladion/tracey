@@ -550,7 +550,10 @@ Columns of commits → Jira issues → requirements → test cases → component
 
 Click a node to select it: it turns solid blue, what it traces to gets a blue border
 and blue links, and the rest fades. Requirements that refine others get a column per
-level (Requirements, level 1; Level 2…), each to the right of what it breaks down. A node with something missing carries a tag on
+level (Requirements, level 1; Level 2…), each to the right of what it breaks down; or,
+with **Levels: In one column**, one column with each requirement indented under the one
+it refines. Nodes sit level with what they're linked to, and a link that skips columns
+passes between the nodes on its way, never over one. A node with something missing carries a tag on
 its top edge (**No tests**, **No requirement**, **Not linked**) and a dashed border; one
 that needs a look now (**Suspect**, **Broken link**) is orange. **Show gaps** lights
 up requirements without test cases, test cases that verify nothing or have suspect or
@@ -571,6 +574,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   frontmatter.ts  front matter: read, and change fields keeping the rest as written
   model.ts        items, links, fingerprints, problems, coverage, rules, new IDs, component globs
   graph.ts        the traceability graph: nodes, edges, gaps, filters, column order
+  graphlayout.ts  where the graph's nodes go, and how links are routed between them
   graphsvg.ts     the graph as a standalone SVG picture
   fields.ts       declared fields (checked, parsed) and the others (read-only); search
   bulk.ts         one change to many items: what each file gets

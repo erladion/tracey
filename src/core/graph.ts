@@ -238,7 +238,18 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
 // Columns left to right: commits, issues, the item types in their order (requirements a
 // column per level of refinement), components. Requirements at the top level are sorted
 // by ID; every other column by the average position of what it's linked to.
-export function columns(graph: Graph): { type: NodeType; depth: number; itemType?: string; nodes: GNode[] }[] {
+export interface Column {
+  type: NodeType;
+  depth: number; // requirements in separate columns: the level (0 = top)
+  itemType?: string;
+  nodes: GNode[];
+  // Requirements in one column: each one's level, and the requirement it's shown under.
+  tree?: { depth: Map<string, number>; parent: Map<string, string> };
+}
+
+// levels: 'separate' gives each level of refinement a column; 'together' keeps all
+// requirements in one, each under the requirement it refines.
+export function columns(graph: Graph, opts: { levels?: 'separate' | 'together' } = {}): Column[] {
   const of = (t: NodeType) => graph.nodes.filter((n) => n.type === t);
   const pos = new Map<string, number>();
   const place = (list: GNode[]) => list.forEach((n, i) => pos.set(n.key, i));
@@ -268,12 +279,32 @@ export function columns(graph: Graph): { type: NodeType; depth: number; itemType
   for (const r of reqs) levelOf(r);
   const levels = Math.max(0, ...reqs.map((r) => depth.get(r.key)!)) + 1;
   const linkedFrom = (n: GNode) => graph.back.get(n.key) ?? [];
-  const typeCols: { type: NodeType; depth: number; itemType?: string; nodes: GNode[] }[] = [];
+  const typeCols: Column[] = [];
   const order = graph.typeOrder.length ? graph.typeOrder : ['requirement', 'testcase'];
   const known = new Set(order);
   const extra = [...new Set(graph.nodes.filter((n) => n.type === 'item' && !known.has(n.itemType!)).map((n) => n.itemType!))];
   for (const t of [...order, ...extra]) {
-    if (t === 'requirement') {
+    if (t === 'requirement' && opts.levels === 'together') {
+      // Top-level ones in order, each followed by those refining it (by ID), depth first.
+      // One refining several is shown under the first; loops go at the end.
+      const top = reqs.filter((r) => depth.get(r.key) === 0);
+      const roots = !top.some((r) => linkedFrom(r).some((k) => pos.has(k))) ? top : byNeighbours(top, linkedFrom);
+      const tree = { depth: new Map<string, number>(), parent: new Map<string, string>() };
+      const ordered: GNode[] = [];
+      const byId = (a: GNode, b: GNode) => a.label.localeCompare(b.label, undefined, { numeric: true });
+      const visit = (n: GNode, d: number, parent: string | null) => {
+        if (tree.depth.has(n.key)) return;
+        tree.depth.set(n.key, d);
+        if (parent) tree.parent.set(n.key, parent);
+        ordered.push(n);
+        const kids = (graph.fwd.get(n.key) ?? []).filter((k) => k.startsWith('req:')).map((k) => graph.byKey.get(k)!);
+        for (const k of kids.sort(byId)) visit(k, d + 1, n.key);
+      };
+      for (const r of roots) visit(r, 0, null);
+      for (const r of reqs) visit(r, 0, null);
+      place(ordered);
+      typeCols.push({ type: 'req', depth: 0, nodes: ordered, tree });
+    } else if (t === 'requirement') {
       for (let d = 0; d < levels; d++) {
         const here = reqs.filter((r) => depth.get(r.key) === d);
         // The top level by ID, unless something before it (a declared type) leads it.
