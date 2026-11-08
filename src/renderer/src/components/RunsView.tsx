@@ -33,15 +33,29 @@ export interface RunFocus {
   caseId: string;
 }
 
-export function RunsView({ project, focus, onOpenId, fromWork = 0 }: { project: Project; focus?: RunFocus | null; onOpenId: (id: string) => void; fromWork?: number }) {
+export function RunsView({
+  project,
+  focus,
+  onOpenId,
+  newRun = null,
+  onNewRunShown,
+}: {
+  project: Project;
+  focus?: RunFocus | null;
+  onOpenId: (id: string) => void;
+  newRun?: 'work' | 'any' | null; // asked for from elsewhere: open the New test run dialog
+  onNewRunShown?: () => void;
+}) {
   const { runs } = project;
   const key = `trace.run.${project.repo.id}`;
   const [selected, setSelected] = useState<string | null>(() => focus?.path ?? load<string>(key));
-  const [creating, setCreating] = useState<false | 'any' | 'work'>(fromWork ? 'work' : false);
-  // Asked for from the work list while this view was open.
+  const [creating, setCreating] = useState<false | 'any' | 'work'>(false);
+  // Asked for from the work list or the palette: once.
   useEffect(() => {
-    if (fromWork) setCreating('work');
-  }, [fromWork]);
+    if (!newRun) return;
+    setCreating(newRun);
+    onNewRunShown?.();
+  }, [newRun, onNewRunShown]);
   useEffect(() => save(key, selected), [key, selected]);
   const run = runs.find((r) => r.path === selected) ?? null;
 

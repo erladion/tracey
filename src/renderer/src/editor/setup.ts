@@ -105,7 +105,7 @@ function refDecorations(doc: PMNode, refs: Map<string, RefTarget>): DecorationSe
     if (!node.isText || node.marks.some((m) => m.type === marks.code || m.type === marks.link)) return;
     for (const m of node.text!.matchAll(REF)) {
       const t = refs.get(m[0]);
-      if (t) decos.push(Decoration.inline(pos + m.index!, pos + m.index! + m[0].length, { class: 'item-ref', 'data-ref': m[0], title: `${m[0]}: ${t.title}\nCtrl+click to open` }));
+      if (t) decos.push(Decoration.inline(pos + m.index!, pos + m.index! + m[0].length, { class: 'item-ref', 'data-ref': m[0] }));
     }
   });
   return DecorationSet.create(doc, decos);

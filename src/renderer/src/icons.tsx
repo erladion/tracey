@@ -34,6 +34,12 @@ const paths: Record<string, ReactNode> = {
   redo: <path d="M11 4l2.5 2.5L11 9M13.5 6.5H6a3.5 3.5 0 000 7h3" />,
   plus: <path d="M8 3v10M3 8h10" />,
   edit: <path d="M10.5 2.5l3 3L6 13H3v-3zM9 4l3 3" />,
+  copy: (
+    <>
+      <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />
+      <path d="M10.5 5.5V3.8A1.3 1.3 0 009.2 2.5H3.8a1.3 1.3 0 00-1.3 1.3v5.4a1.3 1.3 0 001.3 1.3h1.7" />
+    </>
+  ),
   lock: (
     <>
       <rect x="3.5" y="7" width="9" height="6.5" rx="1.2" />
@@ -57,6 +63,19 @@ const paths: Record<string, ReactNode> = {
   up: <path d="M8 13V3M4 7l4-4 4 4" />,
   down: <path d="M8 3v10M4 9l4 4 4-4" />,
   check: <path d="M3 8.5l3 3 7-7" />,
+  error: (
+    <>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M5.8 5.8l4.4 4.4M10.2 5.8l-4.4 4.4" />
+    </>
+  ),
+  alert: (
+    <>
+      <circle cx="8" cy="8" r="6" />
+      <path d="M8 4.8v3.8M8 11.1v.1" />
+    </>
+  ),
+  gap: <circle cx="8" cy="8" r="5.5" strokeDasharray="2.4 2" />,
   warn: (
     <>
       <path d="M8 2.5l6 10.5H2z" />

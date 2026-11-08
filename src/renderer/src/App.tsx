@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { RepoEntry } from '../../shared/api';
 import { typeWord, type Kind } from '../../core/config';
 import { nodeKey } from '../../core/graph';
 import { api } from './api';
 import { useProject, type Project } from './project';
-import { forVariant } from '../../core/model';
+import { coverage, forVariant } from '../../core/model';
+import { issueCounts } from './components/Issues';
 import { Icon } from './icons';
 import { Toasts } from './components/Toasts';
 import { StartScreen } from './components/StartScreen';
@@ -18,6 +19,7 @@ import { RunsView, type RunFocus } from './components/RunsView';
 import { GitBar } from './components/GitBar';
 import { NewItemDialog, type NewItemRequest } from './components/NewItemDialog';
 import { WorkListDialog } from './components/WorkList';
+import { Palette, type PaletteAction } from './components/Palette';
 import { notify } from './notify';
 import { load, save } from './storage';
 
@@ -88,7 +90,8 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
   const [graphFocus, setGraphFocus] = useState<string | null>(null);
   const [runFocus, setRunFocus] = useState<RunFocus | null>(null);
   const [workOpen, setWorkOpen] = useState(false);
-  const [runFromWork, setRunFromWork] = useState(0); // bumped to start a test run from the work list
+  // A test run to start once Test runs shows: from the work list, or a new one.
+  const [newRun, setNewRun] = useState<'work' | 'any' | null>(null);
 
   const select = useCallback(
     (path: string | null) => {
@@ -119,17 +122,99 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
     [full.index, select],
   );
 
-  // Ctrl+S saves now; it saves by itself anyway.
+  // What needs a look, for the status bar and the Coverage tab: the whole project's.
+  const issuesCov = useMemo(() => coverage(full.index), [full.index]);
+  const issues = issueCounts(issuesCov);
+
+  // ---- back and forward: the places visited (a view, and the item open in it) ----
+  type Place = { view: View; path: string | null };
+  const hist = useRef<{ list: Place[]; at: number }>({ list: [], at: -1 });
+  const moving = useRef(false);
+  const [, bumpHist] = useState(0);
+  useEffect(() => {
+    if (moving.current) {
+      moving.current = false;
+      return;
+    }
+    const place: Place = { view, path: view === 'items' ? selected : null };
+    const h = hist.current;
+    const cur = h.list[h.at];
+    if (cur && cur.view === place.view && cur.path === place.path) return;
+    h.list = [...h.list.slice(0, h.at + 1), place].slice(-100);
+    h.at = h.list.length - 1;
+    bumpHist((n) => n + 1);
+  }, [view, selected]);
+  const canGo = (d: number) => hist.current.at + d >= 0 && hist.current.at + d < hist.current.list.length;
+  const go = useCallback(
+    (d: number) => {
+      const h = hist.current;
+      const to = h.list[h.at + d];
+      if (!to) return;
+      h.at += d;
+      moving.current = true;
+      if (to.path) {
+        const it = full.index.byPath.get(to.path);
+        if (it) setKind(it.kind);
+        select(to.path);
+      }
+      setView(to.view);
+      setRunFocus(null);
+      bumpHist((n) => n + 1);
+    },
+    [full.index, select],
+  );
+  // Items opened lately, newest first: for the palette.
+  const recent = [...new Set([...hist.current.list].reverse().flatMap((p) => (p.path ? [p.path] : [])))];
+
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Ctrl+S saves now (it saves by itself anyway); Ctrl+Shift+P goes to anything; Alt+←/→
+  // and the mouse's back and forward buttons go back and forward.
   useEffect(() => {
     const key = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && !e.shiftKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         void project.flush();
+      } else if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setPaletteOpen(true);
+      } else if (e.altKey && !mod && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        go(e.key === 'ArrowLeft' ? -1 : 1);
+      }
+    };
+    const mouse = (e: MouseEvent) => {
+      if (e.button === 3 || e.button === 4) {
+        e.preventDefault();
+        go(e.button === 3 ? -1 : 1);
       }
     };
     window.addEventListener('keydown', key);
-    return () => window.removeEventListener('keydown', key);
-  }, [project]);
+    window.addEventListener('mouseup', mouse);
+    return () => {
+      window.removeEventListener('keydown', key);
+      window.removeEventListener('mouseup', mouse);
+    };
+  }, [project, go]);
+
+  const paletteActions: PaletteAction[] = [
+    { label: 'Go to Requirements & tests', run: () => setView('items') },
+    { label: 'Go to Coverage', run: () => setView('coverage') },
+    { label: 'Go to Traceability graph', run: () => setView('graph') },
+    { label: 'Go to Test runs', run: () => setView('runs') },
+    { label: 'Go to Settings', run: () => setView('settings') },
+    { label: 'Open the work list', hint: `${project.work.length} tests`, run: () => setWorkOpen(true) },
+    {
+      label: 'New test run',
+      run: () => {
+        setRunFocus(null);
+        setView('runs');
+        setNewRun('any');
+      },
+    },
+    ...index.config.types.map((t) => ({ label: `New ${t.name.toLowerCase()}`, run: () => setNewItem({ kind: t.key }) })),
+  ];
 
   const hasText = selected != null && project.texts.has(selected);
 
@@ -143,6 +228,14 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
             </span>
             <span className="brand-name">Tracey</span>
           </button>
+          <span className="nav-arrows">
+            <button type="button" className="icon-button" onClick={() => go(-1)} disabled={!canGo(-1)} aria-label="Back" title="Back (Alt+←)">
+              ←
+            </button>
+            <button type="button" className="icon-button" onClick={() => go(1)} disabled={!canGo(1)} aria-label="Forward" title="Forward (Alt+→)">
+              →
+            </button>
+          </span>
           <span className="repo-name" title={repo.location}>
             {repo.name}
           </span>
@@ -161,7 +254,8 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                   setRunFocus(null);
                 }}>
                 {label}
-                {v === 'coverage' && index.problems.some((p) => p.severity === 'error') && <span className="tab-dot" aria-label="has errors" />}
+                {v === 'coverage' &&
+                  (issues.errors ? <span className="tab-dot" title="Errors" aria-label="has errors" /> : issues.review ? <span className="tab-dot review" title="Links to review" aria-label="has links to review" /> : null)}
               </button>
             ))}
           </nav>
@@ -260,7 +354,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
         ) : view === 'coverage' ? (
           <CoverageView project={project} onOpenId={openId} onOpenPath={openPath} onVariant={chooseVariant} />
         ) : view === 'runs' ? (
-          <RunsView key={runFocus ? `${runFocus.path}:${runFocus.caseId}` : ''} project={project} focus={runFocus} onOpenId={openId} fromWork={runFromWork} />
+          <RunsView key={runFocus ? `${runFocus.path}:${runFocus.caseId}` : ''} project={project} focus={runFocus} onOpenId={openId} newRun={newRun} onNewRunShown={() => setNewRun(null)} />
         ) : view === 'graph' ? (
           <GraphView project={project} focus={graphFocus} onOpenId={openId} />
         ) : (
@@ -268,8 +362,21 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
         )}
       </div>
 
-      <GitBar project={full} />
+      <GitBar project={full} cov={issuesCov} onOpenId={openId} onOpenPath={openPath} onSettings={() => setView('settings')} />
 
+      {paletteOpen && (
+        <Palette
+          project={project}
+          actions={paletteActions}
+          recent={recent}
+          onOpenItem={(it) => openPath(it.path)}
+          onOpenRun={(path) => {
+            setRunFocus({ path, caseId: '' });
+            setView('runs');
+          }}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
       {workOpen && (
         <WorkListDialog
           project={project}
@@ -279,7 +386,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
             setWorkOpen(false);
             setRunFocus(null);
             setView('runs');
-            setRunFromWork((n) => n + 1);
+            setNewRun('work');
           }}
         />
       )}

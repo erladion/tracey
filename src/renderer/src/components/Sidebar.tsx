@@ -1,7 +1,8 @@
 // The list of requirements, test cases or another item type, with search and filters.
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { fieldsFor, isRunnable, statusesFor, typeWord, type Kind } from '../../../core/config';
-import { checkRules, itemLinks, linksOf, verification, type Item } from '../../../core/model';
+import { checkRules, compareIds, itemLinks, linksOf, verification, type Item } from '../../../core/model';
+import { load, save } from '../storage';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { ShowMore, StatusPill, useShown, VariantTag } from './bits';
@@ -10,6 +11,14 @@ import { testsFor } from '../../../core/worklist';
 import { listValue, matchesSearch } from '../../../core/fields';
 
 const NONE = '\u0000none';
+
+type Sort = 'id' | 'title' | 'status' | 'attention';
+const SORTS: [Sort, string][] = [
+  ['id', 'By ID'],
+  ['title', 'By title'],
+  ['status', 'By status'],
+  ['attention', 'Attention first'],
+];
 
 interface Props {
   project: Project;
@@ -49,9 +58,18 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
     return [...keys].sort();
   }, [index]);
 
+  // How the list is ordered, remembered across sessions.
+  const [sort, setSortState] = useState<Sort>(() => {
+    const v = load<string>('trace.listSort');
+    return SORTS.some(([k]) => k === v) ? (v as Sort) : 'id';
+  });
+  const setSort = (v: Sort) => {
+    setSortState(v);
+    save('trace.listSort', v);
+  };
   const items = useMemo(() => {
     const q = query.trim();
-    return index.items.filter(
+    const found = index.items.filter(
       (i) =>
         i.kind === kind &&
         (!status || i.status === status) &&
@@ -64,7 +82,28 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
           return want === NONE ? !have.length : have.includes(want);
         }),
     );
-  }, [index, kind, query, status, component, byField, choiceFields]);
+    if (sort === 'id') return found; // the index's own order
+    const byId = (a: Item, b: Item) => compareIds(a.id, b.id);
+    if (sort === 'title') return [...found].sort((a, b) => a.title.localeCompare(b.title, undefined, { sensitivity: 'base' }) || byId(a, b));
+    if (sort === 'status') {
+      const order = statusesFor(index.config, kind);
+      const rank = (i: Item) => (order.includes(i.status) ? order.indexOf(i.status) : order.length);
+      return [...found].sort((a, b) => rank(a) - rank(b) || byId(a, b));
+    }
+    // Needs attention: what's broken or suspect, then what's missing something, then the rest.
+    const problems = new Set(index.problems.filter((p) => p.severity === 'error').map((p) => p.path));
+    const score = (i: Item) => {
+      if (problems.has(i.path) || linksOf(index, i).some((l) => l.state === 'suspect') || itemLinks(index, i).out.some((l) => l.state === 'suspect')) return 0;
+      if (i.status === 'obsolete') return 3;
+      const gap =
+        how.rules.has(i.id) ||
+        (i.kind === 'requirement' && !how.covered.has(i.id) && !how.exempt.has(i.id)) ||
+        (isRunnable(index.config, i.kind) && !i.verifies.length);
+      return gap ? 1 : 2;
+    };
+    const scores = new Map(found.map((i) => [i.path, score(i)]));
+    return [...found].sort((a, b) => scores.get(a.path)! - scores.get(b.path)! || byId(a, b));
+  }, [index, kind, query, status, component, byField, choiceFields, sort, how]);
 
   // A page of rows at a time; the selected one is always shown.
   const { shown, more } = useShown(
@@ -123,6 +162,13 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search, or field:value" aria-label="Search" title="Words are searched in the ID, title, text and every field. field:value searches one field, like priority:high." />
       </div>
       <div className="filters">
+        <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} aria-label="Sort by" className={sort !== 'id' ? 'on' : ''}>
+          {SORTS.map(([k, label]) => (
+            <option key={k} value={k}>
+              {label}
+            </option>
+          ))}
+        </select>
         <select value={status} onChange={(e) => setStatus(e.target.value)} aria-label="Status">
           <option value="">Any status</option>
           {statuses.map((s) => (

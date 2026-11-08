@@ -39,6 +39,36 @@ interface Props {
   gitMarks: GitMarks; // changes since the last commit, and who changed what
   // Saves pasted or dropped image files: what to link for each (null: not saved).
   onAddImages?: (files: File[]) => Promise<({ src: string; alt: string | null } | null)[]>;
+  // What to show when hovering an item's ID in the text.
+  describeRef?: (id: string) => RefCard | null;
+}
+
+export interface RefCard {
+  kind: string; // "Requirement"
+  title: string;
+  status: string;
+  lines: string[]; // "Verified by TC-101, TC-102", "Last result: passed (Release 2.4)"
+  warn?: string; // "Changed since reviewed by TC-102"
+}
+
+// The ID being typed just before the cursor (REQ-, REQ-0, REQ-retry), and where it starts.
+const TYPING_ID = /(?:^|[^\w-])([A-Z][A-Z0-9_]*-[\w.-]*)$/;
+const MAX_SUGGESTIONS = 8;
+
+// IDs starting with what's typed, or with its prefix and a title containing the rest:
+// "REQ-retry" finds "REQ-07 Payment retry".
+function suggestIds(refs: Map<string, RefTarget>, typed: string): { id: string; title: string }[] {
+  const dash = typed.indexOf('-');
+  const head = typed.slice(0, dash + 1);
+  const rest = typed.slice(dash + 1).toLowerCase();
+  const byWords = rest.length >= 2 && /[a-z]/.test(rest);
+  const out: { id: string; title: string }[] = [];
+  for (const [id, t] of refs) {
+    if (!id.startsWith(head)) continue;
+    if (id.startsWith(typed) || (byWords && t.title.toLowerCase().includes(rest))) out.push({ id, title: t.title });
+    if (out.length >= 200) break;
+  }
+  return out.sort((a, b) => Number(!a.id.startsWith(typed)) - Number(!b.id.startsWith(typed)) || a.id.localeCompare(b.id, undefined, { numeric: true })).slice(0, MAX_SUGGESTIONS);
 }
 
 // Images go in paragraphs of their own, after the one the cursor is in (before it at
@@ -73,13 +103,41 @@ function placeImages(tr: Transaction, images: PMNode[]): Transaction {
 
 const imageFiles = (list: FileList | null | undefined) => [...(list ?? [])].filter((f) => f.type.startsWith('image/'));
 
-export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks, onAddImages }: Props) {
+export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks, onAddImages, describeRef }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const [, setTick] = useState(0);
   const [linkDialog, setLinkDialog] = useState<{ href: string } | null>(null);
-  const latest = useRef({ onChange, onOpenRef, resolveImage, gitMarks, onAddImages });
-  latest.current = { onChange, onOpenRef, resolveImage, gitMarks, onAddImages };
+  const latest = useRef({ onChange, onOpenRef, resolveImage, gitMarks, onAddImages, refs });
+  latest.current = { onChange, onOpenRef, resolveImage, gitMarks, onAddImages, refs };
+  // The card shown while hovering an ID.
+  const [hover, setHover] = useState<{ id: string; card: RefCard; x: number; y: number } | null>(null);
+  // ID suggestions while typing one: where it starts, what's typed, which is chosen.
+  const [suggest, setSuggest] = useState<{ from: number; typed: string; items: { id: string; title: string }[]; at: number; x: number; y: number } | null>(null);
+  const suggestRef = useRef(suggest);
+  suggestRef.current = suggest;
+  const dismissed = useRef<string | null>(null); // Escape: not again for this position and text
+  const lookForId = (view: EditorView) => {
+    const sel = view.state.selection;
+    const $from = sel.$from;
+    if (!sel.empty || !$from.parent.isTextblock || $from.parent.type.spec.code) return setSuggest(null);
+    const before = $from.parent.textBetween(0, $from.parentOffset, undefined, '\ufffc');
+    const m = TYPING_ID.exec(before);
+    if (!m) return setSuggest(null);
+    const typed = m[1];
+    const from = $from.pos - typed.length;
+    const items = suggestIds(latest.current.refs, typed).filter((x) => x.id !== typed);
+    if (!items.length || dismissed.current === `${from}:${typed}`) return setSuggest(null);
+    const c = view.coordsAtPos(from);
+    setSuggest((old) => ({ from, typed, items, at: old && old.from === from ? Math.min(old.at, items.length - 1) : 0, x: c.left, y: c.bottom }));
+  };
+  const accept = (view: EditorView, id: string) => {
+    const s = suggestRef.current;
+    if (!s) return;
+    view.dispatch(view.state.tr.insertText(id, s.from, view.state.selection.from));
+    setSuggest(null);
+    view.focus();
+  };
 
   // Save the files, then put the images where they were pasted or dropped (`at`), or at
   // the cursor if the text changed while saving.
@@ -142,7 +200,35 @@ export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks,
         const v = viewRef.current!;
         v.updateState(v.state.apply(tr));
         if (tr.docChanged) latest.current.onChange(v.state.doc);
+        if (tr.docChanged || tr.selectionSet) lookForId(v);
         setTick((t) => t + 1);
+      },
+      // While suggestions are shown, the arrows choose, Enter or Tab takes one, Escape
+      // closes them.
+      handleKeyDown(view, event) {
+        const s = suggestRef.current;
+        if (!s) return false;
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          const n = s.items.length;
+          setSuggest({ ...s, at: (s.at + (event.key === 'ArrowDown' ? 1 : n - 1)) % n });
+          return true;
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          accept(view, s.items[s.at].id);
+          return true;
+        }
+        if (event.key === 'Escape') {
+          dismissed.current = `${s.from}:${s.typed}`;
+          setSuggest(null);
+          return true;
+        }
+        return false;
+      },
+      handleDOMEvents: {
+        blur: () => {
+          setSuggest(null);
+          return false;
+        },
       },
     });
     viewRef.current = view;
@@ -259,6 +345,16 @@ export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks,
       <div
         className="editor-host"
         ref={host}
+        onMouseOver={(e) => {
+          const el = (e.target as HTMLElement).closest?.('[data-ref]');
+          if (!el || !describeRef) return setHover(null);
+          const id = el.getAttribute('data-ref')!;
+          if (hover?.id === id) return;
+          const card = describeRef(id);
+          const r = el.getBoundingClientRect();
+          setHover(card ? { id, card, x: r.left, y: r.bottom } : null);
+        }}
+        onMouseLeave={() => setHover(null)}
         onKeyDown={(e) => {
           if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k' && state) {
             e.preventDefault();
@@ -266,6 +362,44 @@ export function Editor({ doc, onChange, refs, onOpenRef, resolveImage, gitMarks,
           }
         }}
       />
+      {hover && (
+        <div className="ref-card" style={{ left: Math.min(hover.x, window.innerWidth - 340), top: hover.y + 6 }} role="tooltip">
+          <div className="ref-card-head">
+            <span className="kind-label">{hover.card.kind}</span>
+            <span className="item-id">{hover.id}</span>
+            {hover.card.status && <span className="pill">{hover.card.status}</span>}
+          </div>
+          <div className="ref-card-title">{hover.card.title || <em className="muted">Untitled</em>}</div>
+          {hover.card.warn && <div className="small warn-text">{hover.card.warn}</div>}
+          {hover.card.lines.map((l, i) => (
+            <div key={i} className="small muted">
+              {l}
+            </div>
+          ))}
+          <div className="small muted ref-card-hint">Ctrl+click to open</div>
+        </div>
+      )}
+      {suggest && (
+        <ul className="id-suggest" style={{ left: Math.min(suggest.x, window.innerWidth - 380), top: suggest.y + 4 }} role="listbox" aria-label="Item IDs">
+          {suggest.items.map((x, i) => (
+            <li
+              key={x.id}
+              role="option"
+              aria-selected={i === suggest.at}
+              className={i === suggest.at ? 'on' : ''}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                if (view) accept(view, x.id);
+              }}
+            >
+              <span className="item-id">{x.id}</span> <span className="id-suggest-title">{x.title}</span>
+            </li>
+          ))}
+          <li className="id-suggest-hint muted small" aria-hidden="true">
+            ↑↓ to choose · Enter or Tab to insert · Esc to close
+          </li>
+        </ul>
+      )}
       {linkDialog && (
         <LinkDialog
           href={linkDialog.href}

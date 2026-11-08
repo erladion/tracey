@@ -8,10 +8,24 @@ import { notify } from '../notify';
 import { Dialog } from './Dialog';
 import { load, save } from '../storage';
 import { ResolveDialog } from './Resolve';
+import { IssuesButton } from './Issues';
+import type { Coverage } from '../../../core/model';
 
 const FETCH_EVERY = 5 * 60_000;
 
-export function GitBar({ project }: { project: Project }) {
+export function GitBar({
+  project,
+  cov,
+  onOpenId,
+  onOpenPath,
+  onSettings,
+}: {
+  project: Project;
+  cov: Coverage; // what the issues summary counts
+  onOpenId: (id: string) => void;
+  onOpenPath: (path: string) => void;
+  onSettings: () => void;
+}) {
   const { git, repo } = project;
   const [busy, setBusy] = useState<string | null>(null);
   const [commitOpen, setCommitOpen] = useState(false);
@@ -52,10 +66,6 @@ export function GitBar({ project }: { project: Project }) {
     }
   };
 
-  const counts = useMemo(() => {
-    const ok = project.index.problems.filter((p) => p.severity === 'error').length;
-    return { errors: ok };
-  }, [project.index]);
 
   return (
     <footer className="gitbar">
@@ -92,11 +102,7 @@ export function GitBar({ project }: { project: Project }) {
         <span className="bar-text muted">Not a git repository: changes are saved, but not versioned.</span>
       )}
       <span className="tool-spacer" />
-      {counts.errors > 0 && (
-        <span className="bar-text warn-text">
-          <Icon name="warn" size={14} /> {counts.errors} error{counts.errors === 1 ? '' : 's'}
-        </span>
-      )}
+      <IssuesButton project={project} cov={cov} onOpenId={onOpenId} onOpenPath={onOpenPath} onSettings={onSettings} />
       <button type="button" className="bar-button" onClick={() => run('reload', async () => {})} title="Read the files again">
         <Icon name="refresh" size={14} />
       </button>

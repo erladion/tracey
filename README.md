@@ -239,6 +239,29 @@ edited paragraphs keep their line wrapping, so diffs and reviews stay small. Fil
 by themselves (Ctrl+S saves at once); committing is a separate, deliberate step in the
 status bar.
 
+### Getting around
+
+- **The status bar** sums up what needs a look, each kind with its own icon and color:
+  errors (red: broken links, duplicate IDs), links to review (orange: changed since
+  reviewed), warnings (yellow) and gaps (grey: no tests, a rule not met). Click it for the
+  **Issues** panel: everything listed, each opening its item, with **Mark reviewed** for
+  links to review. The Coverage tab carries a red dot for errors, or an orange one for
+  links to review.
+- **Ctrl+Shift+P** goes to anything: type part of an item's ID or title, a test run's
+  name, or an action ("Go to Coverage", "New risk", "New test run", "Open the work
+  list"), then Enter. With nothing typed it lists the items opened lately.
+- **Back and forward**: Alt+← and Alt+→, the mouse's back and forward buttons, or the
+  arrows beside the logo, through the items and views you've opened.
+- **Hover an ID** in an item's text (REQ-22) for a card with what it is, its status, its
+  links and its tests' last results; Ctrl+click opens it.
+- **Typing an ID** in the text suggests items once there's a prefix and a dash: `REQ-`
+  lists requirements, `REQ-0` narrows by ID, and `REQ-retry` finds them by title. ↑↓ to
+  choose, Enter or Tab to insert, Esc to close.
+- **Duplicate** (beside Delete above an item) makes a copy with the next free ID, the
+  same fields, links and text, titled "… (copy)", and opens it.
+- **Sort the list** by ID, title, status (in the order trace.yml gives), or attention
+  first: what's broken or suspect, then what's missing tests or a rule, then the rest.
+
 ### Changing many at once
 
 Ctrl-click (⌘ on a Mac) items in the list to pick several, Shift-click to pick a range,

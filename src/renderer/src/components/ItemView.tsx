@@ -5,9 +5,10 @@ import type { Node as PMNode } from 'prosemirror-model';
 import { decodeText, encodeText, joinFrontMatter, readFrontMatter, setFields, splitFrontMatter } from '../../../core/frontmatter';
 import { parseBody, serializeBody, type ParsedBody } from '../../../core/markdown/markdown';
 import { isRunnable, isVerifiable, linksFrom, statusesFor, typeOf, typeWord } from '../../../core/config';
-import { byEvidence, fingerprint, linkedIds, METHOD_LABEL, METHODS, type Item } from '../../../core/model';
+import { byEvidence, fingerprint, itemLinks, newItemPath, nextId, linkedIds, linksOf, METHOD_LABEL, METHODS, refinesOf, type Item } from '../../../core/model';
+import { lastResult } from '../../../core/runs';
 import type { Project } from '../project';
-import { Editor } from '../editor/Editor';
+import { Editor, type RefCard } from '../editor/Editor';
 import type { RefTarget } from '../editor/setup';
 import { ChipInput } from './bits';
 import { durationText, formatDuration, parseDuration } from '../../../core/estimate';
@@ -191,6 +192,69 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
     for (const it of index.items) m.set(it.id, { title: it.title });
     return m;
   }, [index]);
+
+  // A copy under the next free ID: the same fields, links and text, titled "… (copy)".
+  const duplicate = async () => {
+    const it = project.index.byPath.get(path);
+    if (!it) return;
+    flushBody();
+    const id = nextId(project.index, it.kind);
+    const title = `${it.title} (copy)`;
+    const to = newItemPath(project.index, it.kind, id, title);
+    const s = state.current;
+    try {
+      await project.createFile(to, encodeText(joinFrontMatter(setFields(s.front, { id, title }), s.body), s.crlf));
+      notify(`Made ${id}, a copy of ${it.id}.`, 'success');
+      onRenamed(to);
+    } catch (e) {
+      notify(`Couldn’t copy ${it.id}: ${(e as Error).message}`, 'error');
+    }
+  };
+
+  // The card shown when hovering an ID in the text: what it is, its links and results.
+  const describeRef = useCallback(
+    (id: string): RefCard | null => {
+      const it = index.byId.get(id);
+      if (!it) return null;
+      const cfg = index.config;
+      const list = (ids: string[]) => (ids.length > 4 ? `${ids.slice(0, 4).join(', ')} and ${ids.length - 4} more` : ids.join(', '));
+      const lines: string[] = [];
+      let warn: string | undefined;
+      if (isVerifiable(cfg, it.kind)) {
+        const tests = linksOf(index, it);
+        if (tests.length) {
+          lines.push(`Verified by ${list(tests.map((l) => l.test.id))}`);
+          const results = tests.map((l) => lastResult(project.runs, l.test.id)?.case.result ?? 'never run');
+          const counts = ['passed', 'failed', 'blocked', 'not-run', 'never run']
+            .map((r) => [r, results.filter((x) => x === r).length] as const)
+            .filter(([, n]) => n)
+            .map(([r, n]) => `${n} ${r === 'not-run' ? 'not run' : r}`);
+          lines.push(`Last results: ${counts.join(', ')}`);
+          const suspect = tests.filter((l) => l.state === 'suspect').map((l) => l.test.id);
+          if (suspect.length) warn = `Changed since ${list(suspect)} ${suspect.length === 1 ? 'was' : 'were'} reviewed against it`;
+        } else lines.push('No test verifies it');
+      }
+      if (isRunnable(cfg, it.kind)) {
+        lines.push(it.verifies.length ? `Verifies ${list(it.verifies)}` : 'Verifies nothing');
+        const last = lastResult(project.runs, id);
+        lines.push(last ? `Last result: ${last.case.result === 'not-run' ? 'not run' : last.case.result} (${last.run.name})` : 'Never run');
+        const suspect = linksOf(index, it).filter((l) => l.state === 'suspect').map((l) => l.req.id);
+        if (suspect.length) warn = `${list(suspect)} changed since it was reviewed`;
+      }
+      const { up, down } = refinesOf(index, it);
+      if (up.length) lines.push(`Refines ${list(up.map((l) => l.parent.id))}`);
+      if (down.length) lines.push(`Refined by ${list(down.map((l) => l.child.id))}`);
+      const declared = itemLinks(index, it);
+      for (const def of cfg.links.filter((l) => !l.builtIn)) {
+        const out = declared.out.filter((l) => l.def === def).map((l) => l.to.id);
+        const into = declared.in.filter((l) => l.def === def).map((l) => l.from.id);
+        if (out.length) lines.push(`${def.name} ${list(out)}`);
+        if (into.length) lines.push(`${def.reverse} ${list(into)}`);
+      }
+      return { kind: typeOf(cfg, it.kind).name, title: it.title, status: it.status, lines, warn };
+    },
+    [index, project.runs],
+  );
 
   const resolveImage = useMemo(() => imageResolver(project.repo.id, path), [project.repo.id, path]);
 
@@ -385,6 +449,9 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
                 ))}
               </select>
             </label>
+            <button type="button" className="icon-button" aria-label="Duplicate" title="Make a copy of it, with the next free ID" onClick={() => void duplicate()}>
+              <Icon name="copy" />
+            </button>
             <button type="button" className="icon-button" aria-label="Delete" title="Delete this file" onClick={() => setConfirmDelete(true)}>
               <Icon name="trash" />
             </button>
@@ -534,7 +601,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
           </div>
         )}
         <div className={`editor-wrap${showBlame && git ? ' blame-on' : ''}`}>
-          <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} gitMarks={gitMarks} onAddImages={addImages} />
+          <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} gitMarks={gitMarks} onAddImages={addImages} describeRef={describeRef} />
         </div>
       </article>
       <TracePanel project={project} item={item} onOpenId={onOpenId} onNewTest={onNewTest} onNewRefinement={onNewRefinement} onNewLinked={onNewLinked} onShowInGraph={onShowInGraph} onOpenRun={onOpenRun} />
