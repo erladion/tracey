@@ -1,10 +1,10 @@
 // The specification document: every requirement and test case with their text, the
 // traceability matrix and coverage, as one HTML page to print or save as PDF.
 import MarkdownIt from 'markdown-it';
-import { coverage, coveredRequirements, linksOf, variantNames, type Item, type ProjectIndex } from './model';
+import { byEvidence, coverage, linksOf, METHOD_LABEL, variantNames, verification, type Item, type ProjectIndex } from './model';
 import { DOC_CSS, esc } from './report';
 import type { TestRun } from './runs';
-import { outcomeText, RESULT_MARK, resultMatrix, VERDICT_LABEL, VERDICT_MARK, verdictSummary } from './verdict';
+import { outcomeText, RESULT_MARK, resultMatrix, VERDICT_MARK, verdictSummary, verdictText } from './verdict';
 import { fieldsFor } from './config';
 import { fieldText } from './fields';
 
@@ -41,7 +41,16 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
   const tests = index.items.filter((i) => i.kind === 'testcase' && keep(i));
   // Only links between items in the document.
   const suspect = coverage(index).suspect.filter((l) => keep(l.req) && keep(l.test));
-  const covered = coveredRequirements(index);
+  const { covered, exempt } = verification(index);
+  // A requirement without test cases of its own: how it's covered, or that it isn't.
+  const otherwise = (it: Item, down: Item[]) =>
+    covered.get(it.id) === 'evidence'
+      ? `<span class="muted">${esc(it.verification)}: ${esc(it.evidence.join(', '))}</span>`
+      : down.length && covered.has(it.id)
+        ? '<span class="muted">its refinements</span>'
+        : exempt.has(it.id)
+          ? '<span class="muted">needs no verification</span>'
+          : `<span class="pill gap">${byEvidence(it.verification) ? 'no evidence' : 'no test cases'}</span>`;
   const anchor = (id: string) => `i-${id.replace(/[^\w-]/g, '_')}`;
   const ref = (id: string) => (index.byId.get(id) && keep(index.byId.get(id)!) ? `<a class="mono" href="#${anchor(id)}">${esc(id)}</a>` : `<span class="mono">${esc(id)}</span>`);
   const fields = (it: Item) => {
@@ -54,10 +63,12 @@ export function specHtml(index: ProjectIndex, o: SpecOptions, generated = new Da
     if (it.refines.length) rows.push(['Refines', it.refines.map(ref).join(', ')]);
     const down = (index.refinedBy.get(it.id) ?? []).filter(keep);
     if (down.length) rows.push(['Refined by', down.map((c) => ref(c.id)).join(', ')]);
+    if (it.kind === 'requirement' && it.verification !== 'test') rows.push(['Verification', esc(METHOD_LABEL[it.verification])]);
+    if (it.evidence.length) rows.push(['Evidence', esc(it.evidence.join(', '))]);
     if (it.kind === 'testcase') rows.push(['Verifies', it.verifies.map(ref).join(', ') || '<span class="muted">nothing</span>']);
     else {
       const t = linksOf(index, it);
-      rows.push(['Verified by', t.map((l) => ref(l.test.id) + (l.state === 'suspect' ? ' <span class="pill suspect">changed since review</span>' : '')).join(', ') || (down.length && covered.has(it.id) ? '<span class="muted">its refinements</span>' : '<span class="pill gap">no test cases</span>')]);
+      rows.push(['Verified by', t.map((l) => ref(l.test.id) + (l.state === 'suspect' ? ' <span class="pill suspect">changed since review</span>' : '')).join(', ') || otherwise(it, down)]);
     }
     return `<table class="fields">${rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
   };
@@ -67,8 +78,8 @@ ${fields(it)}
 <div class="prose">${body(it, o.image)}</div>
 </section>`;
 
-  const live = reqs.filter((r) => r.status !== 'obsolete');
-  const tested = live.filter((r) => covered.has(r.id)); // by a test case, or through refinements
+  const live = reqs.filter((r) => r.status !== 'obsolete' && !exempt.has(r.id)); // the ones needing verification
+  const tested = live.filter((r) => covered.has(r.id)); // by a test case, evidence, or through refinements
   const toc = [
     o.requirements && reqs.length ? `<li><a href="#requirements">Requirements</a> (${reqs.length})</li>` : '',
     o.testcases && tests.length ? `<li><a href="#testcases">Test cases</a> (${tests.length})</li>` : '',
@@ -86,9 +97,10 @@ ${fields(it)}
         ? `<div>${ref(l.test.id)} <span class="res ${l.outcome.result}">${RESULT_MARK[l.outcome.result]} ${esc(outcomeText(l.outcome, res.oneRun))}</span>${l.state === 'suspect' ? ' ⚠' : ''}</div>`
         : ref(l.test.id) + (l.state === 'suspect' ? ' ⚠' : '');
     const body = rows
-      .map(({ req, links, verdict }) => {
-        const tests = links.length ? links.map(testCell).join(res ? '' : ', ') : '<span class="pill gap">no test cases</span>';
-        const v = res ? `<td>${verdict ? `<span class="verdict ${verdict}">${VERDICT_MARK[verdict]} ${VERDICT_LABEL[verdict]}</span>` : '—'}</td>` : '';
+      .map((row) => {
+        const { req, links, verdict } = row;
+        const tests = links.length ? links.map(testCell).join(res ? '' : ', ') : req.status === 'obsolete' ? '—' : otherwise(req, index.refinedBy.get(req.id) ?? []);
+        const v = res ? `<td>${verdict ? `<span class="verdict ${verdict}">${VERDICT_MARK[verdict]} ${esc(verdictText(row))}</span>` : esc(verdictText(row)) || '—'}</td>` : '';
         return `<tr><td>${ref(req.id)} ${esc(req.title)}</td><td>${esc(req.status)}</td>${v}<td>${tests}</td></tr>`;
       })
       .join('');
@@ -118,7 +130,7 @@ h3{font-size:16px;margin:0 0 8px}
 <h1>${esc(o.title)}</h1>
 <table class="meta">${[...o.meta, ['Generated', generated.toLocaleString()] as [string, string]].map(([k, v]) => `<tr><td>${esc(k)}</td><td${/commit/i.test(k) ? ' class="mono"' : ''}>${esc(v)}</td></tr>`).join('')}</table>
 <h2>Summary</h2>
-<p>${live.length} requirements, ${tested.length} of them covered by tests (${live.length ? Math.round((tested.length / live.length) * 100) : 0}%); ${tests.length} test cases.
+<p>${live.length} requirements to verify, ${tested.length} of them covered (${live.length ? Math.round((tested.length / live.length) * 100) : 0}%)${reqs.some((r) => exempt.has(r.id)) ? `, and ${reqs.filter((r) => exempt.has(r.id)).length} needing no verification` : ''}; ${tests.length} test cases.
 ${suspect.length ? ` ${suspect.length} link${suspect.length === 1 ? '' : 's'} changed since review.` : ''}${o.results ? ` Test results: ${esc(verdictSummary(rows))}.` : ''}${o.component ? ` Only items in the component “${esc(index.config.components.find((c) => c.key === o.component)?.name ?? o.component)}”.` : ''}</p>
 ${toc ? `<h2>Contents</h2><ol class="toc">${toc}</ol>` : ''}
 </div>

@@ -5,7 +5,7 @@ import type { Node as PMNode } from 'prosemirror-model';
 import { decodeText, encodeText, joinFrontMatter, readFrontMatter, setFields, splitFrontMatter } from '../../../core/frontmatter';
 import { parseBody, serializeBody, type ParsedBody } from '../../../core/markdown/markdown';
 import { statusesFor } from '../../../core/config';
-import { fingerprint, type Item } from '../../../core/model';
+import { byEvidence, fingerprint, METHOD_LABEL, METHODS, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Editor } from '../editor/Editor';
 import type { RefTarget } from '../editor/setup';
@@ -386,6 +386,35 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
                 onOpen={onOpenId}
                 placeholder="REQ-… it breaks down"
                 onChange={(refines) => setField({ refines, reviewed: reviewedFor(item, item.refines, refines) })}
+              />
+            )}
+            {item.kind === 'requirement' && (
+              <div className="chip-field">
+                <label htmlFor="verification" className="chip-label">
+                  Verification
+                </label>
+                <select
+                  id="verification"
+                  className="field-select"
+                  value={item.verification}
+                  onChange={(e) => setField({ verification: e.target.value === 'test' ? undefined : e.target.value })}
+                  title="How this requirement is verified. By analysis, inspection or demonstration: it’s covered once Evidence names what shows it. None: it needs no verification."
+                >
+                  {METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {m === 'test' ? 'Test (test cases)' : METHOD_LABEL[m]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+            {item.kind === 'requirement' && (byEvidence(item.verification) || item.evidence.length > 0) && (
+              <ChipInput
+                label="Evidence"
+                values={item.evidence}
+                href={(v) => (/^https?:\/\//i.test(v) ? v : null)}
+                onChange={(evidence) => setField({ evidence: evidence.length ? evidence : undefined })}
+                placeholder="Document or link"
               />
             )}
             <ChipInput label="Components" values={item.components} suggestions={componentSuggestions} onChange={(components) => setField({ components })} placeholder="Add component" />

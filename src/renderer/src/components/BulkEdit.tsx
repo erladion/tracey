@@ -7,7 +7,7 @@ import { bulkChanges, emptyEdit, type BulkEdit as Edit } from '../../../core/bul
 import { fieldInput } from '../../../core/fields';
 import { durationText, parseDuration } from '../../../core/estimate';
 import { fieldLabel } from '../../../core/diff';
-import type { Item } from '../../../core/model';
+import { METHODS, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { notify } from '../notify';
 import { ChipInput } from './bits';
@@ -34,6 +34,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
   const singles: Single[] = [
     { key: 'status', name: 'Status', kind: 'pick', values: statusesFor(index.config, kind), clearable: false },
     ...(kind === 'testcase' ? [{ key: 'estimate', name: 'Estimate', kind: 'type', type: 'estimate' } as Single] : []),
+    ...(kind === 'requirement' ? [{ key: 'verification', name: 'Verification', kind: 'pick', values: [...METHODS], clearable: false } as Single] : []),
     ...declared
       .filter((f) => f.type !== 'list' && f.type !== 'choices')
       .map((f): Single => (f.type === 'choice' ? { key: f.key, name: f.name, kind: 'pick', values: f.values, clearable: true } : { key: f.key, name: f.name, kind: 'type', type: f.type as 'text' | 'number' | 'date', def: f })),
@@ -47,6 +48,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
       mono: true,
       suggestions: index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title })),
     },
+    ...(kind === 'requirement' ? [{ key: 'evidence', name: 'Evidence', suggestions: [] }] : []),
     { key: 'jira', name: 'Jira', mono: true, suggestions: [] },
     ...declared.filter((f) => f.type === 'list' || f.type === 'choices').map((f) => ({ key: f.key, name: f.name, suggestions: f.values.map((v) => ({ value: v, label: v })) })),
   ];

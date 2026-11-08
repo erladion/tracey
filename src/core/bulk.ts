@@ -12,7 +12,7 @@ export interface BulkEdit {
 export const emptyEdit = (): BulkEdit => ({ set: {}, add: {}, remove: {} });
 
 function current(item: Item, key: string): string[] {
-  if (key === 'components' || key === 'variants' || key === 'jira' || key === 'verifies' || key === 'refines') return item[key];
+  if (key === 'components' || key === 'variants' || key === 'jira' || key === 'verifies' || key === 'refines' || key === 'evidence') return item[key];
   return listValue(item.data[key]);
 }
 
@@ -24,11 +24,13 @@ export function bulkChanges(items: Item[], edit: BulkEdit, index: ProjectIndex):
   for (const it of items) {
     const changes: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(edit.set)) {
-      const now = value === null || value === '' ? undefined : value;
+      if (key === 'verification' && it.kind !== 'requirement') continue;
+      // Verified by test is the default: no need to write it.
+      const now = value === null || value === '' || (key === 'verification' && value === 'test') ? undefined : value;
       if (!same(it.data[key] === '' ? undefined : it.data[key], now)) changes[key] = now;
     }
     for (const key of new Set([...Object.keys(edit.add), ...Object.keys(edit.remove)])) {
-      if ((key === 'verifies' && it.kind !== 'testcase') || (key === 'refines' && it.kind !== 'requirement')) continue;
+      if ((key === 'verifies' && it.kind !== 'testcase') || ((key === 'refines' || key === 'evidence') && it.kind !== 'requirement')) continue;
       const before = current(it, key);
       const drop = new Set(edit.remove[key] ?? []);
       // (A requirement can't refine itself.)

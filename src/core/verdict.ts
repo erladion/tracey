@@ -1,7 +1,7 @@
 // Test results in the traceability matrix: which runs the results come from (a release,
 // one run, or the latest of each test case), each test case's result in them, and each
 // requirement's verdict from its test cases' results.
-import { linksOf, type Item, type Link, type ProjectIndex } from './model';
+import { byEvidence, linksOf, type CoveredBy, type Item, type Link, type ProjectIndex } from './model';
 import { lastResult, releaseFrom, releaseOf, resultsFor, type CaseResult, type Result, type TestRun } from './runs';
 
 export { releaseOf };
@@ -113,24 +113,64 @@ export function verdictOf(results: Result[]): Verdict {
   return passed === results.length ? 'verified' : passed ? 'partial' : 'not-run';
 }
 
+// A requirement verified through its refinements: the verdicts of the requirements
+// refining it, the worst first. Any without tests leaves it without (as coverage says);
+// then failing, blocked; verified when all are; partly when some are.
+export function combineVerdicts(vs: Verdict[]): Verdict {
+  for (const v of ['no-tests', 'failing', 'blocked'] as Verdict[]) if (vs.includes(v)) return v;
+  if (vs.every((v) => v === 'verified')) return 'verified';
+  return vs.some((v) => v === 'verified' || v === 'partial') ? 'partial' : 'not-run';
+}
+
 export interface MatrixRow {
   req: Item;
   links: (Link & { outcome: Outcome })[];
-  verdict: Verdict | null; // null: an obsolete requirement, which needs none
+  verdict: Verdict | null; // null: obsolete, or needing no verification (verification: none)
+  via: CoveredBy | null; // where the verdict comes from: its own test cases, its evidence, or its refinements
+  through: Item[]; // via refinements: the ones deciding the verdict (all of them when verified)
 }
 
 // Every requirement kept, with its test cases' results and its verdict. Obsolete test
-// cases are listed but don't count toward the verdict.
+// cases are listed but don't count toward the verdict. A requirement without test cases
+// of its own takes its verdict from its evidence, or else from the requirements refining it.
 export function resultMatrix(index: ProjectIndex, runs: TestRun[], keep: (i: Item) => boolean = () => true): MatrixRow[] {
-  return index.items
-    .filter((i) => i.kind === 'requirement' && keep(i))
-    .map((req) => {
-      const links = linksOf(index, req)
-        .filter((l) => keep(l.test))
-        .map((l) => ({ ...l, outcome: outcome(runs, l.test.id) }));
-      const counted = links.filter((l) => l.test.status !== 'obsolete').map((l) => l.outcome.result);
-      return { req, links, verdict: req.status === 'obsolete' ? null : verdictOf(counted) };
-    });
+  const rows = new Map<string, MatrixRow>();
+  const visiting = new Set<string>();
+  const row = (req: Item): MatrixRow => {
+    const known = rows.get(req.id);
+    if (known) return known;
+    const links = linksOf(index, req)
+      .filter((l) => keep(l.test))
+      .map((l) => ({ ...l, outcome: outcome(runs, l.test.id) }));
+    const out: MatrixRow = { req, links, verdict: null, via: null, through: [] };
+    if (visiting.has(req.id)) return { ...out, verdict: 'no-tests' }; // a loop verifies nothing
+    const counted = links.filter((l) => l.test.status !== 'obsolete').map((l) => l.outcome.result);
+    if (req.status === 'obsolete') {
+      // Needs no verdict.
+    } else if (counted.length) Object.assign(out, { verdict: verdictOf(counted), via: 'tests' });
+    else if (byEvidence(req.verification) && req.evidence.length) Object.assign(out, { verdict: 'verified', via: 'evidence' });
+    else {
+      visiting.add(req.id);
+      const below = (index.refinedBy.get(req.id) ?? []).filter((c) => c.status !== 'obsolete').map(row).filter((r) => r.verdict);
+      visiting.delete(req.id);
+      if (below.length) {
+        const v = combineVerdicts(below.map((r) => r.verdict!));
+        Object.assign(out, { verdict: v, via: 'refinements', through: below.filter((r) => v === 'verified' || r.verdict === v || (v === 'partial' && r.verdict !== 'verified')).map((r) => r.req) });
+      } else if (req.verification !== 'none') out.verdict = 'no-tests';
+    }
+    rows.set(req.id, out);
+    return out;
+  };
+  return index.items.filter((i) => i.kind === 'requirement' && keep(i)).map(row);
+}
+
+// The verdict with where it comes from: "Failing (via REQ-3)", "Verified (analysis)".
+export function verdictText(r: MatrixRow): string {
+  if (!r.verdict) return r.req.status !== 'obsolete' && r.req.verification === 'none' ? 'None needed' : '';
+  const label = r.verdict === 'no-tests' && byEvidence(r.req.verification) && !r.through.length ? 'No evidence' : VERDICT_LABEL[r.verdict];
+  if (r.via === 'evidence') return `${label} (${r.req.verification})`;
+  if (r.via === 'refinements') return `${label} (via ${r.through.map((i) => i.id).join(', ')})`;
+  return label;
 }
 
 export function verdictCounts(rows: MatrixRow[]): Record<Verdict, number> {
@@ -139,13 +179,13 @@ export function verdictCounts(rows: MatrixRow[]): Record<Verdict, number> {
   return out;
 }
 
-// "2 of 7 requirements verified · 1 failing · 2 blocked · 1 without tests"
+// "2 of 7 requirements verified · 1 failing · 2 blocked · 1 not covered"
 export function verdictSummary(rows: MatrixRow[]): string {
   const c = verdictCounts(rows);
   const total = rows.filter((r) => r.verdict).length;
   const rest = (['failing', 'blocked', 'partial', 'not-run', 'no-tests'] as Verdict[])
     .filter((v) => c[v])
-    .map((v) => `${c[v]} ${v === 'no-tests' ? 'without tests' : VERDICT_LABEL[v].toLowerCase()}`);
+    .map((v) => `${c[v]} ${v === 'no-tests' ? 'not covered' : VERDICT_LABEL[v].toLowerCase()}`);
   return [`${c.verified} of ${total} requirement${total === 1 ? '' : 's'} verified`, ...rest].join(' · ');
 }
 

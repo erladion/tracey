@@ -112,6 +112,12 @@ Payment fails with a retry-exhausted message after 3 attempts.
   when every requirement refining it is ("through its refinements"), so a broken-down
   requirement needs no tests of its own. Requirements keep one prefix; for named levels
   (stakeholder, system, software), declare a field: `level: [Stakeholder, System, Software]`.
+- **`verification:`** on a requirement says how it's verified: `test` (the default: a
+  test case verifies it), `analysis`, `inspection` or `demonstration` (covered once
+  **`evidence:`** names what shows it: `evidence: [docs/latency-analysis.pdf]`, a link,
+  or a record number), or `none` (a definition or constraint that needs no verification:
+  it's no gap, and coverage leaves it out of the count). A test case verifying it counts
+  whatever the method. Set it above the text, or for many at once.
 - **`reviewed`** is written by Tracey: for each linked requirement (verified, or
   refined), a fingerprint of its title and text when the link was last reviewed. When
   the requirement's text changes, the link shows as *changed since review* (suspect)
@@ -179,7 +185,7 @@ status bar.
 Ctrl-click (⌘ on a Mac) items in the list to pick several, Shift-click to pick a range,
 or **Change several at once…** above the list to pick by clicking (on a touch screen).
 With some picked, the page shows them and one form for all of them: set or clear the
-status, estimate and your single-value fields; add or remove components, variants,
+status, estimate, verification method and your single-value fields; add or remove components, variants, evidence,
 Jira keys, requirements verified or refined (reviewed now, like adding one by hand)
 and list fields. It says how many files that changes before you apply it, leaves out items that
 already have the value, and the files are then committed from the status bar like any
@@ -421,8 +427,12 @@ leaves out obsolete items unless asked.
 latest result of each test case, a release (its runs), one run, or none. Each
 requirement then gets a verdict: **failing** if any of its test cases failed, else
 **blocked** if any is blocked, **verified** when all passed, **partly run** when some
-passed and the rest haven't run, **not run**, or **no tests**. Obsolete test cases don't
-count. Each test case shows its result as a mark (✓ ✕ ! –) as well as a colour.
+passed and the rest haven't run, **not run**, or **not covered** (no tests). Obsolete test cases don't
+count. A requirement without test cases of its own takes its verdict from its evidence
+(*verified (analysis)*), or else from the requirements refining it, worst first: one
+without tests leaves it not covered (as coverage says), then failing, blocked; verified
+when all are. It says which decided it: *Failing (via REQ-12)*. One needing no
+verification gets none. Each test case shows its result as a mark (✓ ✕ ! –) as well as a colour.
 The PDF and Excel/CSV exports can include the same: a verdict column and each test's
 result, with where the results came from.
 

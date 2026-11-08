@@ -7,6 +7,7 @@ import { buildGraph, columns, subgraph, walk, type GNode, type NodeType } from '
 import { graphSvg, type GraphPicture } from '../../../core/graphsvg';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
+import { byEvidence } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill } from './bits';
@@ -413,6 +414,9 @@ function statusText(n: GNode, down: string[], up: string[]): string {
   if (n.type === 'req') {
     const tests = down.filter((k) => k.startsWith('test:')).length;
     const refined = down.filter((k) => k.startsWith('req:')).length;
+    const it = n.item;
+    if (!tests && it && byEvidence(it.verification) && it.evidence.length) return `Verified by ${it.verification}: ${it.evidence.join(', ')}.`;
+    if (!tests && !refined && it?.verification === 'none') return 'Needs no verification.';
     if (!tests && refined) return `Covered through the ${refined} requirement${refined === 1 ? '' : 's'} refining it.`;
     return `Verified by ${tests} test case${tests === 1 ? '' : 's'}${refined ? `; refined by ${refined} requirement${refined === 1 ? '' : 's'}` : ''}.`;
   }

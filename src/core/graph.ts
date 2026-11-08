@@ -6,7 +6,7 @@
 // it and the test cases verifying it, a test case to the components it's tagged with.
 // Refining requirements get a column each level down. Pure, so it's tested without a
 // browser.
-import { coveredRequirements, linksOf, refinesOf, type Item, type LinkState, type ProjectIndex } from './model';
+import { byEvidence, linksOf, refinesOf, verification, type Item, type LinkState, type ProjectIndex } from './model';
 import type { LinkedCommit } from './commits';
 import { buildIssueLinks, type IssueLinks, type LinkSource } from './links';
 import type { JiraIssue } from '../shared/api';
@@ -89,7 +89,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
   const components = new Map(index.config.components.map((c) => [c.key, c]));
   const usedComponents = new Set<string>();
   const issues = new Set<string>();
-  const covered = coveredRequirements(index);
+  const { covered, exempt } = verification(index);
 
   for (const it of items) {
     const key = `${it.kind === 'requirement' ? 'req' : 'test'}:${it.id}`;
@@ -110,8 +110,10 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
         // Obsolete: nothing to look at.
       } else if (missing.length) [node.gap, node.warn, node.tag] = [`Refines ${missing.join(', ')}, which ${missing.length === 1 ? "doesn't" : "don't"} exist or isn't a requirement.`, true, 'Broken link'];
       else if (suspect.length) [node.gap, node.warn, node.tag] = [`${suspect.join(', ')} changed since this requirement was reviewed against it.`, true, 'Suspect'];
-      else if (!covered.has(it.id))
-        [node.gap, node.tag] = [down.length ? 'No test case verifies this requirement, nor all the requirements refining it.' : 'No test case verifies this requirement.', 'No tests'];
+      else if (!covered.has(it.id) && !exempt.has(it.id)) {
+        if (byEvidence(it.verification) && !down.length) [node.gap, node.tag] = [`To be verified by ${it.verification}, but no evidence is recorded, and no test case verifies it.`, 'No evidence'];
+        else [node.gap, node.tag] = [down.length ? 'No test case verifies this requirement, nor all the requirements refining it.' : 'No test case verifies this requirement.', 'No tests'];
+      }
     } else {
       for (const c of it.components) {
         usedComponents.add(c);

@@ -1,10 +1,10 @@
 // The repository as spreadsheet tables: requirements, test cases, the traceability
 // matrix, test runs and their results, and coverage over time.
-import { coveredRequirements, linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
+import { linksOf, METHOD_LABEL, variantNames, verification, type Item, type LinkState, type ProjectIndex } from './model';
 import { lastResult, releaseOf, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
 import { runEstimate } from './estimate';
-import { outcomeText, resultMatrix, VERDICT_LABEL, type Outcome, type Verdict } from './verdict';
+import { outcomeText, resultMatrix, verdictText, type Outcome, type Verdict } from './verdict';
 import type { Cell, Sheet, Tone } from './xlsx';
 import { fieldsFor } from './config';
 import { fieldText } from './fields';
@@ -47,7 +47,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
   const extra = (k: Item['kind']) => fieldsFor(index.config, k);
   const extraColumns = (k: Item['kind']) => extra(k).map((f) => ({ header: f.name, width: Math.min(30, Math.max(10, f.name.length + 2, ...f.values.map((v) => v.length + 2))), wrap: f.type === 'list' || f.type === 'choices' || f.type === 'text' }));
   const extraCells = (it: Item) => extra(it.kind).map((f) => (f.type === 'number' && typeof it.data[f.key] === 'number' ? (it.data[f.key] as number) : fieldText(it.data[f.key]) || null));
-  const covered = coveredRequirements(index);
+  const { covered, exempt } = verification(index);
   const runCases = (r: TestRun) => r.cases.filter((c) => !index.byId.has(c.id) || keep(index.byId.get(c.id)!));
 
   const requirements: Sheet = {
@@ -62,7 +62,9 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Refines', width: 14, wrap: true },
       { header: 'Refined by', width: 16, wrap: true },
       { header: 'Test cases', width: 18, wrap: true },
-      { header: 'Covered', width: 12 },
+      { header: 'Verification', width: 13 },
+      { header: 'Evidence', width: 24, wrap: true },
+      { header: 'Covered', width: 16 },
       { header: 'To review', width: 18, wrap: true },
       { header: 'Last results', width: 36, wrap: true },
       ...extraColumns('requirement'),
@@ -80,7 +82,9 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         r.refines.join(', '),
         (index.refinedBy.get(r.id) ?? []).filter(keep).map((c) => c.id).join(', '),
         links.map((l) => l.test.id).join(', '),
-        r.status === 'obsolete' ? '' : !covered.has(r.id) ? 'No' : covered.get(r.id) ? 'Through refinements' : 'Yes',
+        METHOD_LABEL[r.verification],
+        r.evidence.join('\n'),
+        r.status === 'obsolete' ? '' : exempt.has(r.id) ? 'Not needed' : { tests: 'Yes', evidence: 'By evidence', refinements: 'Through refinements', none: 'No' }[covered.get(r.id) ?? 'none'],
         links
           .filter((l) => l.state === 'suspect')
           .map((l) => l.test.id)
@@ -155,7 +159,8 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       ...(res ? [{ header: `Verdict (${res.name})`, width: Math.max(12, res.name.length + 11) }] : []),
       ...linked.map((t) => ({ header: t.id, width: Math.max(res ? 12 : 9, t.id.length + 3) })),
     ],
-    rows: rows.map(({ req, links, verdict }) => {
+    rows: rows.map((row) => {
+      const { req, links, verdict } = row;
       const by = new Map(links.map((l) => [l.test.id, l]));
       const cells: Cell[] = linked.map((t) => {
         const l = by.get(t.id);
@@ -163,7 +168,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         if (!res) return MATRIX_MARK[l.state];
         return { text: outcomeText(l.outcome, res.oneRun) + (l.state === 'suspect' ? ' ⚠' : ''), tone: RESULT_TONE[l.outcome.result] };
       });
-      return [req.id, req.title, ...(res ? [verdict ? ({ text: VERDICT_LABEL[verdict], tone: VERDICT_TONE[verdict] } as Cell) : null] : []), ...cells];
+      return [req.id, req.title, ...(res ? [verdict ? ({ text: verdictText(row), tone: VERDICT_TONE[verdict] } as Cell) : verdictText(row) || null] : []), ...cells];
     }),
   };
 

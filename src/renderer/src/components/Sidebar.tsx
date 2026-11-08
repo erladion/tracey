@@ -1,7 +1,7 @@
 // The list of requirements or test cases, with search and filters.
 import { useMemo, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { fieldsFor, type Kind } from '../../../core/config';
-import { linksOf, type Item } from '../../../core/model';
+import { linksOf, verification, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill, VariantTag } from './bits';
@@ -29,6 +29,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
   const [component, setComponent] = useState('');
   // Declared choice fields to filter on: key → value ('' any, NONE without one).
   const [byField, setByField] = useState<Record<string, string>>({});
+  const how = useMemo(() => verification(index), [index]);
   const choiceFields = useMemo(() => fieldsFor(index.config, kind).filter((f) => f.type === 'choice' || f.type === 'choices'), [index.config, kind]);
 
   const counts = useMemo(
@@ -181,7 +182,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
               )}
               <span className="item-row-top">
                 <span className="item-id">{it.id}</span>
-                <RowBadge project={project} item={it} />
+                <RowBadge project={project} item={it} how={how} />
               </span>
               <span className="item-title">{it.title || <em className="muted">Untitled</em>}</span>
               <span className="item-row-bottom">
@@ -201,7 +202,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
   );
 }
 
-function RowBadge({ project, item }: { project: Project; item: Item }) {
+function RowBadge({ project, item, how }: { project: Project; item: Item; how: ReturnType<typeof verification> }) {
   const links = linksOf(project.index, item);
   if (links.some((l) => l.state === 'suspect'))
     return (
@@ -211,11 +212,33 @@ function RowBadge({ project, item }: { project: Project; item: Item }) {
     );
   if (item.kind === 'requirement') {
     if (item.status === 'obsolete') return null;
-    return links.length ? (
-      <span className="row-badge" title={`${links.length} test case${links.length === 1 ? '' : 's'}`}>
-        {links.length} test{links.length === 1 ? '' : 's'}
-      </span>
-    ) : (
+    const covered = how.covered.get(item.id);
+    if (links.length)
+      return (
+        <span className="row-badge" title={`${links.length} test case${links.length === 1 ? '' : 's'}`}>
+          {links.length} test{links.length === 1 ? '' : 's'}
+        </span>
+      );
+    if (covered === 'refinements')
+      return (
+        <span className="row-badge" title="Covered: every requirement refining it is">
+          covered
+        </span>
+      );
+    if (covered === 'evidence')
+      return (
+        <span className="row-badge" title={`Verified by ${item.verification}: ${item.evidence.join(', ')}`}>
+          {item.verification}
+        </span>
+      );
+    if (how.exempt.has(item.id)) return null;
+    if (item.verification !== 'test')
+      return (
+        <span className="row-badge gap" title={`To be verified by ${item.verification}, but no evidence is recorded`}>
+          no evidence
+        </span>
+      );
+    return (
       <span className="row-badge gap" title="No test case verifies this requirement">
         no tests
       </span>

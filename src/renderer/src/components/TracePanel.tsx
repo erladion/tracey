@@ -1,7 +1,7 @@
 // Beside an item: what it's linked to and whether those links still hold, its
 // components, its problems, and its history.
 import { useEffect, useState } from 'react';
-import { coveredRequirements, linksOf, refinesOf, type Item, type RefineLink } from '../../../core/model';
+import { byEvidence, linksOf, refinesOf, verification, type Item, type RefineLink } from '../../../core/model';
 import { commitsFor } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import type { FileCommit } from '../../../shared/api';
@@ -30,7 +30,8 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
   const problems = index.problems.filter((p) => p.path === item.path);
   const components = index.config.components.filter((c) => item.components.includes(c.key));
   const refines = refinesOf(index, item);
-  const throughRefinements = item.kind === 'requirement' && !links.length && coveredRequirements(index).get(item.id) === true;
+  const how = item.kind === 'requirement' && !links.length ? verification(index) : null;
+  const throughRefinements = how?.covered.get(item.id) === 'refinements';
 
   return (
     <aside className="trace-panel" aria-label="Traceability">
@@ -47,14 +48,22 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
           )}
         </div>
         {links.length === 0 ? (
-          throughRefinements ? (
+          how?.covered.get(item.id) === 'evidence' ? (
+            <p className="muted small">
+              No test case: it’s verified by {item.verification}, shown by {item.evidence.join(', ')}.
+            </p>
+          ) : throughRefinements ? (
             <p className="muted small">No test case of its own, but it’s covered: every requirement refining it is.</p>
+          ) : how?.exempt.has(item.id) ? (
+            <p className="muted small">No test case, and none needed: its verification is set to none.</p>
           ) : (
             <p className={`muted small${item.kind === 'requirement' && item.status !== 'obsolete' ? ' gap-note' : ''}`}>
               {item.kind === 'requirement'
-                ? refines.down.length
-                  ? 'No test case verifies this requirement, nor all the requirements refining it.'
-                  : 'No test case verifies this requirement yet.'
+                ? byEvidence(item.verification) && !refines.down.length
+                  ? `It’s to be verified by ${item.verification}, but no evidence is recorded yet. Add it under Evidence.`
+                  : refines.down.length
+                    ? 'No test case verifies this requirement, nor all the requirements refining it.'
+                    : 'No test case verifies this requirement yet.'
                 : 'This test case doesn’t verify a requirement yet. Add one under Verifies.'}
             </p>
           )

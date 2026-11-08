@@ -5,8 +5,8 @@ import { coverage, type ProjectIndex } from './model';
 import { summarize, today, type RunSummary, type TestRun } from './runs';
 
 export interface CoverageCounts {
-  requirements: number; // not obsolete
-  tested: number; // covered: verified by a test case, or through refinements
+  requirements: number; // not obsolete, and needing verification
+  tested: number; // covered: by a test case, by evidence, or through refinements
   suspect: number; // links to review: the requirement changed since
 }
 
@@ -23,7 +23,7 @@ export interface TrendPoint {
 
 export function coverageCounts(index: ProjectIndex): CoverageCounts {
   const c = coverage(index);
-  return { requirements: c.requirements.filter((r) => r.status !== 'obsolete').length, tested: c.tested.length, suspect: c.suspect.length };
+  return { requirements: c.counted.length, tested: c.tested.length, suspect: c.suspect.length };
 }
 
 export function passingRequirements(run: TestRun, index: ProjectIndex): number {

@@ -55,7 +55,7 @@ export function SourceSelect({ runs, value, onChange, id }: { runs: TestRun[]; v
 
 const VERDICT_CLASS: Record<Verdict, string> = { verified: 'passed', failing: 'failed', blocked: 'blocked', partial: 'partial', 'not-run': 'not-run', 'no-tests': '' };
 
-export function VerdictPill({ verdict }: { verdict: Verdict }) {
-  if (verdict === 'no-tests') return <span className="pill gap-pill">No tests</span>;
+export function VerdictPill({ verdict, evidence }: { verdict: Verdict; evidence?: boolean }) {
+  if (verdict === 'no-tests') return <span className="pill gap-pill">{evidence ? 'No evidence' : 'No tests'}</span>;
   return <span className={`result-pill ${VERDICT_CLASS[verdict]}`}>{VERDICT_LABEL[verdict]}</span>;
 }

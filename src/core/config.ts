@@ -59,7 +59,7 @@ export interface FieldDef {
 }
 
 // Fields Tracey has its own editor for; a declaration can't take them over.
-export const BUILT_IN_FIELDS = new Set(['id', 'type', 'title', 'status', 'components', 'variants', 'jira', 'verifies', 'refines', 'estimate', 'reviewed']);
+export const BUILT_IN_FIELDS = new Set(['id', 'type', 'title', 'status', 'components', 'variants', 'jira', 'verifies', 'refines', 'verification', 'evidence', 'estimate', 'reviewed']);
 
 export interface TraceConfig {
   requirements: KindConfig;

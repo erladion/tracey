@@ -879,6 +879,10 @@ h3 {
 .item-id.big {
   font-size: 14px;
 }
+.verdict-via {
+  margin-left: 6px;
+  white-space: nowrap;
+}
 .kind-label {
   font-size: 12px;
   color: var(--muted);

@@ -122,7 +122,7 @@ describe('outcomes and verdicts', () => {
     const rows = resultMatrix(index, v24);
     expect(rows.map((r) => `${r.req.id}:${r.verdict}`)).toEqual(['REQ-01:verified', 'REQ-02:failing', 'REQ-03:blocked', 'REQ-04:verified', 'REQ-05:no-tests', 'REQ-06:null']);
     expect(rows[3].links.map((l) => l.test.id)).toEqual(['TC-04', 'TC-05']);
-    expect(verdictSummary(rows)).toBe('2 of 5 requirements verified · 1 failing · 1 blocked · 1 without tests');
+    expect(verdictSummary(rows)).toBe('2 of 5 requirements verified · 1 failing · 1 blocked · 1 not covered');
     expect(resultMatrix(index, [regression]).map((r) => r.verdict)).toEqual(['verified', 'failing', 'not-run', 'not-run', 'no-tests', null]);
   });
 });
@@ -160,7 +160,7 @@ describe('exports with results', () => {
       results: { runs: results.runs, description: describeSource(runs, { kind: 'release', key: 'v2.4' }), oneRun: false },
     });
     expect(html).toContain('<th>Verdict</th>');
-    expect(html).toContain('2 of 5 requirements verified · 1 failing · 1 blocked · 1 without tests');
+    expect(html).toContain('2 of 5 requirements verified · 1 failing · 1 blocked · 1 not covered');
     expect(html).toContain('<span class="verdict failing">✕ Failing</span>');
     expect(html).toMatch(/TC-02<\/a> <span class="res failed">✕ failed<\/span>/);
     const plain = specHtml(index, { title: 'T', requirements: false, testcases: false, matrix: true, obsolete: false, component: null, meta: [], image: (_p, s) => s });

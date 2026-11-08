@@ -47,16 +47,16 @@ export async function check(dirArg: string): Promise<number> {
   for (const p of index.problems) console.log(`${p.severity === 'error' ? 'error' : 'warning'}: ${p.path ?? ''}: ${p.message}`);
   const errors = index.problems.filter((p) => p.severity === 'error').length;
   console.log(
-    `\n${cov.requirements.length} requirements, ${cov.testcases.length} test cases; ${cov.untested.length} requirements without test cases; ` +
-      `${cov.suspect.length} suspect links; ${errors} errors, ${index.problems.length - errors} warnings.`,
+    `\n${cov.requirements.length} requirements, ${cov.testcases.length} test cases; ${cov.untested.length} requirements not covered; ` +
+      `${cov.suspect.length + cov.suspectRefines.length} suspect links; ${errors} errors, ${index.problems.length - errors} warnings.`,
   );
   // Per variant: a requirement counts only when a test case for that variant verifies it.
   for (const v of index.config.variants) {
     const c = coverage(forVariant(index, v.key));
-    const live = c.requirements.filter((r) => r.status !== 'obsolete').length;
+    const live = c.counted.length;
     console.log(
-      `  ${v.name}: ${c.tested.length} of ${live} requirements verified${live ? ` (${Math.round((c.tested.length / live) * 100)}%)` : ''}` +
-        (c.untested.length ? `; without test cases: ${c.untested.map((r) => r.id).join(', ')}` : ''),
+      `  ${v.name}: ${c.tested.length} of ${live} requirements covered${live ? ` (${Math.round((c.tested.length / live) * 100)}%)` : ''}` +
+        (c.untested.length ? `; not covered: ${c.untested.map((r) => r.id).join(', ')}` : ''),
     );
   }
   return errors ? 1 : 0;

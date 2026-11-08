@@ -1,7 +1,7 @@
 // The whole repository at a glance: what's tested, what isn't, which links need a
 // look, and what's broken.
 import { useMemo, useState } from 'react';
-import { coverage, forVariant, type Link } from '../../../core/model';
+import { byEvidence, coverage, forVariant, type Item, type Link } from '../../../core/model';
 import { describeSource, outcomeText, RESULT_MARK, resultMatrix, sourceRuns, verdictCounts, verdictSummary, type ResultSource } from '../../../core/verdict';
 import { loadSource, saveSource, SourceSelect, VerdictPill } from './ResultSource';
 import type { Project } from '../project';
@@ -29,10 +29,12 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const [exporting, setExporting] = useState(false);
   const [comparing, setComparing] = useState(false);
   const live = cov.requirements.filter((r) => r.status !== 'obsolete');
-  const pct = live.length ? Math.round((cov.tested.length / live.length) * 100) : 0;
+  const counted = cov.counted;
+  const pct = counted.length ? Math.round((cov.tested.length / counted.length) * 100) : 0;
   const errors = cov.problems.filter((p) => p.severity === 'error');
   const coveredIds = useMemo(() => new Set(cov.tested.map((r) => r.id)), [cov]);
   const through = useMemo(() => new Set(cov.throughRefinements.map((r) => r.id)), [cov]);
+  const exempt = useMemo(() => new Set(cov.exempt.map((r) => r.id)), [cov]);
 
   const [source, setSourceState] = useState<ResultSource>(() => loadSource(project.repo.id, project.runs));
   const setSource = (s: ResultSource) => {
@@ -46,7 +48,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const shown = resultRuns ? filter : filter === 'failing' || filter === 'blocked' || filter === 'not-run' ? 'all' : filter;
   const rows = all.filter(({ req, links, verdict }) =>
     shown === 'gaps'
-      ? req.status !== 'obsolete' && !coveredIds.has(req.id)
+      ? req.status !== 'obsolete' && !coveredIds.has(req.id) && !exempt.has(req.id)
       : shown === 'suspect'
         ? links.some((l) => l.state === 'suspect')
         : shown === 'failing'
@@ -66,7 +68,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
           ['not-run', 'Not run', counts['not-run'] + counts.partial],
         ] as [Filter, string, number][])
       : []),
-    ['gaps', 'No tests', cov.untested.length],
+    ['gaps', 'Not covered', cov.untested.length],
     ['suspect', 'Suspect', new Set(cov.suspect.map((l) => l.req.id)).size],
   ];
 
@@ -114,20 +116,28 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
         <div className="tile">
           <span className="tile-label">Requirements</span>
           <span className="tile-value">{live.length}</span>
-          <span className="tile-sub">{cov.requirements.length - live.length} obsolete not counted</span>
+          <span className="tile-sub">
+            {cov.requirements.length - live.length} obsolete{cov.exempt.length ? `, ${cov.exempt.length} needing no verification` : ''} not counted
+          </span>
         </div>
         <div className="tile">
-          <span className="tile-label">Covered by test cases</span>
+          <span className="tile-label">Covered</span>
           <span className="tile-value">
-            {pct}% <span className="tile-of">{cov.tested.length} of {live.length}</span>
+            {pct}% <span className="tile-of">{cov.tested.length} of {counted.length}</span>
           </span>
           <span className="meter" aria-hidden="true">
             <span style={{ width: `${pct}%` }} />
           </span>
-          {through.size > 0 && <span className="tile-sub">{through.size} of them through the requirements refining them</span>}
+          {(through.size > 0 || cov.byEvidence.length > 0) && (
+            <span className="tile-sub">
+              {[through.size ? `${through.size} through the requirements refining them` : '', cov.byEvidence.length ? `${cov.byEvidence.length} by analysis, inspection or demonstration` : '']
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
         </div>
         <div className="tile">
-          <span className="tile-label">Without test cases</span>
+          <span className="tile-label">Not covered</span>
           <span className={`tile-value${cov.untested.length ? ' warn' : ''}`}>{cov.untested.length}</span>
           <span className="tile-sub">
             {cov.orphans.length} test case{cov.orphans.length === 1 ? '' : 's'} verify nothing
@@ -180,7 +190,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ req, links, verdict }) => (
+                {rows.map(({ req, links, verdict, via, through: deciding }) => (
                   <tr key={req.path} className={req.status === 'obsolete' ? 'obsolete' : ''}>
                     <td>
                       <button type="button" className="cell-link" onClick={() => onOpenId(req.id)}>
@@ -192,19 +202,22 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                       <StatusPill status={req.status} />
                     </td>
                     {resultRuns ? (
-                      <td>{verdict ? <VerdictPill verdict={verdict} /> : <span className="muted small">—</span>}</td>
+                      <td>
+                        {verdict ? (
+                          <>
+                            <VerdictPill verdict={verdict} evidence={!deciding.length && byEvidence(req.verification)} />
+                            {via === 'refinements' && <span className="muted small verdict-via"> via {deciding.map((r) => r.id).join(', ')}</span>}
+                          </>
+                        ) : (
+                          <span className="muted small">{exempt.has(req.id) ? 'None needed' : '—'}</span>
+                        )}
+                      </td>
                     ) : (
                       <td className="small">{req.components.join(', ') || <span className="muted">—</span>}</td>
                     )}
                     <td>
                       {links.length === 0 ? (
-                        through.has(req.id) ? (
-                          <span className="muted small">Through its refinements</span>
-                        ) : req.status === 'obsolete' || resultRuns ? (
-                          <span className="muted small">—</span>
-                        ) : (
-                          <span className="pill gap-pill">No tests</span>
-                        )
+                        <NoTests req={req} through={through.has(req.id)} exempt={exempt.has(req.id)} quiet={!!resultRuns} />
                       ) : (
                         <div className="test-chips">
                           {links.map((l) => {
@@ -252,7 +265,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
         <aside className="card attention">
           <h2>Needs attention</h2>
           {cov.suspect.length === 0 && cov.suspectRefines.length === 0 && cov.untested.length === 0 && cov.orphans.length === 0 && errors.length === 0 && cov.componentsWithoutTests.length === 0 && (
-            <p className="muted">Nothing. Every requirement has a reviewed test case.</p>
+            <p className="muted">Nothing. Every requirement is covered, and every link is reviewed.</p>
           )}
           {cov.suspect.length > 0 && (
             <div className="attention-group">
@@ -300,7 +313,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
           )}
           {cov.untested.length > 0 && (
             <div className="attention-group">
-              <h3>No test cases</h3>
+              <h3>Not covered</h3>
               <p className="id-list">
                 {cov.untested.map((r) => (
                   <button key={r.path} type="button" className="link-button mono" onClick={() => onOpenId(r.id)} title={r.title}>
@@ -431,7 +444,7 @@ function ByVariant({ project, onVariant }: { project: Project; onVariant: (varia
     () =>
       project.allIndex.config.variants.map((v) => {
         const c = coverage(forVariant(project.allIndex, v.key));
-        const live = c.requirements.filter((r) => r.status !== 'obsolete').length;
+        const live = c.counted.length;
         return { v, live, tested: c.tested.length, untested: c.untested.length, suspect: c.suspect.length + c.suspectRefines.length, pct: live ? Math.round((c.tested.length / live) * 100) : 0 };
       }),
     [project.allIndex],
@@ -448,8 +461,8 @@ function ByVariant({ project, onVariant }: { project: Project; onVariant: (varia
             <tr>
               <th>Variant</th>
               <th className="num">Requirements</th>
-              <th>Covered by test cases</th>
-              <th className="num">Without tests</th>
+              <th>Covered</th>
+              <th className="num">Not covered</th>
               <th className="num">Links to review</th>
             </tr>
           </thead>
@@ -481,4 +494,19 @@ function ByVariant({ project, onVariant }: { project: Project; onVariant: (varia
       </div>
     </section>
   );
+}
+
+// The test cases cell of a requirement without any: how it's covered otherwise, if it is.
+function NoTests({ req, through, exempt, quiet }: { req: Item; through: boolean; exempt: boolean; quiet: boolean }) {
+  if (req.status === 'obsolete') return <span className="muted small">—</span>;
+  if (through) return <span className="muted small">Through its refinements</span>;
+  if (byEvidence(req.verification) && req.evidence.length)
+    return (
+      <span className="muted small" title={req.evidence.join('\n')}>
+        By {req.verification}: {req.evidence.join(', ')}
+      </span>
+    );
+  if (exempt) return <span className="muted small">Needs no verification</span>;
+  if (quiet) return <span className="muted small">—</span>;
+  return <span className="pill gap-pill">{byEvidence(req.verification) ? 'No evidence' : 'No tests'}</span>;
 }

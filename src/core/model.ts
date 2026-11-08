@@ -24,6 +24,8 @@ export interface Item {
   jira: string[];
   verifies: string[]; // test cases: the requirements they verify
   refines: string[]; // requirements: the requirements they break down (their parents)
+  verification: Method; // requirements: how it's verified (test cases unless said otherwise)
+  evidence: string[]; // requirements verified other than by test: the documents or records showing it
   estimate: number | null; // test cases: minutes to run it (see estimate.ts); null: none or unreadable
   // Per linked requirement (verified by a test case, refined by a requirement), the
   // fingerprint of its text when the link was last reviewed. A different fingerprint
@@ -39,13 +41,42 @@ export type Severity = 'error' | 'warning';
 
 export interface Problem {
   severity: Severity;
-  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch' | 'bad-estimate' | 'bad-field' | 'refine-loop';
+  code:
+    | 'config'
+    | 'yaml'
+    | 'no-id'
+    | 'duplicate-id'
+    | 'missing-title'
+    | 'bad-status'
+    | 'broken-link'
+    | 'link-to-testcase'
+    | 'unknown-component'
+    | 'unknown-variant'
+    | 'variant-mismatch'
+    | 'bad-estimate'
+    | 'bad-field'
+    | 'refine-loop'
+    | 'bad-verification';
   message: string;
   path?: string;
   id?: string;
 }
 
 export type LinkState = 'ok' | 'suspect' | 'unreviewed';
+
+// How a requirement is verified. By test (the default): a test case verifies it. By
+// analysis, inspection or demonstration: it's covered once `evidence:` names what shows
+// it. None: it needs no verification (a definition, a constraint), so it's no gap.
+export const METHODS = ['test', 'analysis', 'inspection', 'demonstration', 'none'] as const;
+export type Method = (typeof METHODS)[number];
+export const METHOD_LABEL: Record<Method, string> = { test: 'Test', analysis: 'Analysis', inspection: 'Inspection', demonstration: 'Demonstration', none: 'None needed' };
+export const byEvidence = (m: Method) => m !== 'test' && m !== 'none';
+
+function readMethod(v: unknown): Method | null {
+  if (v == null || v === '') return 'test';
+  const m = String(v).trim().toLowerCase();
+  return (METHODS as readonly string[]).includes(m) ? (m as Method) : null;
+}
 
 export interface Link {
   test: Item;
@@ -103,6 +134,15 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       problems.push({ severity: 'warning', code: 'no-id', message: 'No id in the front matter, so this file is not a requirement or test case.', path: file.path });
     return { item: null, problems };
   }
+  const method = kind === 'requirement' ? readMethod(data.verification) : 'test';
+  if (method === null)
+    problems.push({
+      severity: 'warning',
+      code: 'bad-verification',
+      message: `${id} has verification “${String(data.verification)}”, which isn't one of: ${METHODS.join(', ')}. It's taken as test.`,
+      path: file.path,
+      id,
+    });
   const reviewedRaw = data.reviewed;
   const reviewed: Record<string, string> = {};
   if (reviewedRaw && typeof reviewedRaw === 'object' && !Array.isArray(reviewedRaw))
@@ -118,6 +158,8 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       jira: list(data.jira),
       verifies: kind === 'testcase' ? list(data.verifies) : [],
       refines: kind === 'requirement' ? list(data.refines) : [],
+      verification: method ?? 'test',
+      evidence: kind === 'requirement' ? (Array.isArray(data.evidence) ? data.evidence : data.evidence == null || data.evidence === '' ? [] : [data.evidence]).map((x) => String(x).trim()).filter(Boolean) : [],
       estimate: kind === 'testcase' ? (parseDuration(data.estimate) ?? null) : null,
       reviewed,
       path: file.path,
@@ -326,9 +368,12 @@ export function linksOf(index: ProjectIndex, item: Item): Link[] {
 export interface Coverage {
   requirements: Item[];
   testcases: Item[];
-  tested: Item[]; // verified by a test case, or covered through their refinements
+  counted: Item[]; // requirements that count: not obsolete, and needing verification
+  tested: Item[]; // covered: verified by a test case, by evidence, or through their refinements
   throughRefinements: Item[]; // of those, the ones only covered through their refinements
-  untested: Item[]; // requirements (not obsolete) no test case verifies
+  byEvidence: Item[]; // of those, the ones covered by analysis, inspection or demonstration
+  untested: Item[]; // requirements (not obsolete) nothing covers
+  exempt: Item[]; // requirements needing no verification (verification: none) that nothing covers
   orphans: Item[]; // test cases (not obsolete) that verify nothing
   suspect: Link[];
   unreviewed: Link[];
@@ -339,43 +384,57 @@ export interface Coverage {
 
 const live = (it: Item) => it.status !== 'obsolete';
 
-// Which requirements are covered: verified by a test case, or broken down into
-// requirements (not obsolete) that all are. ID → true when only through its refinements.
-export function coveredRequirements(index: ProjectIndex): Map<string, boolean> {
-  const out = new Map<string, boolean>();
+export type CoveredBy = 'tests' | 'evidence' | 'refinements';
+
+// Which requirements are covered, and how: verified by a test case, by evidence (when
+// verified by analysis, inspection or demonstration), or broken down into requirements
+// that all are. Refinements needing no verification don't count either way. Exempt:
+// needing no verification, and covered by nothing.
+export function verification(index: ProjectIndex): { covered: Map<string, CoveredBy>; exempt: Set<string> } {
+  const covered = new Map<string, CoveredBy>();
+  const exempt = new Set<string>();
   const visiting = new Set<string>();
-  const check = (r: Item): boolean => {
-    if (out.has(r.id)) return true;
-    if (visiting.has(r.id)) return false; // a loop covers nothing
-    if ((index.verifiedBy.get(r.id) ?? []).some(live)) {
-      out.set(r.id, false);
-      return true;
+  const check = (r: Item): CoveredBy | 'exempt' | null => {
+    const known = covered.get(r.id) ?? (exempt.has(r.id) ? 'exempt' : undefined);
+    if (known) return known;
+    if (visiting.has(r.id)) return null; // a loop covers nothing
+    let how: CoveredBy | 'exempt' | null = null;
+    if ((index.verifiedBy.get(r.id) ?? []).some(live)) how = 'tests';
+    else if (byEvidence(r.verification) && r.evidence.length) how = 'evidence';
+    else {
+      visiting.add(r.id);
+      const below = (index.refinedBy.get(r.id) ?? []).filter(live).map(check).filter((x) => x !== 'exempt');
+      visiting.delete(r.id);
+      if (below.length && below.every(Boolean)) how = 'refinements';
+      else if (r.verification === 'none') how = 'exempt';
     }
-    visiting.add(r.id);
-    const children = (index.refinedBy.get(r.id) ?? []).filter(live);
-    const ok = children.length > 0 && children.map(check).every(Boolean);
-    visiting.delete(r.id);
-    if (ok) out.set(r.id, true);
-    return ok;
+    if (how === 'exempt') exempt.add(r.id);
+    else if (how) covered.set(r.id, how);
+    return how;
   };
   for (const r of index.items) if (r.kind === 'requirement' && live(r)) check(r);
-  return out;
+  return { covered, exempt };
 }
+
+export const coveredRequirements = (index: ProjectIndex) => verification(index).covered;
 
 export function coverage(index: ProjectIndex): Coverage {
   const requirements = index.items.filter((i) => i.kind === 'requirement');
   const testcases = index.items.filter((i) => i.kind === 'testcase');
   const links = requirements.flatMap((r) => linksOf(index, r));
-  const covered = coveredRequirements(index);
+  const { covered, exempt } = verification(index);
   const tested = requirements.filter((r) => live(r) && covered.has(r.id));
   const refines = requirements.flatMap((r) => refinesOf(index, r).up);
   const testedComponents = new Set(testcases.filter(live).flatMap((t) => t.components));
   return {
     requirements,
     testcases,
+    counted: requirements.filter((r) => live(r) && !exempt.has(r.id)),
     tested,
-    throughRefinements: tested.filter((r) => covered.get(r.id)),
-    untested: requirements.filter((r) => live(r) && !tested.includes(r)),
+    throughRefinements: tested.filter((r) => covered.get(r.id) === 'refinements'),
+    byEvidence: tested.filter((r) => covered.get(r.id) === 'evidence'),
+    untested: requirements.filter((r) => live(r) && !covered.has(r.id) && !exempt.has(r.id)),
+    exempt: requirements.filter((r) => exempt.has(r.id)),
     orphans: testcases.filter((t) => live(t) && t.verifies.length === 0),
     suspect: links.filter((l) => l.state === 'suspect' && live(l.test) && live(l.req)),
     unreviewed: links.filter((l) => l.state === 'unreviewed' && live(l.test) && live(l.req)),
