@@ -7,7 +7,7 @@ import { describeSource, outcomeText, RESULT_MARK, resultMatrix, sourceRuns, ver
 import { loadSource, saveSource, SourceSelect, VerdictPill } from './ResultSource';
 import type { Project } from '../project';
 import { Icon } from '../icons';
-import { LinkBadge, StatusPill } from './bits';
+import { LinkBadge, ShowMore, StatusPill, useShown } from './bits';
 import { ExportDialog } from './ExportDialog';
 import { ChangesDialog } from './ChangesDialog';
 import { CoverageLine, ResultColumns, TrendTable } from './TrendCharts';
@@ -62,6 +62,8 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
               ? verdict === 'not-run' || verdict === 'partial'
               : true,
   );
+  // A page of the matrix at a time: thousands of rows take seconds to draw.
+  const page = useShown(rows.length, 200, `${shown}\u0000${JSON.stringify(source)}`);
   const filters: [Filter, string, number | null][] = [
     ['all', 'All', null],
     ...(resultRuns
@@ -251,7 +253,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ req, links, verdict, via, through: deciding }) => (
+                {rows.slice(0, page.shown).map(({ req, links, verdict, via, through: deciding }) => (
                   <tr key={req.path} className={req.status === 'obsolete' ? 'obsolete' : ''}>
                     <td>
                       <button type="button" className="cell-link" onClick={() => onOpenId(req.id)}>
@@ -321,6 +323,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
               </tbody>
             </table>
           </div>
+          <ShowMore shown={page.shown} total={rows.length} more={page.more} what="requirements" />
         </section>
 
         <aside className="card attention">

@@ -187,13 +187,63 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
   };
 }
 
+// What's wrong with an item by itself (not its links): read once with the item, and
+// kept with it while the file and the settings stay the same.
+function itemProblems(it: Item, config: TraceConfig): Problem[] {
+  const problems: Problem[] = [];
+  const componentKeys = new Set(config.components.map((c) => c.key));
+  const variantKeys = new Set(config.variants.map((v) => v.key));
+  if (!it.title.trim()) problems.push({ severity: 'warning', code: 'missing-title', message: `${it.id} has no title.`, path: it.path, id: it.id });
+  const statuses = statusesFor(config, it.kind);
+  if (it.status && !statuses.includes(it.status))
+    problems.push({ severity: 'warning', code: 'bad-status', message: `${it.id} has status “${it.status}”, which isn't one of: ${statuses.join(', ')}.`, path: it.path, id: it.id });
+  if (componentKeys.size)
+    for (const c of it.components)
+      if (!componentKeys.has(c)) problems.push({ severity: 'warning', code: 'unknown-component', message: `${it.id} names component “${c}”, which trace.yml doesn't define.`, path: it.path, id: it.id });
+  if (isRunnable(config, it.kind) && parseDuration(it.data.estimate) === null)
+    problems.push({
+      severity: 'warning',
+      code: 'bad-estimate',
+      message: `${it.id} has estimate “${String(it.data.estimate)}”, which isn't a time: write it like 30m, 1h or 1h 30m.`,
+      path: it.path,
+      id: it.id,
+    });
+  for (const f of config.fields) {
+    const issue = f.kinds.includes(it.kind) ? fieldIssue(f, it.data[f.key]) : null;
+    if (issue) problems.push({ severity: 'warning', code: 'bad-field', message: `${it.id} has ${f.name} ${issue}.`, path: it.path, id: it.id });
+  }
+  for (const v of it.variants)
+    if (!variantKeys.has(v))
+      problems.push({
+        severity: 'warning',
+        code: 'unknown-variant',
+        message: variantKeys.size ? `${it.id} names variant “${v}”, which trace.yml doesn't define.` : `${it.id} names variant “${v}”, but trace.yml defines no variants.`,
+        path: it.path,
+        id: it.id,
+      });
+  return problems;
+}
+
+// Files read before, by path, text and settings: as you type, only the file that
+// changed is read again (items are never changed once read, so they're shared).
+const readCache = new Map<string, { text: string; configText: string | null; read: ReturnType<typeof readItem> }>();
+function readChecked(f: SourceFile, config: TraceConfig): ReturnType<typeof readItem> {
+  const r = readItem(f, config);
+  return r.item ? { item: r.item, problems: [...r.problems, ...itemProblems(r.item, config)] } : r;
+}
+
 export function buildIndex(files: SourceFile[], configText: string | null): ProjectIndex {
   const { config, error } = parseConfig(configText);
   const problems: Problem[] = error ? [{ severity: 'error', code: 'config', message: error, path: 'trace.yml' }] : [];
   const items: Item[] = [];
+  // Other projects or versions (the trend reads old ones) replace entries as they go;
+  // it's emptied when it grows well past what one project holds.
+  if (readCache.size > 4 * files.length + 2000) readCache.clear();
   for (const f of files) {
     if (!/\.md$/i.test(f.path)) continue; // test runs and other files
-    const r = readItem(f, config);
+    const hit = readCache.get(f.path);
+    const r = hit && hit.text === f.text && hit.configText === configText ? hit.read : readChecked(f, config);
+    if (r !== hit?.read) readCache.set(f.path, { text: f.text, configText, read: r });
     problems.push(...r.problems);
     if (r.item) items.push(r.item);
   }
@@ -205,7 +255,9 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
   for (const it of items) {
     byPath.set(it.path, it);
     if (!byId.has(it.id)) byId.set(it.id, it);
-    seen.set(it.id, [...(seen.get(it.id) ?? []), it]);
+    const same = seen.get(it.id);
+    if (same) same.push(it);
+    else seen.set(it.id, [it]);
   }
   for (const [id, same] of seen)
     if (same.length > 1)
@@ -218,37 +270,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
   const typeName = (k: Kind) => typeOf(config, k).name.toLowerCase();
   const a = (word: string) => `${/^[aeiou]/.test(word) ? 'an' : 'a'} ${word}`;
   const verifiable = config.types.filter((t) => isVerifiable(config, t.key)).map((t) => t.plural.toLowerCase());
-  const componentKeys = new Set(config.components.map((c) => c.key));
-  const variantKeys = new Set(config.variants.map((v) => v.key));
   for (const it of items) {
-    if (!it.title.trim()) problems.push({ severity: 'warning', code: 'missing-title', message: `${it.id} has no title.`, path: it.path, id: it.id });
-    const statuses = statusesFor(config, it.kind);
-    if (it.status && !statuses.includes(it.status))
-      problems.push({ severity: 'warning', code: 'bad-status', message: `${it.id} has status “${it.status}”, which isn't one of: ${statuses.join(', ')}.`, path: it.path, id: it.id });
-    if (componentKeys.size)
-      for (const c of it.components)
-        if (!componentKeys.has(c)) problems.push({ severity: 'warning', code: 'unknown-component', message: `${it.id} names component “${c}”, which trace.yml doesn't define.`, path: it.path, id: it.id });
-    if (isRunnable(config, it.kind) && parseDuration(it.data.estimate) === null)
-      problems.push({
-        severity: 'warning',
-        code: 'bad-estimate',
-        message: `${it.id} has estimate “${String(it.data.estimate)}”, which isn't a time: write it like 30m, 1h or 1h 30m.`,
-        path: it.path,
-        id: it.id,
-      });
-    for (const f of config.fields) {
-      const issue = f.kinds.includes(it.kind) ? fieldIssue(f, it.data[f.key]) : null;
-      if (issue) problems.push({ severity: 'warning', code: 'bad-field', message: `${it.id} has ${f.name} ${issue}.`, path: it.path, id: it.id });
-    }
-    for (const v of it.variants)
-      if (!variantKeys.has(v))
-        problems.push({
-          severity: 'warning',
-          code: 'unknown-variant',
-          message: variantKeys.size ? `${it.id} names variant “${v}”, which trace.yml doesn't define.` : `${it.id} names variant “${v}”, but trace.yml defines no variants.`,
-          path: it.path,
-          id: it.id,
-        });
     for (const target of it.verifies) {
       const req = byId.get(target);
       if (!req) problems.push({ severity: 'error', code: 'broken-link', message: `${it.id} verifies ${target}, which doesn't exist.`, path: it.path, id: it.id });
@@ -261,7 +283,9 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
           id: it.id,
         });
       else {
-        verifiedBy.set(target, [...(verifiedBy.get(target) ?? []), it]);
+        const by = verifiedBy.get(target);
+        if (by) by.push(it);
+        else verifiedBy.set(target, [it]);
         if (!sharesVariant(it, req))
           problems.push({
             severity: 'warning',
@@ -278,7 +302,9 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
       else if (parent.kind !== 'requirement') problems.push({ severity: 'error', code: 'link-to-testcase', message: `${it.id} refines ${target}, which is ${a(typeName(parent.kind))}.`, path: it.path, id: it.id });
       else if (parent === it) problems.push({ severity: 'error', code: 'refine-loop', message: `${it.id} refines itself.`, path: it.path, id: it.id });
       else {
-        refinedBy.set(target, [...(refinedBy.get(target) ?? []), it]);
+        const by = refinedBy.get(target);
+        if (by) by.push(it);
+        else refinedBy.set(target, [it]);
         if (!sharesVariant(it, parent))
           problems.push({
             severity: 'warning',
@@ -308,7 +334,9 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
             ...where,
           });
         else {
-          into.set(target, [...(into.get(target) ?? []), it]);
+          const by = into.get(target);
+          if (by) by.push(it);
+          else into.set(target, [it]);
           if (!sharesVariant(it, to))
             problems.push({ severity: 'warning', code: 'variant-mismatch', message: `${it.id} is for ${it.variants.join(', ')} and ${to.id} for ${to.variants.join(', ')}, so the link never applies.`, ...where });
         }
@@ -373,9 +401,13 @@ export function forVariant(index: ProjectIndex, variant: string): ProjectIndex {
 
 // REQ-2 before REQ-10.
 const kindRank = (k: Kind) => (k === 'requirement' ? 0 : k === 'testcase' ? 1 : 2);
+// One collator for every comparison: localeCompare with options makes a new one each
+// time, which takes seconds over a hundred thousand items.
+export const compareIds = new Intl.Collator(undefined, { numeric: true }).compare;
+
 export function compareItems(a: Item, b: Item): number {
   if (a.kind !== b.kind) return kindRank(a.kind) - kindRank(b.kind) || a.kind.localeCompare(b.kind);
-  return a.id.localeCompare(b.id, undefined, { numeric: true });
+  return compareIds(a.id, b.id);
 }
 
 // ---- links and review ------------------------------------------------------------

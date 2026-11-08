@@ -90,13 +90,30 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   // Spread the columns over the width there is; scroll (or zoom out) when it's not enough.
   const scroller = useRef<HTMLDivElement>(null);
   const [avail, setAvail] = useState(1000);
+  // The part of the graph in view (in its own coordinates), to draw only that on a
+  // large project.
+  const [view, setView] = useState({ x: 0, y: 0, w: 2000, h: 1200 });
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setAvail(el.clientWidth));
+    let frame = 0;
+    const look = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => setView({ x: el.scrollLeft / zoom, y: el.scrollTop / zoom, w: el.clientWidth / zoom, h: el.clientHeight / zoom }));
+    };
+    const ro = new ResizeObserver(() => {
+      setAvail(el.clientWidth);
+      look();
+    });
     ro.observe(el);
-    return () => ro.disconnect();
-  }, [shown.nodes.length > 0]);
+    el.addEventListener('scroll', look, { passive: true });
+    look();
+    return () => {
+      ro.disconnect();
+      el.removeEventListener('scroll', look);
+      cancelAnimationFrame(frame);
+    };
+  }, [shown.nodes.length > 0, zoom]);
   const room = avail / zoom - 16; // a little room for the selection ring and a scrollbar
   const W = Math.max(MIN_W, Math.min(MAX_W, (room - (cols.length - 1) * MIN_GAP) / Math.max(1, cols.length)));
   const GAP = cols.length > 1 ? Math.max(MIN_GAP, Math.min(MAX_GAP, (room - cols.length * W) / (cols.length - 1))) : MIN_GAP;
@@ -105,6 +122,21 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const opts = useMemo(() => ({ W, H, GAP, ROW, TOP, INDENT: 16 }), [W, GAP]);
   const layout = useMemo(() => layoutGraph(shown, cols, opts), [shown, cols, opts]);
   const curve = (a: string, b: string) => edgePath(layout, a, b, opts);
+  // What's drawn: with more than a few hundred nodes, what's in view and a screen around
+  // it (links whose ends' box reaches into that). Scrolling draws the rest as it comes.
+  const MARGIN = 900;
+  const culling = shown.nodes.length > 600;
+  const near = (x1: number, y1: number, x2: number, y2: number) =>
+    !culling || (x2 >= view.x - MARGIN && x1 <= view.x + view.w + MARGIN && y2 >= view.y - MARGIN && y1 <= view.y + view.h + MARGIN);
+  const drawnNodes = shown.nodes.filter((n) => {
+    const p = layout.pos.get(n.key)!;
+    return near(p.x, p.y, p.x + p.w, p.y + H) || n.key === sel?.key;
+  });
+  const drawnEdges = shown.edges.filter((e) => {
+    const p = layout.pos.get(e.from)!;
+    const q = layout.pos.get(e.to)!;
+    return near(Math.min(p.x, q.x), Math.min(p.y, q.y), Math.max(p.x, q.x) + W, Math.max(p.y, q.y) + H);
+  });
 
   // How each node and link is drawn, on screen and in the saved picture alike.
   const nodeLook = (n: GNode) => {
@@ -230,7 +262,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
             <div className="graph-scroll" ref={scroller} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
               <div className="graph-canvas" style={{ width: layout.width, height: layout.height, zoom }} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
                 <svg width={layout.width} height={layout.height} className="graph-edges" aria-hidden="true">
-                  {shown.edges.map((e) => {
+                  {drawnEdges.map((e) => {
                     const look = edgeLook(e);
                     return <path key={`${e.from}>${e.to}`} d={curve(e.from, e.to)} className={`edge${look.hot ? ' hot' : ''}${look.suspect ? ' suspect' : ''}${look.dim ? ' dim' : ''}`} />;
                   })}
@@ -240,7 +272,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                     <span className="strong">{colLabel(c)}</span> <span className="muted">{c.nodes.length}</span>
                   </div>
                 ))}
-                {shown.nodes.map((n) => {
+                {drawnNodes.map((n) => {
                   const p = layout.pos.get(n.key)!;
                   const { dim, selected: isSel, onPath } = nodeLook(n);
                   return (
@@ -262,6 +294,12 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                 })}
               </div>
             </div>
+          )}
+          {culling && !hiding && (
+            <p className="small muted graph-hidden-note">
+              A large graph: {shown.nodes.length.toLocaleString()} nodes. Narrow it with a component or a search, or select a node and tick <strong>Hide what’s faded</strong>{' '}
+              to see just its trace.
+            </p>
           )}
           {hiding && graph.nodes.length > 0 && (
             <p className="small muted graph-hidden-note">

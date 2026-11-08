@@ -5,7 +5,7 @@
 import MarkdownIt from 'markdown-it';
 import { blockChanges, blockText, bodyBlocks, fieldChanges, wordDiff, type FieldChange } from './diff';
 import { DEFAULT_CONFIG, type Kind, type TypeDef } from './config';
-import type { Item, ProjectIndex } from './model';
+import { compareIds, type Item, type ProjectIndex } from './model';
 import { DOC_CSS, esc } from './report';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
@@ -58,7 +58,7 @@ export function compareVersions(old: ProjectIndex, now: ProjectIndex): ItemChang
   for (const c of out)
     if (c.kind === 'requirement' && c.now) c.tests = (now.verifiedBy.get(c.id) ?? []).map((t) => ({ id: t.id, changed: touched.has(t.id) }));
 
-  return out.sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || a.kind.localeCompare(b.kind) || CHANGE_ORDER[a.change] - CHANGE_ORDER[b.change] || a.id.localeCompare(b.id, undefined, { numeric: true }));
+  return out.sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind) || a.kind.localeCompare(b.kind) || CHANGE_ORDER[a.change] - CHANGE_ORDER[b.change] || compareIds(a.id, b.id));
 }
 
 export interface ChangeCounts {

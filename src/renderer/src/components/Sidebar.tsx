@@ -4,7 +4,7 @@ import { fieldsFor, isRunnable, statusesFor, typeWord, type Kind } from '../../.
 import { checkRules, itemLinks, linksOf, verification, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { Icon } from '../icons';
-import { StatusPill, VariantTag } from './bits';
+import { ShowMore, StatusPill, useShown, VariantTag } from './bits';
 import { listValue, matchesSearch } from '../../../core/fields';
 
 const NONE = '\u0000none';
@@ -64,6 +64,13 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
     );
   }, [index, kind, query, status, component, byField, choiceFields]);
 
+  // A page of rows at a time; the selected one is always shown.
+  const { shown, more } = useShown(
+    items.length,
+    300,
+    `${kind}\u0000${query}\u0000${status}\u0000${component}\u0000${JSON.stringify(byField)}`,
+    items.findIndex((i) => i.path === selected),
+  );
   const pickedSet = new Set(picked);
   const many = picking || picked.length > 0;
   // Ctrl/⌘-click toggles one, Shift-click takes the range from the last one clicked.
@@ -166,7 +173,7 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
         )}
       </div>
       <ul className="item-list" onKeyDown={move}>
-        {items.map((it) => (
+        {items.slice(0, shown).map((it) => (
           <li key={it.path}>
             <button
               type="button"
@@ -195,6 +202,11 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
           </li>
         ))}
         {items.length === 0 && !project.loading && <li className="muted list-empty">Nothing matches.</li>}
+        {shown < items.length && (
+          <li>
+            <ShowMore shown={shown} total={items.length} more={more} what="items" />
+          </li>
+        )}
       </ul>
       <button type="button" className="button sidebar-new" onClick={onNew}>
         <Icon name="plus" /> New {typeWord(index.config, kind)}

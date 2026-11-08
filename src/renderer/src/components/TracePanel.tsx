@@ -1,6 +1,6 @@
 // Beside an item: what it's linked to and whether those links still hold, its
 // components, its problems, and its history.
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { byEvidence, itemLinks, linksOf, refinesOf, verification, type Item, type ItemLink, type RefineLink } from '../../../core/model';
 import { isRunnable, isVerifiable, linksFrom, linksTo, typeOf, typeWord } from '../../../core/config';
 import { commitsFor } from '../../../core/commits';
@@ -33,7 +33,8 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
   const problems = index.problems.filter((p) => p.path === item.path);
   const components = index.config.components.filter((c) => item.components.includes(c.key));
   const refines = refinesOf(index, item);
-  const how = item.kind === 'requirement' && !links.length ? verification(index) : null;
+  const covered = useMemo(() => verification(index), [index]);
+  const how = item.kind === 'requirement' && !links.length ? covered : null;
   const throughRefinements = how?.covered.get(item.id) === 'refinements';
   const declared = itemLinks(index, item);
   const outDefs = linksFrom(index.config, item.kind).filter((l) => !l.builtIn && (item.links[l.key]?.length ?? 0) > 0);

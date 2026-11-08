@@ -1,6 +1,6 @@
 // A test run's report, as Markdown (to keep in the repository) or as a standalone HTML
 // page (to send, or print to PDF).
-import type { Item, ProjectIndex } from './model';
+import { compareIds, type Item, type ProjectIndex } from './model';
 import { estimateText, formatDuration, runEstimate } from './estimate';
 import { releaseOf, stepProblems, summarize, type Result, type RunCase, type TestRun } from './runs';
 import { stepsOf } from './steps';
@@ -25,7 +25,7 @@ function groups(run: TestRun, index: ProjectIndex): Group[] {
       byReq.get(r.id)!.cases.push({ c, item });
     }
   }
-  const out = [...byReq.values()].sort((a, b) => a.req!.id.localeCompare(b.req!.id, undefined, { numeric: true }));
+  const out = [...byReq.values()].sort((a, b) => compareIds(a.req!.id, b.req!.id));
   return loose.cases.length ? [...out, loose] : out;
 }
 

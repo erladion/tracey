@@ -11,6 +11,7 @@ export interface RepoEntry {
 export interface ProjectFiles {
   config: string | null; // trace.yml, if there is one
   files: SourceFile[]; // Markdown files with front matter
+  truncated?: number; // more Markdown files than this: the rest weren't read
 }
 
 export type ChangeKind = 'modified' | 'added' | 'deleted' | 'renamed' | 'conflicted';

@@ -32,6 +32,9 @@ export const TABLE_LABEL: Record<TableKey, string> = {
   trend: 'Coverage over time',
 };
 
+// More test cases than this and the matrix sheet lists links, one per row.
+export const MATRIX_COLUMNS = 300;
+
 const STATE_LABEL: Record<LinkState, string> = { ok: 'reviewed', suspect: 'changed since review', unreviewed: 'not reviewed' };
 const MATRIX_MARK: Record<LinkState, string> = { ok: '✓', suspect: 'changed', unreviewed: 'not reviewed' };
 const RESULT_TONE: Record<Outcome['result'], Tone> = { passed: 'good', failed: 'bad', blocked: 'warn', 'not-run': 'muted' };
@@ -212,30 +215,51 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
   };
 
   // Requirements down, the test cases that verify one across. With results: each
-  // requirement's verdict, and each test case's result in the chosen runs.
-  const linked = tests.filter((t) => t.verifies.some((v) => reqs.some((r) => r.id === v)));
+  // requirement's verdict, and each test case's result in the chosen runs. With more test
+  // cases than fit across a sheet sensibly (Excel stops at 16,384 columns, and the grid
+  // grows with requirements times test cases), one row per link instead.
+  const reqIds = new Set(reqs.map((r) => r.id));
+  const linked = tests.filter((t) => t.verifies.some((v) => reqIds.has(v)));
   const res = o.results;
   const rows = resultMatrix(index, res?.runs ?? [], keep);
-  const matrix: Sheet = {
-    name: 'Matrix',
-    columns: [
-      { header: 'Requirement', width: 10 },
-      { header: 'Title', width: 36 },
-      ...(res ? [{ header: `Verdict (${res.name})`, width: Math.max(12, res.name.length + 11) }] : []),
-      ...linked.map((t) => ({ header: t.id, width: Math.max(res ? 12 : 9, t.id.length + 3) })),
-    ],
-    rows: rows.map((row) => {
-      const { req, links, verdict } = row;
-      const by = new Map(links.map((l) => [l.test.id, l]));
-      const cells: Cell[] = linked.map((t) => {
-        const l = by.get(t.id);
-        if (!l) return null;
-        if (!res) return MATRIX_MARK[l.state];
-        return { text: outcomeText(l.outcome, res.oneRun) + (l.state === 'suspect' ? ' ⚠' : ''), tone: RESULT_TONE[l.outcome.result] };
-      });
-      return [req.id, req.title, ...(res ? [verdict ? ({ text: verdictText(row), tone: VERDICT_TONE[verdict] } as Cell) : verdictText(row) || null] : []), ...cells];
-    }),
-  };
+  const verdictCell = (row: (typeof rows)[number]): Cell => (row.verdict ? { text: verdictText(row), tone: VERDICT_TONE[row.verdict] } : verdictText(row) || null);
+  const linkCell = (l: (typeof rows)[number]['links'][number]): Cell =>
+    !res ? MATRIX_MARK[l.state] : { text: outcomeText(l.outcome, res.oneRun) + (l.state === 'suspect' ? ' ⚠' : ''), tone: RESULT_TONE[l.outcome.result] };
+  const matrix: Sheet =
+    linked.length <= MATRIX_COLUMNS
+      ? {
+          name: 'Matrix',
+          columns: [
+            { header: 'Requirement', width: 10 },
+            { header: 'Title', width: 36 },
+            ...(res ? [{ header: `Verdict (${res.name})`, width: Math.max(12, res.name.length + 11) }] : []),
+            ...linked.map((t) => ({ header: t.id, width: Math.max(res ? 12 : 9, t.id.length + 3) })),
+          ],
+          rows: rows.map((row) => {
+            const by = new Map(row.links.map((l) => [l.test.id, l]));
+            const cells: Cell[] = linked.map((t) => {
+              const l = by.get(t.id);
+              return l ? linkCell(l) : null;
+            });
+            return [row.req.id, row.req.title, ...(res ? [verdictCell(row)] : []), ...cells];
+          }),
+        }
+      : {
+          name: 'Matrix',
+          columns: [
+            { header: 'Requirement', width: 12 },
+            { header: 'Title', width: 36, wrap: true },
+            ...(res ? [{ header: `Verdict (${res.name})`, width: Math.max(12, res.name.length + 11) }] : []),
+            { header: 'Test case', width: 12 },
+            { header: 'Test case title', width: 36, wrap: true },
+            { header: res ? 'Result' : 'Link', width: 16 },
+          ],
+          rows: rows.flatMap((row) => {
+            const head: Cell[] = [row.req.id, row.req.title, ...(res ? [verdictCell(row)] : [])];
+            const links = row.links.filter((l) => keep(l.test));
+            return links.length ? links.map((l) => [...head, l.test.id, l.test.title, linkCell(l)]) : [[...head, null, null, null]];
+          }),
+        };
 
   const runs: Sheet = {
     name: 'Test runs',
@@ -284,7 +308,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     rows: o.runs.flatMap((r) =>
       runCases(r).map((c) => {
         const it = index.byId.get(c.id);
-        const steps = it ? stepsOf(it.body).steps : [];
+        const steps = it && Object.keys(c.steps).length ? stepsOf(it.body).steps : [];
         const stepText = Object.keys(c.steps).length
           ? [`${Object.values(c.steps).filter((x) => x === 'passed').length} of ${steps.length || Object.keys(c.steps).length} passed`, ...stepProblems(c, steps)].join('\n')
           : '';

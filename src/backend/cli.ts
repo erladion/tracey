@@ -48,7 +48,8 @@ export async function runCommand(args: string[], self: string): Promise<number |
 
 export async function check(dirArg: string): Promise<number> {
   const dir = resolve(dirArg);
-  const { config, files } = await readProjectFiles(dir);
+  const { config, files, truncated } = await readProjectFiles(dir);
+  if (truncated) console.log(`warning: more than ${truncated} Markdown files; only the first ${truncated} were read.`);
   const index = buildIndex(files, config);
   const cov = coverage(index);
   for (const p of index.problems) console.log(`${p.severity === 'error' ? 'error' : 'warning'}: ${p.path ?? ''}: ${p.message}`);

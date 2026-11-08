@@ -26,6 +26,7 @@ export interface Project {
   variant: string | null; // the product variant being looked at; null: all
   git: GitStatus | null;
   saving: boolean;
+  pending: boolean; // a large repository: the index hasn't caught up with the last edits yet
   // The code repository, whose commits name Jira issues.
   code: CodeState;
   commits: LinkedCommit[];
@@ -68,6 +69,9 @@ export interface JiraState {
   missing: string[]; // keys that don't exist in Jira
 }
 
+// More files than this and the index waits for a pause in typing (see `pending`).
+const LARGE = 20_000;
+
 export function useProject(repo: RepoEntry): Project {
   const [texts, setTexts] = useState<Map<string, string>>(new Map());
   const [config, setConfig] = useState<string | null>(null);
@@ -92,7 +96,8 @@ export function useProject(repo: RepoEntry): Project {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const { config, files } = await api.loadFiles(repo.id);
+      const { config, files, truncated } = await api.loadFiles(repo.id);
+      if (truncated) notify(`This repository has more than ${truncated.toLocaleString()} Markdown files. Only the first ${truncated.toLocaleString()} were read.`, 'error');
       setConfig(config);
       setTexts(new Map(files.map((f) => [f.path, f.text])));
       setError(null);
@@ -247,14 +252,25 @@ export function useProject(repo: RepoEntry): Project {
     if (code.repo) await readCommits(code.repo, true);
   }, [code.repo, readCommits]);
 
+  // In a very large repository, rebuilding everything takes a few hundred milliseconds,
+  // too long for every keystroke: it waits until typing pauses. Smaller ones update at once.
+  const large = texts.size > LARGE;
+  const [settled, setSettled] = useState(texts);
+  useEffect(() => {
+    if (!large) return;
+    const t = setTimeout(() => setSettled(texts), 300);
+    return () => clearTimeout(t);
+  }, [texts, large]);
+  const indexTexts = large ? settled : texts;
   const index = useMemo(
     () =>
       buildIndex(
-        [...texts].map(([path, text]) => ({ path, text })),
+        [...indexTexts].map(([path, text]) => ({ path, text })),
         config,
       ),
-    [texts, config],
+    [indexTexts, config],
   );
+  const indexPending = indexTexts !== texts;
   // ---- Jira ----
   const cfg = index.config;
   const server = useMemo<JiraServer | null>(() => (cfg.jiraUrl ? { url: cfg.jiraUrl, api: cfg.jira.api } : null), [cfg.jiraUrl, cfg.jira.api]);
@@ -326,13 +342,28 @@ export function useProject(repo: RepoEntry): Project {
     [server, cfg.jira.field, cfg.jira.max, withRemoteLinks],
   );
   const runsDir = index.config.runs.dir;
+  const runCache = useRef(new Map<string, { text: string; run: TestRun }>());
+  // The run files' paths, looked for again only when files come or go.
+  const runPaths = useMemo(
+    () => [...texts.keys()].filter((path) => path.startsWith(runsDir + '/') && /\.ya?ml$/i.test(path)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [texts.size, runsDir],
+  );
   const runs = useMemo(
     () =>
-      [...texts]
-        .filter(([path]) => path.startsWith(runsDir + '/') && /\.ya?ml$/i.test(path))
-        .map(([path, text]) => readRun(path, text))
+      runPaths
+        .map((path) => [path, texts.get(path) ?? ''] as const)
+        .map(([path, text]) => {
+          // Read again only when the file changed: a run is a big file, and this runs on
+          // every keystroke anywhere.
+          const hit = runCache.current.get(path);
+          if (hit && hit.text === text) return hit.run;
+          const run = readRun(path, text);
+          runCache.current.set(path, { text, run });
+          return run;
+        })
         .sort((a, b) => b.created.localeCompare(a.created) || b.path.localeCompare(a.path)),
-    [texts, runsDir],
+    [texts, runPaths],
   );
 
   const createFile = useCallback(
@@ -436,5 +467,5 @@ export function useProject(repo: RepoEntry): Project {
     [repo.id, refreshGit],
   );
 
-  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
+  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, pending: indexPending, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
 }

@@ -31,6 +31,7 @@ export interface Layout {
   width: number;
   height: number;
   treeParent: Map<string, string>; // requirements in one column: the one each is shown under
+  tops: number[][]; // per column, the nodes' tops in order: where links can't pass
 }
 
 const MAX_INDENT_LEVELS = 4;
@@ -68,8 +69,9 @@ export function layoutGraph(graph: Graph, cols: Column[], o: LayoutOptions): Lay
       if (parent) treeParent.set(n.key, parent);
     }
   });
-  const bottom = Math.max(o.TOP, ...[...ys.values()].map((y) => y + o.H));
-  return { pos, colX, width: Math.max(o.W, cols.length * (o.W + o.GAP) - o.GAP), height: bottom + 12, treeParent };
+  const bottom = [...ys.values()].reduce((m, y) => Math.max(m, y + o.H), o.TOP);
+  const tops = cols.map((c) => c.nodes.map((n) => ys.get(n.key)!).sort((a, b) => a - b));
+  return { pos, colX, width: Math.max(o.W, cols.length * (o.W + o.GAP) - o.GAP), height: bottom + 12, treeParent, tops };
 }
 
 // Positions for nodes in a fixed order, each as near its wish as the row spacing
@@ -146,13 +148,24 @@ export function edgePath(lay: Layout, from: string, to: string, o: LayoutOptions
 
 // The height nearest `want` at which a line crosses column `col` without touching a node.
 export function freeY(lay: Layout, col: number, want: number, o: LayoutOptions, clear = 5): number {
-  const busy = [...lay.pos.values()]
-    .filter((b) => b.col === col)
-    .map((b) => [b.y - clear, b.y + o.H + clear] as const)
-    .sort((a, b) => a[0] - b[0]);
-  if (!busy.some(([a, b]) => want > a && want < b)) return want;
-  const options: number[] = [busy[0][0], busy[busy.length - 1][1]];
-  // Between two nodes: halfway between them, however narrow the gap.
-  for (let i = 0; i + 1 < busy.length; i++) options.push((busy[i][1] + busy[i + 1][0]) / 2);
-  return options.reduce((best, y) => (Math.abs(y - want) < Math.abs(best - want) ? y : best));
+  const tops = lay.tops[col];
+  if (!tops?.length) return want;
+  // The last node starting above `want` (binary search): the only one it can be inside.
+  let lo = 0;
+  let hi = tops.length - 1;
+  let at = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (tops[mid] - clear < want) {
+      at = mid;
+      lo = mid + 1;
+    } else hi = mid - 1;
+  }
+  const inside = (i: number) => i >= 0 && i < tops.length && want > tops[i] - clear && want < tops[i] + o.H + clear;
+  if (!inside(at) && !inside(at + 1)) return want;
+  const i = inside(at) ? at : at + 1;
+  // Just above it (halfway to the one before), or just below (halfway to the one after).
+  const above = i > 0 ? (tops[i - 1] + o.H + tops[i]) / 2 : tops[i] - clear;
+  const below = i + 1 < tops.length ? (tops[i] + o.H + tops[i + 1]) / 2 : tops[i] + o.H + clear;
+  return Math.abs(above - want) <= Math.abs(below - want) ? above : below;
 }

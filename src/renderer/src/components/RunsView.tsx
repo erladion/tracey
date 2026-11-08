@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import MarkdownIt from 'markdown-it';
 import type { Project } from '../project';
-import { forVariant, type Item } from '../../../core/model';
+import { compareIds, forVariant, type Item } from '../../../core/model';
 import { isRunnable } from '../../../core/config';
 import { linkCommits } from '../../../core/commits';
 import { buildIssueLinks, projectsOf } from '../../../core/links';
@@ -21,7 +21,7 @@ import { download } from '../download';
 import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
-import { RESULT_LABEL, StatusPill, VariantTag } from './bits';
+import { RESULT_LABEL, ShowMore, StatusPill, useShown, VariantTag } from './bits';
 import { load, save } from '../storage';
 
 // Test steps are shown as formatted text; raw HTML in them is shown as text.
@@ -163,6 +163,8 @@ function RunDetail({
     [project.runs, me],
   );
   const assignees = [...new Set(run.cases.map((c) => c.assignee).filter(Boolean))].sort();
+  // A page of cases at a time; the open one is always shown.
+  const page = useShown(cases.length, 200, `${run.path}\u0000${filter}\u0000${assigned}`, cases.findIndex((c) => c.id === open));
   const [assignTo, setAssignTo] = useState('');
 
   const needTester = () => {
@@ -349,7 +351,7 @@ function RunDetail({
           </datalist>
         </div>
         <ul className="run-cases">
-          {cases.map((c) => {
+          {cases.slice(0, page.shown).map((c) => {
             const item = index.byId.get(c.id);
             const expanded = open === c.id;
             const { steps, rest } = item ? stepsOf(item.body) : { steps: [], rest: '' };
@@ -480,6 +482,11 @@ function RunDetail({
             );
           })}
           {cases.length === 0 && <li className="muted list-empty">None.</li>}
+          {page.shown < cases.length && (
+            <li>
+              <ShowMore shown={page.shown} total={cases.length} more={page.more} what="test cases" />
+            </li>
+          )}
         </ul>
       </section>
 
@@ -745,7 +752,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
       commits: range ? range.commits.length : null,
     };
   }, [scope, range, fvIssues, index, project.jira.issues, components]);
-  const fixVersions = useMemo(() => [...new Set(project.jira.issues.flatMap((i) => i.fixVersions))].sort((a, b) => b.localeCompare(a, undefined, { numeric: true })), [project.jira.issues]);
+  const fixVersions = useMemo(() => [...new Set(project.jira.issues.flatMap((i) => i.fixVersions))].sort((a, b) => compareIds(b, a)), [project.jira.issues]);
 
   const componentName = (k: string) => index.config.components.find((c) => c.key === k)?.name ?? k;
   const allTests = useMemo(() => index.items.filter((i) => isRunnable(index.config, i.kind) && i.status !== 'obsolete'), [index]);
@@ -755,7 +762,7 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
     return [...preview.impact.cases]
       .map(([id, reasons]) => ({ item: index.byId.get(id)!, reason: reasons.map((r) => reasonText(r, componentName)) }))
       .filter((x) => x.item)
-      .sort((a, b) => a.item.id.localeCompare(b.item.id, undefined, { numeric: true }));
+      .sort((a, b) => compareIds(a.item.id, b.item.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, preview, index, allTests]);
 

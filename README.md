@@ -624,6 +624,31 @@ everything off the selected node's trace (or, under Show gaps, everything that i
 gap). **Save as SVG** or **PNG** saves the graph as it's shown, selection and all, in
 the light colours, for a document or a slide.
 
+## Large projects
+
+Measured in the desktop app on generated repositories (40% requirements in three levels
+of refinement, 45% test cases with steps, 15% risks, five test runs with every test case),
+on the development machine (Linux under WSL2); slower machines take longer:
+
+| | 2,000 items | 5,000 items | 10,000 items | 100,000 items |
+|---|---|---|---|---|
+| Open the project | 0.8 s | 1.4 s | 2.2 s | 17 s |
+| Typing in an item | no pauses | no pauses | under 0.1 s per keystroke | no pauses; 0.45 s once typing stops |
+| Coverage view | 0.25 s | 0.3 s | 0.5 s | 4.3 s |
+| Traceability graph | 0.1 s | 0.1 s | 0.15 s | 1.2 s |
+| Open a run (4,500 cases at 10,000; 45,000 at 100,000) | 0.15 s | 0.2 s | 0.2 s | 0.4 s |
+| Record a result | instant | 0.05 s | 0.1 s | 0.4 s |
+| Excel export | 0.2 s | 0.6 s | 1.5 s | 5 s (a 226 MB file) |
+
+What keeps it so: only the file that changed is read again as you type (past 20,000
+files, everything else catches up once typing pauses); a run file is
+read and saved one case at a time; lists show a few hundred rows (**Show more**, **Show
+all**; search and filters cover everything); the graph draws what's in view. On a graph of
+thousands of nodes, pick a component, search, or select a node and **Hide what's faded**.
+With more test cases than a few hundred, the Excel matrix sheet lists one link per row
+instead of a grid. Tracey reads at most 200,000 Markdown files in a repository, and says
+so when there are more.
+
 ## Code layout
 
 ```

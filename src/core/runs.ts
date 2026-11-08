@@ -81,7 +81,79 @@ function numbered<T>(v: unknown, read: (x: unknown) => T | null): Record<number,
 }
 const list = (v: unknown) => (Array.isArray(v) ? v.map(String) : v == null || v === '' ? [] : [String(v)]);
 
+// ---- case blocks ------------------------------------------------------------------------
+// A run with thousands of cases is a big file. As Tracey writes it, each case is a block
+// of its own under `cases:` (its ID at two spaces, its fields deeper), so a result is
+// saved by changing that block alone, and reading the file again parses only the blocks
+// that changed. A file laid out otherwise is read and written whole.
+
+interface Blocks {
+  lines: string[];
+  head: string; // the file with an empty cases section
+  blocks: { id: string; from: number; to: number }[]; // line ranges, `to` exclusive, without trailing blank lines
+}
+
+const CASE_KEY = /^ {2}([A-Za-z0-9][\w.-]*):\s*$/;
+
+function caseBlocks(text: string): Blocks | null {
+  const lines = text.split('\n');
+  const start = lines.findIndex((l) => /^cases:\s*$/.test(l));
+  if (start < 0) return null;
+  let end = lines.length;
+  for (let i = start + 1; i < lines.length; i++)
+    if (/^\S/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  const blocks: Blocks['blocks'] = [];
+  for (let i = start + 1; i < end; i++) {
+    const l = lines[i];
+    if (!l.trim()) continue;
+    const m = CASE_KEY.exec(l);
+    if (m) blocks.push({ id: m[1], from: i, to: i + 1 });
+    else if (/^ {4}/.test(l) && blocks.length) blocks[blocks.length - 1].to = i + 1;
+    else return null; // laid out otherwise: a comment, a flow map, another indentation
+  }
+  const head = [...lines.slice(0, start), 'cases: {}', ...lines.slice(end)].join('\n');
+  return { lines, head, blocks };
+}
+
+// Parsed blocks by their text, shared by every run; emptied when it grows large.
+const blockCache = new Map<string, RunCase>();
+
 export function readRun(path: string, text: string): TestRun {
+  const b = caseBlocks(text);
+  if (!b) return readWholeRun(path, text);
+  const run = readWholeRun(path, b.head);
+  if (run.error) return readWholeRun(path, text);
+  if (blockCache.size > 50_000) blockCache.clear();
+  const cases: RunCase[] = [];
+  for (const { from, to } of b.blocks) {
+    const block = b.lines.slice(from, to).join('\n');
+    let c = blockCache.get(block);
+    if (!c) {
+      const one = readWholeRun(path, `cases:\n${block}\n`);
+      if (one.error || one.cases.length !== 1) return readWholeRun(path, text);
+      blockCache.set(block, (c = one.cases[0]));
+    }
+    cases.push(c);
+  }
+  return { ...run, cases };
+}
+
+// Changes one case's block with `change` (written for a whole file), or the whole file
+// when it isn't laid out in blocks or the case isn't in it.
+function inBlock(text: string, id: string, change: (t: string) => string): string {
+  const b = caseBlocks(text);
+  const at = b?.blocks.find((x) => x.id === id);
+  if (!b || !at || b.blocks.filter((x) => x.id === id).length > 1) return change(text);
+  const out = change(`cases:\n${b.lines.slice(at.from, at.to).join('\n')}\n`);
+  const block = out.replace(/^cases:\n/, '').replace(/\n+$/, '');
+  if (!block.startsWith(`  ${id}:`)) return change(text);
+  return [...b.lines.slice(0, at.from), block, ...b.lines.slice(at.to)].join('\n');
+}
+
+function readWholeRun(path: string, text: string): TestRun {
   const doc = parseDocument(text);
   const run: TestRun = {
     path,
@@ -199,6 +271,10 @@ export function newRunText(r: NewRun): string {
 
 // Changes one case's fields (empty removes a field).
 export function setCase(text: string, id: string, changes: Partial<Pick<RunCase, 'result' | 'tester' | 'date' | 'note' | 'assignee'>>): string {
+  return inBlock(text, id, (t) => setCaseWhole(t, id, changes));
+}
+
+function setCaseWhole(text: string, id: string, changes: Partial<Pick<RunCase, 'result' | 'tester' | 'date' | 'note' | 'assignee'>>): string {
   const doc = parseDocument(text);
   if (!doc.hasIn(['cases', id])) doc.setIn(['cases', id], doc.createNode({ result: 'not-run' }));
   for (const [k, v] of Object.entries(changes)) {
@@ -212,6 +288,10 @@ export function setCase(text: string, id: string, changes: Partial<Pick<RunCase,
 // One step's result and note (null or empty removes them). Steps and their notes are
 // small maps inside the case, so two testers on different steps merge cleanly.
 export function setStep(text: string, id: string, step: number, change: { result?: Result | null; note?: string | null }): string {
+  return inBlock(text, id, (t) => setStepWhole(t, id, step, change));
+}
+
+function setStepWhole(text: string, id: string, step: number, change: { result?: Result | null; note?: string | null }): string {
   const doc = parseDocument(text);
   if (!doc.hasIn(['cases', id])) doc.setIn(['cases', id], doc.createNode({ result: 'not-run' }));
   const put = (field: string, value: unknown) => {
@@ -353,11 +433,19 @@ export interface CaseResult {
   case: RunCase;
 }
 
+// A run's cases by ID, made once per run (runs are never changed once read).
+const byId = new WeakMap<TestRun, Map<string, RunCase>>();
+export function caseOf(run: TestRun, id: string): RunCase | undefined {
+  let m = byId.get(run);
+  if (!m) byId.set(run, (m = new Map(run.cases.map((c) => [c.id, c]))));
+  return m.get(id);
+}
+
 // Every run a test case is in, as the runs are listed (newest first).
 export function resultsFor(runs: TestRun[], id: string): CaseResult[] {
   const out: CaseResult[] = [];
   for (const run of runs) {
-    const c = run.cases.find((x) => x.id === id);
+    const c = caseOf(run, id);
     if (c) out.push({ run, case: c });
   }
   return out;

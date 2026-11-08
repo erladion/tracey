@@ -7,7 +7,7 @@
 // Links of the types trace.yml declares go the same way: from the item linked to, to the
 // item naming it. Refining requirements get a column each level down, and each declared
 // item type a column of its own. Pure, so it's tested without a browser.
-import { byEvidence, checkRules, itemLinks, linksOf, refinesOf, verification, type Item, type LinkState, type ProjectIndex } from './model';
+import { byEvidence, checkRules, compareIds, itemLinks, linksOf, refinesOf, verification, type Item, type LinkState, type ProjectIndex } from './model';
 import { isRunnable, isVerifiable, typeOf, type TraceConfig } from './config';
 import type { LinkedCommit } from './commits';
 import { buildIssueLinks, type IssueLinks, type LinkSource } from './links';
@@ -297,7 +297,7 @@ export function columns(graph: Graph, opts: { levels?: 'separate' | 'together' }
       const roots = !top.some((r) => linkedFrom(r).some((k) => pos.has(k))) ? top : byNeighbours(top, linkedFrom);
       const tree = { depth: new Map<string, number>(), parent: new Map<string, string>() };
       const ordered: GNode[] = [];
-      const byId = (a: GNode, b: GNode) => a.label.localeCompare(b.label, undefined, { numeric: true });
+      const byId = (a: GNode, b: GNode) => compareIds(a.label, b.label);
       const visit = (n: GNode, d: number, parent: string | null) => {
         if (tree.depth.has(n.key)) return;
         tree.depth.set(n.key, d);

@@ -79,7 +79,11 @@ export function ChipInput({ label, values, onChange, suggestions = [], href, onO
       }
     } else if (e.key === 'Backspace' && !text && values.length) onChange(values.slice(0, -1));
   };
-  const options = suggestions.filter((s) => !values.includes(s.value));
+  // Thousands of suggestions (requirements in a large project) are offered as you type,
+  // a couple of hundred at a time: a list of them all is too long to draw, or to use.
+  const q = text.trim().toLowerCase();
+  const many = suggestions.length > 500;
+  const options = (many ? (q ? suggestions.filter((s) => `${s.value} ${s.label}`.toLowerCase().includes(q)) : []) : suggestions).filter((s) => !values.includes(s.value)).slice(0, 200);
   return (
     <div className="chip-field">
       <label htmlFor={id} className="chip-label">
@@ -146,4 +150,35 @@ export function timeAgo(iso: string): string {
   if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
   if (s < 86400 * 30) return `${Math.floor(s / 86400)} d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+// Long lists show a page at a time: drawing thousands of rows at once freezes the
+// window. `reset` starts over at one page (a new filter, say); `need` is a position that
+// must be shown (the selected row).
+export function useShown(total: number, page: number, reset: unknown, need = -1): { shown: number; more: (all?: boolean) => void } {
+  const [count, setCount] = useState(page);
+  const [last, setLast] = useState(reset);
+  if (last !== reset) {
+    setLast(reset);
+    setCount(page);
+  }
+  const shown = Math.min(total, Math.max(count, need + 1));
+  return { shown, more: (all) => setCount(all ? total : shown + page) };
+}
+
+export function ShowMore({ shown, total, more, what }: { shown: number; total: number; more: (all?: boolean) => void; what: string }) {
+  if (shown >= total) return null;
+  return (
+    <div className="show-more">
+      <span className="muted small">
+        Showing {shown.toLocaleString()} of {total.toLocaleString()} {what}.
+      </span>
+      <button type="button" className="link-button small" onClick={() => more()}>
+        Show more
+      </button>
+      <button type="button" className="link-button small" onClick={() => more(true)} title="Drawing thousands of rows takes a while">
+        Show all
+      </button>
+    </div>
+  );
 }

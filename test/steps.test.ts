@@ -65,3 +65,46 @@ describe('test steps', () => {
     expect(reportHtml(run, index)).toContain('<span class="step-problem">Step 2 (Submit a **payment**.) failed: Charged twice.</span><br>PROJ-9 filed.<br>See logs.');
   });
 });
+
+describe('large runs, one case at a time', () => {
+  const big = `name: Big\ncreated: 2026-11-08\n# a comment up top\ncases:\n\n${Array.from({ length: 300 }, (_, i) => `  TC-${i + 1}:\n    result: ${i % 3 ? 'passed' : 'failed'}\n    note: |-\n      line one\n\n      line three`).join('\n\n')}\n`;
+
+  it('reads blocks the same as the whole file', () => {
+    const run = readRun('test-runs/big.yml', big);
+    expect([run.name, run.created, run.cases.length, run.cases[0].note, run.cases[1].result]).toEqual(['Big', '2026-11-08', 300, 'line one\n\nline three', 'passed']);
+  });
+
+  it('changes only the block of the case changed', () => {
+    const after = setStep(setCase(big, 'TC-150', { result: 'blocked', tester: 'Ana' }), 'TC-150', 2, { result: 'failed' });
+    const before = big.split('\n');
+    const now = after.split('\n');
+    const changed = now.filter((l, i) => l !== before[i]);
+    expect(now.length - before.length).toBe(2); // tester and steps
+    expect(changed[0]).toBe('    result: blocked');
+    expect(readRun('test-runs/big.yml', after).cases[149]).toMatchObject({ result: 'blocked', tester: 'Ana', steps: { 2: 'failed' } });
+    expect(after.replace(/ {2}TC-150:[\s\S]*?(?=\n\n {2}TC-151:)/, '')).toBe(big.replace(/ {2}TC-150:[\s\S]*?(?=\n\n {2}TC-151:)/, ''));
+  });
+
+  it('reads and writes a file laid out otherwise as a whole', () => {
+    const flow = 'name: Flow\ncases:\n  TC-1: { result: passed }\n  TC-2: { result: failed }\n';
+    expect(readRun('test-runs/f.yml', flow).cases.map((c) => c.result)).toEqual(['passed', 'failed']);
+    expect(readRun('test-runs/f.yml', setCase(flow, 'TC-2', { result: 'blocked' })).cases[1].result).toBe('blocked');
+  });
+});
+
+describe('a large traceability matrix sheet', () => {
+  it('lists links, one per row, past a few hundred test cases', async () => {
+    const { tables, MATRIX_COLUMNS } = await import('../src/core/spreadsheet');
+    const n = MATRIX_COLUMNS + 1;
+    const files = [
+      { path: 'requirements/REQ-1.md', text: '---\nid: REQ-1\ntitle: One\nstatus: draft\n---\n' },
+      { path: 'requirements/REQ-2.md', text: '---\nid: REQ-2\ntitle: Two\nstatus: draft\n---\n' },
+      ...Array.from({ length: n }, (_, i) => ({ path: `tests/TC-${i + 1}.md`, text: `---\nid: TC-${i + 1}\ntitle: T${i + 1}\nstatus: ready\nverifies: [REQ-1]\n---\n` })),
+    ];
+    const m = tables(buildIndex(files, null), { obsolete: false, component: null, runs: [] }).matrix;
+    expect(m.columns.map((c) => c.header)).toEqual(['Requirement', 'Title', 'Test case', 'Test case title', 'Link']);
+    expect(m.rows.length).toBe(n + 1); // every link of REQ-1, and REQ-2 with none
+    expect(m.rows[0]).toEqual(['REQ-1', 'One', 'TC-1', 'T1', 'not reviewed']);
+    expect(m.rows[n]).toEqual(['REQ-2', 'Two', null, null, null]);
+  });
+});

@@ -173,6 +173,19 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
     [flushBody, compose],
   );
 
+  // Items to suggest in link fields, by type: made once per change to the project.
+  const byKind = useMemo(() => {
+    const m = new Map<string, { value: string; label: string }[]>();
+    for (const i of index.items) {
+      const l = m.get(i.kind);
+      const s = { value: i.id, label: i.title };
+      if (l) l.push(s);
+      else m.set(i.kind, [s]);
+    }
+    return m;
+  }, [index]);
+  const suggestionsOf = (kinds: string[]) => (kinds.length === 1 ? (byKind.get(kinds[0]) ?? []) : kinds.flatMap((k) => byKind.get(k) ?? []));
+
   const refs = useMemo(() => {
     const m = new Map<string, RefTarget>();
     for (const it of index.items) m.set(it.id, { title: it.title });
@@ -311,6 +324,8 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
   };
 
   if (!item) {
+    // A large repository's index catches up a moment after an edit (a new item, say).
+    if (project.pending) return <div className="empty-state muted">Loading…</div>;
     const { error } = readFrontMatter(splitFrontMatter(decodeText(raw).text).front);
     return (
       <div className="empty-state">
@@ -337,7 +352,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
       }
     return reviewed;
   };
-  const reqSuggestions = index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title }));
+  const reqSuggestions = suggestionsOf(['requirement']);
   const componentSuggestions = index.config.components.map((c) => ({ value: c.key, label: c.name }));
   const variantSuggestions = index.config.variants.map((v) => ({ value: v.key, label: v.name }));
 
@@ -374,23 +389,14 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
               <Icon name="trash" />
             </button>
           </div>
-          <textarea
-            className="title-input"
-            rows={1}
-            value={item.title}
-            // One line in the file: Enter doesn't add a line break.
-            onChange={(e) => setField({ title: e.target.value.replace(/\s*\n\s*/g, ' ') })}
-            onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-            placeholder="Title"
-            aria-label="Title"
-          />
+          <TitleInput value={item.title} onChange={(title) => setField({ title })} />
           <div className="fields">
             {isRunnable(index.config, item.kind) && (
               <ChipInput
                 label="Verifies"
                 mono
                 values={item.verifies}
-                suggestions={index.items.filter((i) => i !== item && isVerifiable(index.config, i.kind)).map((i) => ({ value: i.id, label: i.title }))}
+                suggestions={suggestionsOf(index.config.types.filter((t) => isVerifiable(index.config, t.key)).map((t) => t.key))}
                 onOpen={onOpenId}
                 placeholder={`${index.config.types.filter((t) => isVerifiable(index.config, t.key)).map((t) => t.prefix || t.name).join(' / ')}…`}
                 onChange={(verifies) => setField({ verifies, reviewed: reviewedFor(item, item.verifies, verifies, 'verifies') })}
@@ -415,7 +421,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
                   label={l.name}
                   mono
                   values={item.links[l.key] ?? []}
-                  suggestions={index.items.filter((i) => i !== item && l.to.includes(i.kind)).map((i) => ({ value: i.id, label: i.title }))}
+                  suggestions={suggestionsOf(l.to).filter((x) => x.value !== item.id)}
                   onOpen={onOpenId}
                   placeholder={`${l.to.map((k) => typeOf(index.config, k).prefix || typeWord(index.config, k)).join(' / ')}…`}
                   onChange={(ids) => setField({ [l.key]: ids.length ? ids : undefined, reviewed: reviewedFor(item, item.links[l.key] ?? [], ids, l.key) })}
@@ -742,5 +748,36 @@ function TextField({ def, id, raw, issue, onChange }: { def: FieldDef; id: strin
         title={issue ? `Has ${issue}` : undefined}
       />
     </div>
+  );
+}
+
+// The title, typed into its own state: in a large repository the item shown catches up a
+// moment after each edit, and the box mustn't jump back meanwhile. A change from
+// elsewhere (getting the latest, say) still shows.
+function TitleInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [text, setText] = useState(value);
+  const sent = useRef(value);
+  useEffect(() => {
+    if (value !== sent.current) {
+      sent.current = value;
+      setText(value);
+    }
+  }, [value]);
+  return (
+    <textarea
+      className="title-input"
+      rows={1}
+      value={text}
+      // One line in the file: Enter doesn't add a line break.
+      onChange={(e) => {
+        const v = e.target.value.replace(/\s*\n\s*/g, ' ');
+        sent.current = v;
+        setText(v);
+        onChange(v);
+      }}
+      onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
+      placeholder="Title"
+      aria-label="Title"
+    />
   );
 }

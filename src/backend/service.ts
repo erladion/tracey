@@ -21,7 +21,8 @@ export interface RepoHost {
 }
 
 const SKIP_DIRS = new Set(['node_modules', 'out', 'dist', 'build', 'target', 'venv', '__pycache__', '_build']);
-const MAX_FILES = 20_000;
+// More Markdown files than this and the rest are left out, and loading says so.
+export const MAX_FILES = 200_000;
 
 // A path inside the repository, never outside it or in .git.
 export function safePath(root: string, rel: string): string {
@@ -66,10 +67,13 @@ export async function readProjectFiles(root: string): Promise<ProjectFiles> {
   const dirs = configFound ? [...new Set(cfg.types.map((t) => t.dir))].filter((d) => existsSync(join(root, d))) : [''];
   const paths: string[] = [];
   for (const d of dirs) await walk(root, d ? safePath(root, d) : root, paths);
-  const files = [];
-  for (const p of paths) {
-    const text = await fs.readFile(p, 'utf8');
-    if (/^\uFEFF?---[ \t]*\r?\n/.test(text)) files.push({ path: relative(root, p).split(sep).join('/'), text });
+  // Read many at a time: a large repository has thousands of small files.
+  const files: { path: string; text: string }[] = [];
+  for (let i = 0; i < paths.length; i += 64) {
+    const texts = await Promise.all(paths.slice(i, i + 64).map((p) => fs.readFile(p, 'utf8')));
+    texts.forEach((text, k) => {
+      if (/^\uFEFF?---[ \t]*\r?\n/.test(text)) files.push({ path: relative(root, paths[i + k]).split(sep).join('/'), text });
+    });
   }
   // Test runs: YAML files in their own folder.
   const runsDir = join(root, cfg.runs.dir);
@@ -77,7 +81,7 @@ export async function readProjectFiles(root: string): Promise<ProjectFiles> {
     for (const e of await fs.readdir(runsDir, { withFileTypes: true }))
       if (e.isFile() && /\.ya?ml$/i.test(e.name)) files.push({ path: `${cfg.runs.dir}/${e.name}`, text: await fs.readFile(join(runsDir, e.name), 'utf8') });
   }
-  return { config, files };
+  return { config, files, ...(paths.length >= MAX_FILES ? { truncated: MAX_FILES } : {}) };
 }
 
 // The requirements and test cases as they were in a commit (no test runs: those are
