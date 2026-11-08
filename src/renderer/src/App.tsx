@@ -223,6 +223,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                     setView('runs');
                   }}
                   onDeleted={() => select(null)}
+                  onRenamed={(p) => select(p)}
                 />
               ) : (
                 <div className="empty-state">

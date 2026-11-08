@@ -104,7 +104,12 @@ Payment fails with a retry-exhausted message after 3 attempts.
   with the other kind's prefix). Two branches can take the same number; Coverage and
   `check` report duplicates. IDs shaped like `TC-123` (capital letters, a dash, a number)
   are also recognized in text, commit messages and Jira; other IDs only link through
-  fields such as `verifies`.
+  fields such as `verifies`. To change an ID, click it above the title: the test cases
+  verifying it, requirements refining it, review fingerprints, mentions in text and
+  fields, and test run results all change with it (links reviewed before stay
+  reviewed), and the file is renamed when it's named after the ID. Jira issues and
+  commit messages naming the old ID can't be changed; the dialog lists them. When two
+  files share an ID, only the one file's ID changes.
 - **Kind** comes from the ID prefix (`REQ-`, `TC-`), or `type: requirement | testcase`.
 - **`refines: [REQ-4]`** on a requirement: it breaks REQ-4 down. REQ-4 then lists it
   under *Refined by* (with **New requirement** to add one), and the graph puts it a
@@ -536,6 +541,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   impact.ts       which test cases a range of commits calls for, and why
   runs.ts         test run files: read, create, record results; a test case's results; releases
   verdict.ts      results in the matrix: where they come from, each requirement's verdict
+  rename.ts       changing an ID, and everything that names it
   estimate.ts     test case time estimates and run totals
   changes.ts      what changed between two versions, and its document
   images.ts       images in an item's text, and where pasted ones go

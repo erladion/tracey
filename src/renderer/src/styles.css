@@ -879,6 +879,32 @@ h3 {
 .item-id.big {
   font-size: 14px;
 }
+.id-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: -7px;
+  padding: 2px 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+.id-button svg {
+  color: var(--muted);
+  opacity: 0;
+}
+.id-button:hover,
+.id-button:focus-visible {
+  border-color: var(--border);
+}
+.id-button:hover svg,
+.id-button:focus-visible svg {
+  opacity: 1;
+}
+.rename-summary p {
+  margin: 8px 0 0;
+}
 .verdict-via {
   margin-left: 6px;
   white-space: nowrap;

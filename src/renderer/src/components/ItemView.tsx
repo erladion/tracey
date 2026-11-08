@@ -14,6 +14,7 @@ import { durationText, formatDuration, parseDuration } from '../../../core/estim
 import { TracePanel } from './TracePanel';
 import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
+import { RenameDialog } from './RenameDialog';
 import { Icon } from '../icons';
 import { api } from '../api';
 import { notify } from '../notify';
@@ -37,6 +38,7 @@ interface Props {
   onShowInGraph: (item: Item) => void;
   onOpenRun: (focus: RunFocus) => void;
   onDeleted: () => void;
+  onRenamed: (path: string) => void; // its ID changed, and the file with it
 }
 
 interface Loaded {
@@ -95,7 +97,7 @@ function blameLabels(b: Blame): NonNullable<GitMarks['blame']> {
   };
 }
 
-export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, onShowInGraph, onOpenRun, onDeleted }: Props) {
+export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, onShowInGraph, onOpenRun, onDeleted, onRenamed }: Props) {
   const raw = project.texts.get(path) ?? '';
   const item = project.index.byPath.get(path);
   const { index, setText } = project;
@@ -107,6 +109,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
   const latestDoc = useRef<PMNode | null>(null); // edited, not serialized yet
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renaming, setRenaming] = useState(false);
   const idRef = useRef('');
   idRef.current = item?.id || path.replace(/^.*\//, '').replace(/\.md$/i, '');
 
@@ -339,7 +342,19 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
       <article className="item-main">
         <header className="item-head">
           <div className="item-head-row">
-            <span className="item-id big">{item.id}</span>
+            <button
+              type="button"
+              className="item-id big id-button"
+              title="Change the ID, and everywhere it’s named"
+              onClick={() => {
+                // Write the text being typed first, so the rename sees it.
+                if (flushBody()) compose();
+                setRenaming(true);
+              }}
+            >
+              {item.id}
+              <Icon name="edit" size={12} />
+            </button>
             <span className="kind-label">{item.kind === 'requirement' ? 'Requirement' : 'Test case'}</span>
             <span className="tool-spacer" />
             <label className="status-field">
@@ -534,6 +549,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
           onCommit={(message, paths, author, push) => void commitItem(message, paths, author, push)}
         />
       )}
+      {renaming && <RenameDialog project={project} item={item} onClose={() => setRenaming(false)} onRenamed={onRenamed} />}
       {confirmDelete && (
         <Dialog title={`Delete ${item.id}?`} onClose={() => setConfirmDelete(false)}>
           <div className="dialog-body">
