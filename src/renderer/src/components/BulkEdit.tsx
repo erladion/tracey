@@ -41,9 +41,12 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
   const multis: Multi[] = [
     { key: 'components', name: 'Components', suggestions: index.config.components.map((c) => ({ value: c.key, label: c.name })) },
     ...(index.config.variants.length ? [{ key: 'variants', name: 'Variants', suggestions: index.config.variants.map((v) => ({ value: v.key, label: v.name })) }] : []),
-    ...(kind === 'testcase'
-      ? [{ key: 'verifies', name: 'Verifies', mono: true, suggestions: index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title })) }]
-      : []),
+    {
+      key: kind === 'testcase' ? 'verifies' : 'refines',
+      name: kind === 'testcase' ? 'Verifies' : 'Refines',
+      mono: true,
+      suggestions: index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title })),
+    },
     { key: 'jira', name: 'Jira', mono: true, suggestions: [] },
     ...declared.filter((f) => f.type === 'list' || f.type === 'choices').map((f) => ({ key: f.key, name: f.name, suggestions: f.values.map((v) => ({ value: v, label: v })) })),
   ];

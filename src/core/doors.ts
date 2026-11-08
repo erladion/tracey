@@ -508,9 +508,10 @@ export function planImport(
     const d = doc.get('doors', true);
     if (isMap(d)) (d as { flow?: boolean }).flow = true;
     // The links start reviewed: as DOORS had them when exported.
-    if (it.kind === 'testcase' && it.verifies.length) {
+    const linked = it.kind === 'testcase' ? it.verifies : it.refines;
+    if (linked.length) {
       const reviewed: Record<string, string> = {};
-      for (const r of it.verifies) {
+      for (const r of linked) {
         const req = byId.get(r);
         if (req) reviewed[r] = fingerprint({ title: req.title, body: req.body });
       }

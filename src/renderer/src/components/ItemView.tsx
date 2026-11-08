@@ -33,6 +33,7 @@ interface Props {
   path: string;
   onOpenId: (id: string) => void;
   onNewTest: (req: Item) => void;
+  onNewRefinement: (req: Item) => void;
   onShowInGraph: (item: Item) => void;
   onOpenRun: (focus: RunFocus) => void;
   onDeleted: () => void;
@@ -94,7 +95,7 @@ function blameLabels(b: Blame): NonNullable<GitMarks['blame']> {
   };
 }
 
-export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, onOpenRun, onDeleted }: Props) {
+export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, onShowInGraph, onOpenRun, onDeleted }: Props) {
   const raw = project.texts.get(path) ?? '';
   const item = project.index.byPath.get(path);
   const { index, setText } = project;
@@ -317,6 +318,18 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
 
   const statuses = statusesFor(index.config, item.kind);
   const jira = index.config.jiraUrl;
+  // A link added here is reviewed now; one removed loses its review. Links in the
+  // other list (a requirement's refines, a test case's verifies) keep theirs.
+  const reviewedFor = (it: Item, before: string[], after: string[]) => {
+    const reviewed: Record<string, string> = {};
+    for (const [k, v] of Object.entries(it.reviewed)) if (!before.includes(k) || after.includes(k)) reviewed[k] = v;
+    for (const v of after)
+      if (!reviewed[v] && !before.includes(v)) {
+        const req = index.byId.get(v);
+        if (req) reviewed[v] = fingerprint(req);
+      }
+    return reviewed;
+  };
   const reqSuggestions = index.items.filter((i) => i.kind === 'requirement').map((i) => ({ value: i.id, label: i.title }));
   const componentSuggestions = index.config.components.map((c) => ({ value: c.key, label: c.name }));
   const variantSuggestions = index.config.variants.map((v) => ({ value: v.key, label: v.name }));
@@ -361,18 +374,18 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
                 suggestions={reqSuggestions}
                 onOpen={onOpenId}
                 placeholder="REQ-…"
-                onChange={(verifies) => {
-                  // A link added here is reviewed now; one removed loses its review.
-                  const reviewed: Record<string, string> = {};
-                  for (const v of verifies) {
-                    if (item.reviewed[v]) reviewed[v] = item.reviewed[v];
-                    else if (!item.verifies.includes(v)) {
-                      const req = index.byId.get(v);
-                      if (req) reviewed[v] = fingerprint(req);
-                    }
-                  }
-                  setField({ verifies, reviewed });
-                }}
+                onChange={(verifies) => setField({ verifies, reviewed: reviewedFor(item, item.verifies, verifies) })}
+              />
+            )}
+            {item.kind === 'requirement' && (
+              <ChipInput
+                label="Refines"
+                mono
+                values={item.refines}
+                suggestions={reqSuggestions.filter((s) => s.value !== item.id)}
+                onOpen={onOpenId}
+                placeholder="REQ-… it breaks down"
+                onChange={(refines) => setField({ refines, reviewed: reviewedFor(item, item.refines, refines) })}
               />
             )}
             <ChipInput label="Components" values={item.components} suggestions={componentSuggestions} onChange={(components) => setField({ components })} placeholder="Add component" />
@@ -456,7 +469,7 @@ export function ItemView({ project, path, onOpenId, onNewTest, onShowInGraph, on
           <Editor doc={doc} onChange={onChange} refs={refs} onOpenRef={onOpenId} resolveImage={resolveImage} gitMarks={gitMarks} onAddImages={addImages} />
         </div>
       </article>
-      <TracePanel project={project} item={item} onOpenId={onOpenId} onNewTest={onNewTest} onShowInGraph={onShowInGraph} onOpenRun={onOpenRun} />
+      <TracePanel project={project} item={item} onOpenId={onOpenId} onNewTest={onNewTest} onNewRefinement={onNewRefinement} onShowInGraph={onShowInGraph} onOpenRun={onOpenRun} />
       {comparing && log.length > 0 && <CompareDialog project={project} item={item} log={log} start={0} against="now" onClose={() => setComparing(false)} />}
       {confirmDiscard && (
         <Dialog title={`Discard your changes to ${item.id}?`} onClose={() => setConfirmDiscard(false)}>

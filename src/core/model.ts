@@ -23,9 +23,11 @@ export interface Item {
   variants: string[]; // the variants it's limited to; empty: all of them
   jira: string[];
   verifies: string[]; // test cases: the requirements they verify
+  refines: string[]; // requirements: the requirements they break down (their parents)
   estimate: number | null; // test cases: minutes to run it (see estimate.ts); null: none or unreadable
-  // Test cases: per verified requirement, the fingerprint of its text when the link
-  // was last reviewed. A different fingerprint now makes the link suspect.
+  // Per linked requirement (verified by a test case, refined by a requirement), the
+  // fingerprint of its text when the link was last reviewed. A different fingerprint
+  // now makes the link suspect.
   reviewed: Record<string, string>;
   path: string;
   front: string | null;
@@ -37,7 +39,7 @@ export type Severity = 'error' | 'warning';
 
 export interface Problem {
   severity: Severity;
-  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch' | 'bad-estimate' | 'bad-field';
+  code: 'config' | 'yaml' | 'no-id' | 'duplicate-id' | 'missing-title' | 'bad-status' | 'broken-link' | 'link-to-testcase' | 'unknown-component' | 'unknown-variant' | 'variant-mismatch' | 'bad-estimate' | 'bad-field' | 'refine-loop';
   message: string;
   path?: string;
   id?: string;
@@ -51,12 +53,20 @@ export interface Link {
   state: LinkState;
 }
 
+// A requirement breaking down another: the child names its parent under `refines:`.
+export interface RefineLink {
+  child: Item;
+  parent: Item;
+  state: LinkState;
+}
+
 export interface ProjectIndex {
   config: TraceConfig;
   items: Item[];
   byId: Map<string, Item>; // the first item with each ID
   byPath: Map<string, Item>;
   verifiedBy: Map<string, Item[]>; // requirement ID → test cases verifying it
+  refinedBy: Map<string, Item[]>; // requirement ID → requirements refining it
   problems: Problem[];
 }
 
@@ -107,6 +117,7 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
       variants: list(data.variants),
       jira: list(data.jira),
       verifies: kind === 'testcase' ? list(data.verifies) : [],
+      refines: kind === 'requirement' ? list(data.refines) : [],
       estimate: kind === 'testcase' ? (parseDuration(data.estimate) ?? null) : null,
       reviewed,
       path: file.path,
@@ -144,6 +155,7 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
         problems.push({ severity: 'error', code: 'duplicate-id', message: `${id} is also used by ${same.filter((o) => o !== it).map((o) => o.path).join(', ')}.`, path: it.path, id });
 
   const verifiedBy = new Map<string, Item[]>();
+  const refinedBy = new Map<string, Item[]>();
   const componentKeys = new Set(config.components.map((c) => c.key));
   const variantKeys = new Set(config.variants.map((v) => v.key));
   for (const it of items) {
@@ -191,8 +203,42 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
           });
       }
     }
+    for (const target of it.refines) {
+      const parent = byId.get(target);
+      if (!parent) problems.push({ severity: 'error', code: 'broken-link', message: `${it.id} refines ${target}, which doesn't exist.`, path: it.path, id: it.id });
+      else if (parent.kind !== 'requirement') problems.push({ severity: 'error', code: 'link-to-testcase', message: `${it.id} refines ${target}, which is a test case.`, path: it.path, id: it.id });
+      else if (parent === it) problems.push({ severity: 'error', code: 'refine-loop', message: `${it.id} refines itself.`, path: it.path, id: it.id });
+      else {
+        refinedBy.set(target, [...(refinedBy.get(target) ?? []), it]);
+        if (!sharesVariant(it, parent))
+          problems.push({
+            severity: 'warning',
+            code: 'variant-mismatch',
+            message: `${it.id} is for ${it.variants.join(', ')} and ${parent.id} for ${parent.variants.join(', ')}, so it can never refine it.`,
+            path: it.path,
+            id: it.id,
+          });
+      }
+    }
   }
-  return { config, items, byId, byPath, verifiedBy, problems };
+  // A requirement that, through its parents, refines itself.
+  for (const it of items) {
+    if (it.kind !== 'requirement' || !it.refines.length) continue;
+    const seen = new Set<string>();
+    const queue = it.refines.filter((r) => r !== it.id); // refining itself directly is reported above
+    while (queue.length) {
+      const id = queue.shift()!;
+      if (id === it.id) {
+        problems.push({ severity: 'error', code: 'refine-loop', message: `${it.id} refines itself through ${it.refines.join(', ')}: the chain of refines goes round in a loop.`, path: it.path, id: it.id });
+        break;
+      }
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const p = byId.get(id);
+      if (p && p !== it && p.kind === 'requirement') queue.push(...p.refines);
+    }
+  }
+  return { config, items, byId, byPath, verifiedBy, refinedBy, problems };
 }
 
 // ---- variants ------------------------------------------------------------------------
@@ -213,16 +259,21 @@ export function forVariant(index: ProjectIndex, variant: string): ProjectIndex {
   const kept = new Set(items);
   const byId = new Map([...index.byId].filter(([, it]) => kept.has(it)));
   const byPath = new Map([...index.byPath].filter(([, it]) => kept.has(it)));
-  const verifiedBy = new Map<string, Item[]>();
-  for (const [id, tests] of index.verifiedBy) {
-    const req = index.byId.get(id);
-    if (!req || !kept.has(req)) continue;
-    const t = tests.filter((x) => kept.has(x));
-    if (t.length) verifiedBy.set(id, t);
-  }
+  const keep = (from: Map<string, Item[]>) => {
+    const out = new Map<string, Item[]>();
+    for (const [id, linked] of from) {
+      const req = index.byId.get(id);
+      if (!req || !kept.has(req)) continue;
+      const l = linked.filter((x) => kept.has(x));
+      if (l.length) out.set(id, l);
+    }
+    return out;
+  };
+  const verifiedBy = keep(index.verifiedBy);
+  const refinedBy = keep(index.refinedBy);
   // Problems about items the variant doesn't have aren't its problems.
   const problems = index.problems.filter((p) => !p.path || !index.byPath.has(p.path) || byPath.has(p.path));
-  return { config: index.config, items, byId, byPath, verifiedBy, problems };
+  return { config: index.config, items, byId, byPath, verifiedBy, refinedBy, problems };
 }
 
 // REQ-2 before REQ-10.
@@ -244,10 +295,22 @@ export function fingerprint(req: Pick<Item, 'title' | 'body'>): string {
   return h.toString(16).padStart(8, '0');
 }
 
-export function linkState(test: Item, req: Item): LinkState {
-  const seen = test.reviewed[req.id];
+// Whether `from` (a test case verifying, or a requirement refining) still matches `req`.
+export function linkState(from: Item, req: Item): LinkState {
+  const seen = from.reviewed[req.id];
   if (!seen) return 'unreviewed';
   return seen === fingerprint(req) ? 'ok' : 'suspect';
+}
+
+// A requirement's refines links: up to the ones it breaks down, down to those breaking it down.
+export function refinesOf(index: ProjectIndex, item: Item): { up: RefineLink[]; down: RefineLink[] } {
+  if (item.kind !== 'requirement') return { up: [], down: [] };
+  const up = item.refines.flatMap((id) => {
+    const parent = index.byId.get(id);
+    return parent && parent.kind === 'requirement' && parent !== item ? [{ child: item, parent, state: linkState(item, parent) }] : [];
+  });
+  const down = (index.refinedBy.get(item.id) ?? []).map((child) => ({ child, parent: item, state: linkState(child, item) }));
+  return { up, down };
 }
 
 export function linksOf(index: ProjectIndex, item: Item): Link[] {
@@ -263,31 +326,60 @@ export function linksOf(index: ProjectIndex, item: Item): Link[] {
 export interface Coverage {
   requirements: Item[];
   testcases: Item[];
-  tested: Item[];
+  tested: Item[]; // verified by a test case, or covered through their refinements
+  throughRefinements: Item[]; // of those, the ones only covered through their refinements
   untested: Item[]; // requirements (not obsolete) no test case verifies
   orphans: Item[]; // test cases (not obsolete) that verify nothing
   suspect: Link[];
   unreviewed: Link[];
+  suspectRefines: RefineLink[]; // parents changed since the refining requirement was reviewed
   componentsWithoutTests: Component[];
   problems: Problem[];
 }
 
 const live = (it: Item) => it.status !== 'obsolete';
 
+// Which requirements are covered: verified by a test case, or broken down into
+// requirements (not obsolete) that all are. ID → true when only through its refinements.
+export function coveredRequirements(index: ProjectIndex): Map<string, boolean> {
+  const out = new Map<string, boolean>();
+  const visiting = new Set<string>();
+  const check = (r: Item): boolean => {
+    if (out.has(r.id)) return true;
+    if (visiting.has(r.id)) return false; // a loop covers nothing
+    if ((index.verifiedBy.get(r.id) ?? []).some(live)) {
+      out.set(r.id, false);
+      return true;
+    }
+    visiting.add(r.id);
+    const children = (index.refinedBy.get(r.id) ?? []).filter(live);
+    const ok = children.length > 0 && children.map(check).every(Boolean);
+    visiting.delete(r.id);
+    if (ok) out.set(r.id, true);
+    return ok;
+  };
+  for (const r of index.items) if (r.kind === 'requirement' && live(r)) check(r);
+  return out;
+}
+
 export function coverage(index: ProjectIndex): Coverage {
   const requirements = index.items.filter((i) => i.kind === 'requirement');
   const testcases = index.items.filter((i) => i.kind === 'testcase');
   const links = requirements.flatMap((r) => linksOf(index, r));
-  const tested = requirements.filter((r) => live(r) && (index.verifiedBy.get(r.id) ?? []).some(live));
+  const covered = coveredRequirements(index);
+  const tested = requirements.filter((r) => live(r) && covered.has(r.id));
+  const refines = requirements.flatMap((r) => refinesOf(index, r).up);
   const testedComponents = new Set(testcases.filter(live).flatMap((t) => t.components));
   return {
     requirements,
     testcases,
     tested,
+    throughRefinements: tested.filter((r) => covered.get(r.id)),
     untested: requirements.filter((r) => live(r) && !tested.includes(r)),
     orphans: testcases.filter((t) => live(t) && t.verifies.length === 0),
     suspect: links.filter((l) => l.state === 'suspect' && live(l.test) && live(l.req)),
     unreviewed: links.filter((l) => l.state === 'unreviewed' && live(l.test) && live(l.req)),
+    suspectRefines: refines.filter((l) => l.state === 'suspect' && live(l.child) && live(l.parent)),
     componentsWithoutTests: index.config.components.filter((c) => !testedComponents.has(c.key)),
     problems: index.problems,
   };
@@ -347,7 +439,7 @@ export function newItemPath(index: ProjectIndex, kind: Kind, id: string, title: 
 
 export function newItemText(
   kind: Kind,
-  fields: { id: string; title: string; status: string; verifies?: string[]; components?: string[]; variants?: string[]; reviewed?: Record<string, string>; type?: boolean },
+  fields: { id: string; title: string; status: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[]; reviewed?: Record<string, string>; type?: boolean },
 ): string {
   const yamlString = (s: string) => (/^[\w .,()/-]*$/.test(s) && !/^[\s-]|:\s|\s$/.test(s) && s !== '' ? s : JSON.stringify(s));
   const lines = [`id: ${yamlString(fields.id)}`];
@@ -356,11 +448,10 @@ export function newItemText(
   lines.push(`title: ${yamlString(fields.title)}`, `status: ${fields.status}`);
   if (fields.components?.length) lines.push(`components: [${fields.components.join(', ')}]`);
   if (fields.variants?.length) lines.push(`variants: [${fields.variants.join(', ')}]`);
-  if (kind === 'testcase') {
-    lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);
-    const r = Object.entries(fields.reviewed ?? {});
-    if (r.length) lines.push('reviewed:', ...r.map(([k, v]) => `  ${k}: "${v}"`));
-  }
+  if (kind === 'testcase') lines.push(`verifies: [${(fields.verifies ?? []).join(', ')}]`);
+  if (kind === 'requirement' && fields.refines?.length) lines.push(`refines: [${fields.refines.join(', ')}]`);
+  const r = Object.entries(fields.reviewed ?? {});
+  if (r.length) lines.push('reviewed:', ...r.map(([k, v]) => `  ${k}: "${v}"`));
   const body = kind === 'testcase' ? '## Steps\n\n1. \n\n## Expected\n\n' : '';
   return `---\n${lines.join('\n')}\n---\n${body}`;
 }

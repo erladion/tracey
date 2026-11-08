@@ -31,6 +31,8 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const live = cov.requirements.filter((r) => r.status !== 'obsolete');
   const pct = live.length ? Math.round((cov.tested.length / live.length) * 100) : 0;
   const errors = cov.problems.filter((p) => p.severity === 'error');
+  const coveredIds = useMemo(() => new Set(cov.tested.map((r) => r.id)), [cov]);
+  const through = useMemo(() => new Set(cov.throughRefinements.map((r) => r.id)), [cov]);
 
   const [source, setSourceState] = useState<ResultSource>(() => loadSource(project.repo.id, project.runs));
   const setSource = (s: ResultSource) => {
@@ -44,7 +46,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
   const shown = resultRuns ? filter : filter === 'failing' || filter === 'blocked' || filter === 'not-run' ? 'all' : filter;
   const rows = all.filter(({ req, links, verdict }) =>
     shown === 'gaps'
-      ? req.status !== 'obsolete' && links.length === 0
+      ? req.status !== 'obsolete' && !coveredIds.has(req.id)
       : shown === 'suspect'
         ? links.some((l) => l.state === 'suspect')
         : shown === 'failing'
@@ -115,13 +117,14 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
           <span className="tile-sub">{cov.requirements.length - live.length} obsolete not counted</span>
         </div>
         <div className="tile">
-          <span className="tile-label">Verified by a test case</span>
+          <span className="tile-label">Covered by test cases</span>
           <span className="tile-value">
             {pct}% <span className="tile-of">{cov.tested.length} of {live.length}</span>
           </span>
           <span className="meter" aria-hidden="true">
             <span style={{ width: `${pct}%` }} />
           </span>
+          {through.size > 0 && <span className="tile-sub">{through.size} of them through the requirements refining them</span>}
         </div>
         <div className="tile">
           <span className="tile-label">Without test cases</span>
@@ -132,7 +135,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
         </div>
         <div className="tile">
           <span className="tile-label">Links to review</span>
-          <span className={`tile-value${cov.suspect.length ? ' warn' : ''}`}>{cov.suspect.length}</span>
+          <span className={`tile-value${cov.suspect.length + cov.suspectRefines.length ? ' warn' : ''}`}>{cov.suspect.length + cov.suspectRefines.length}</span>
           <span className="tile-sub">changed since review · {cov.unreviewed.length} never reviewed</span>
         </div>
       </div>
@@ -195,7 +198,9 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                     )}
                     <td>
                       {links.length === 0 ? (
-                        req.status === 'obsolete' || resultRuns ? (
+                        through.has(req.id) ? (
+                          <span className="muted small">Through its refinements</span>
+                        ) : req.status === 'obsolete' || resultRuns ? (
                           <span className="muted small">—</span>
                         ) : (
                           <span className="pill gap-pill">No tests</span>
@@ -246,7 +251,7 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
 
         <aside className="card attention">
           <h2>Needs attention</h2>
-          {cov.suspect.length === 0 && cov.untested.length === 0 && cov.orphans.length === 0 && errors.length === 0 && cov.componentsWithoutTests.length === 0 && (
+          {cov.suspect.length === 0 && cov.suspectRefines.length === 0 && cov.untested.length === 0 && cov.orphans.length === 0 && errors.length === 0 && cov.componentsWithoutTests.length === 0 && (
             <p className="muted">Nothing. Every requirement has a reviewed test case.</p>
           )}
           {cov.suspect.length > 0 && (
@@ -265,6 +270,28 @@ export function CoverageView({ project, onOpenId, onOpenPath, onVariant }: Props
                     may no longer match.
                   </span>
                   <button type="button" className="button small" onClick={() => project.markReviewed(l.test, [l.req.id])}>
+                    Mark reviewed
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {cov.suspectRefines.length > 0 && (
+            <div className="attention-group">
+              <h3>Requirements changed since those refining them were reviewed</h3>
+              {cov.suspectRefines.map((l) => (
+                <div key={`${l.child.id}-${l.parent.id}`} className="attention-item">
+                  <span>
+                    <button type="button" className="link-button mono" onClick={() => onOpenId(l.parent.id)}>
+                      {l.parent.id}
+                    </button>{' '}
+                    changed;{' '}
+                    <button type="button" className="link-button mono" onClick={() => onOpenId(l.child.id)}>
+                      {l.child.id}
+                    </button>{' '}
+                    may no longer break it down right.
+                  </span>
+                  <button type="button" className="button small" onClick={() => project.markReviewed(l.child, [l.parent.id])}>
                     Mark reviewed
                   </button>
                 </div>
@@ -405,7 +432,7 @@ function ByVariant({ project, onVariant }: { project: Project; onVariant: (varia
       project.allIndex.config.variants.map((v) => {
         const c = coverage(forVariant(project.allIndex, v.key));
         const live = c.requirements.filter((r) => r.status !== 'obsolete').length;
-        return { v, live, tested: c.tested.length, untested: c.untested.length, suspect: c.suspect.length, pct: live ? Math.round((c.tested.length / live) * 100) : 0 };
+        return { v, live, tested: c.tested.length, untested: c.untested.length, suspect: c.suspect.length + c.suspectRefines.length, pct: live ? Math.round((c.tested.length / live) * 100) : 0 };
       }),
     [project.allIndex],
   );
@@ -421,7 +448,7 @@ function ByVariant({ project, onVariant }: { project: Project; onVariant: (varia
             <tr>
               <th>Variant</th>
               <th className="num">Requirements</th>
-              <th>Verified by a test case</th>
+              <th>Covered by test cases</th>
               <th className="num">Without tests</th>
               <th className="num">Links to review</th>
             </tr>

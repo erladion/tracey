@@ -12,7 +12,7 @@ export interface BulkEdit {
 export const emptyEdit = (): BulkEdit => ({ set: {}, add: {}, remove: {} });
 
 function current(item: Item, key: string): string[] {
-  if (key === 'components' || key === 'variants' || key === 'jira' || key === 'verifies') return item[key];
+  if (key === 'components' || key === 'variants' || key === 'jira' || key === 'verifies' || key === 'refines') return item[key];
   return listValue(item.data[key]);
 }
 
@@ -28,22 +28,25 @@ export function bulkChanges(items: Item[], edit: BulkEdit, index: ProjectIndex):
       if (!same(it.data[key] === '' ? undefined : it.data[key], now)) changes[key] = now;
     }
     for (const key of new Set([...Object.keys(edit.add), ...Object.keys(edit.remove)])) {
-      if (key === 'verifies' && it.kind !== 'testcase') continue;
+      if ((key === 'verifies' && it.kind !== 'testcase') || (key === 'refines' && it.kind !== 'requirement')) continue;
       const before = current(it, key);
       const drop = new Set(edit.remove[key] ?? []);
-      const after = [...before.filter((v) => !drop.has(v)), ...(edit.add[key] ?? []).filter((v) => !before.includes(v) && !drop.has(v))];
+      // (A requirement can't refine itself.)
+      const adding = (edit.add[key] ?? []).filter((v) => !before.includes(v) && !drop.has(v) && !(key === 'refines' && v === it.id));
+      const after = [...before.filter((v) => !drop.has(v)), ...adding];
       if (same(before, after)) continue;
       changes[key] = after.length ? after : undefined;
-      // A link added here counts as reviewed now; one removed loses its review.
-      if (key === 'verifies') {
+      // A link added here counts as reviewed now; one removed loses its review. The
+      // reviews of the other links stay.
+      if (key === 'verifies' || key === 'refines') {
+        const base = 'reviewed' in changes ? ((changes.reviewed as Record<string, string> | undefined) ?? {}) : it.reviewed;
         const reviewed: Record<string, string> = {};
-        for (const v of after) {
-          if (it.reviewed[v]) reviewed[v] = it.reviewed[v];
-          else if (!before.includes(v)) {
+        for (const [k, v] of Object.entries(base)) if (!before.includes(k) || after.includes(k)) reviewed[k] = v;
+        for (const v of after)
+          if (!reviewed[v] && !before.includes(v)) {
             const req = index.byId.get(v);
             if (req) reviewed[v] = fingerprint(req);
           }
-        }
         if (!same(reviewed, it.reviewed)) changes.reviewed = Object.keys(reviewed).length ? reviewed : undefined;
       }
     }

@@ -10,7 +10,7 @@ import type { Item } from './model';
 
 // The fields Tracey edits itself; `reviewed` is its bookkeeping, never shown.
 const OWN: Record<Kind, Set<string>> = {
-  requirement: new Set(['id', 'title', 'status', 'components', 'variants', 'jira', 'reviewed']),
+  requirement: new Set(['id', 'title', 'status', 'components', 'variants', 'jira', 'reviewed', 'refines']),
   testcase: new Set(['id', 'title', 'status', 'components', 'variants', 'jira', 'reviewed', 'verifies', 'estimate']),
 };
 

@@ -1,7 +1,7 @@
 // Beside an item: what it's linked to and whether those links still hold, its
 // components, its problems, and its history.
 import { useEffect, useState } from 'react';
-import { linksOf, type Item } from '../../../core/model';
+import { coveredRequirements, linksOf, refinesOf, type Item, type RefineLink } from '../../../core/model';
 import { commitsFor } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import type { FileCommit } from '../../../shared/api';
@@ -19,15 +19,18 @@ interface Props {
   item: Item;
   onOpenId: (id: string) => void;
   onNewTest: (req: Item) => void;
+  onNewRefinement: (req: Item) => void;
   onShowInGraph: (item: Item) => void;
   onOpenRun: (focus: RunFocus) => void;
 }
 
-export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph, onOpenRun }: Props) {
+export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement, onShowInGraph, onOpenRun }: Props) {
   const { index } = project;
   const links = linksOf(index, item);
   const problems = index.problems.filter((p) => p.path === item.path);
   const components = index.config.components.filter((c) => item.components.includes(c.key));
+  const refines = refinesOf(index, item);
+  const throughRefinements = item.kind === 'requirement' && !links.length && coveredRequirements(index).get(item.id) === true;
 
   return (
     <aside className="trace-panel" aria-label="Traceability">
@@ -44,9 +47,17 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph, 
           )}
         </div>
         {links.length === 0 ? (
-          <p className={`muted small${item.kind === 'requirement' && item.status !== 'obsolete' ? ' gap-note' : ''}`}>
-            {item.kind === 'requirement' ? 'No test case verifies this requirement yet.' : 'This test case doesn’t verify a requirement yet. Add one under Verifies.'}
-          </p>
+          throughRefinements ? (
+            <p className="muted small">No test case of its own, but it’s covered: every requirement refining it is.</p>
+          ) : (
+            <p className={`muted small${item.kind === 'requirement' && item.status !== 'obsolete' ? ' gap-note' : ''}`}>
+              {item.kind === 'requirement'
+                ? refines.down.length
+                  ? 'No test case verifies this requirement, nor all the requirements refining it.'
+                  : 'No test case verifies this requirement yet.'
+                : 'This test case doesn’t verify a requirement yet. Add one under Verifies.'}
+            </p>
+          )
         ) : (
           <ul className="link-list">
             {links.map((l) => {
@@ -84,6 +95,29 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onShowInGraph, 
           <p className="warn-text small">Not found: {item.verifies.filter((v) => !index.byId.has(v)).join(', ')}</p>
         )}
       </section>
+
+      {item.kind === 'requirement' && (refines.up.length > 0 || item.refines.some((r) => !index.byId.has(r))) && (
+        <section>
+          <h3>Refines</h3>
+          <RefineList links={refines.up} other={(l) => l.parent} project={project} onOpenId={onOpenId} />
+          {item.refines.filter((v) => !index.byId.has(v)).length > 0 && <p className="warn-text small">Not found: {item.refines.filter((v) => !index.byId.has(v)).join(', ')}</p>}
+        </section>
+      )}
+      {item.kind === 'requirement' && (
+        <section>
+          <div className="panel-head">
+            <h3>Refined by</h3>
+            <button type="button" className="link-button" onClick={() => onNewRefinement(item)}>
+              <Icon name="plus" size={14} /> New requirement
+            </button>
+          </div>
+          {refines.down.length === 0 ? (
+            <p className="muted small">Nothing breaks it down. A requirement that does names it under Refines.</p>
+          ) : (
+            <RefineList links={refines.down} other={(l) => l.child} project={project} onOpenId={onOpenId} />
+          )}
+        </section>
+      )}
 
       {item.kind === 'testcase' && <Results project={project} item={item} onOpenRun={onOpenRun} />}
 
@@ -290,5 +324,41 @@ function Results({ project, item, onOpenRun }: { project: Project; item: Item; o
         </button>
       )}
     </section>
+  );
+}
+
+// Requirements linked by refines, with whether the link still holds.
+function RefineList({ links, other, project, onOpenId }: { links: RefineLink[]; other: (l: RefineLink) => Item; project: Project; onOpenId: (id: string) => void }) {
+  return (
+    <ul className="link-list">
+      {links.map((l) => {
+        const o = other(l);
+        return (
+          <li key={o.id} className={`link-card ${l.state}`}>
+            <button type="button" className="link-target" onClick={() => onOpenId(o.id)}>
+              <span className="item-id">{o.id}</span>
+              <span className="link-title">{o.title}</span>
+            </button>
+            <div className="link-meta">
+              <StatusPill status={o.status} />
+              <VariantTag variants={o.variants} config={project.index.config} />
+              <LinkBadge state={l.state} />
+            </div>
+            {l.state !== 'ok' && (
+              <div className="link-actions">
+                {l.state === 'suspect' && (
+                  <span className="muted small">
+                    {l.parent.id} changed. Check {l.child.id} still breaks it down right, then mark it reviewed.
+                  </span>
+                )}
+                <button type="button" className="button small" onClick={() => project.markReviewed(l.child, [l.parent.id])}>
+                  <Icon name="check" size={14} /> Mark reviewed
+                </button>
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

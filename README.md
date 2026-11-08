@@ -106,10 +106,17 @@ Payment fails with a retry-exhausted message after 3 attempts.
   are also recognized in text, commit messages and Jira; other IDs only link through
   fields such as `verifies`.
 - **Kind** comes from the ID prefix (`REQ-`, `TC-`), or `type: requirement | testcase`.
-- **`reviewed`** is written by Tracey: for each verified requirement, a fingerprint of
-  its title and text when the link was last reviewed. When the requirement's text
-  changes, the link shows as *changed since review* (suspect) until someone checks the
-  test case and marks it reviewed. Whitespace and line wrapping don't count as changes.
+- **`refines: [REQ-4]`** on a requirement: it breaks REQ-4 down. REQ-4 then lists it
+  under *Refined by* (with **New requirement** to add one), and the graph puts it a
+  column to the right. A requirement with no test case of its own counts as covered
+  when every requirement refining it is ("through its refinements"), so a broken-down
+  requirement needs no tests of its own. Requirements keep one prefix; for named levels
+  (stakeholder, system, software), declare a field: `level: [Stakeholder, System, Software]`.
+- **`reviewed`** is written by Tracey: for each linked requirement (verified, or
+  refined), a fingerprint of its title and text when the link was last reviewed. When
+  the requirement's text changes, the link shows as *changed since review* (suspect)
+  until someone checks the test case, or the refining requirement, and marks it
+  reviewed. Whitespace and line wrapping don't count as changes.
 - **`variants: [pro]`** limits an item to some product variants (see Variants below).
   Without it, an item applies to all of them.
 - **`estimate: 30m`** on a test case: how long running it takes (`45`, `1h`, `1h 30m`,
@@ -173,8 +180,8 @@ Ctrl-click (⌘ on a Mac) items in the list to pick several, Shift-click to pick
 or **Change several at once…** above the list to pick by clicking (on a touch screen).
 With some picked, the page shows them and one form for all of them: set or clear the
 status, estimate and your single-value fields; add or remove components, variants,
-Jira keys, requirements verified (reviewed now, like adding one by hand) and list
-fields. It says how many files that changes before you apply it, leaves out items that
+Jira keys, requirements verified or refined (reviewed now, like adding one by hand)
+and list fields. It says how many files that changes before you apply it, leaves out items that
 already have the value, and the files are then committed from the status bar like any
 edit (or discarded there).
 
@@ -369,7 +376,8 @@ What comes across:
   tables, links), the status, variants, kept attributes, `section: 3.2 Payment`, and
   `doors: {module, id}` pointing back at the DOORS object. A title is taken from the
   first sentence when the object has none (DOORS requirements usually don't).
-- Test cases `verifies:` their requirements, already marked reviewed.
+- Test cases `verifies:` their requirements, and requirements `refines:` theirs,
+  already marked reviewed.
 - Pictures in the text are copied to `images/`; an OLE object comes across as its
   picture, or as a note when the export has none.
 - Each module gets a `README.md` with its headings, information objects and order,
@@ -482,12 +490,14 @@ Columns of commits → Jira issues → requirements → test cases → component
 |---|---|
 | commit → Jira issue | the key in the commit message, in the code repository |
 | Jira issue → requirement | `jira: [PROJ-466]` on the requirement |
+| requirement → requirement | `refines: [REQ-07]` on the requirement breaking it down |
 | requirement → test case | `verifies: [REQ-07]` on the test case |
 | test case → component | `components: [payments]` on the test case |
 | component → code | `paths:` of the component in `trace.yml` |
 
 Click a node to select it: it turns solid blue, what it traces to gets a blue border
-and blue links, and the rest fades. A node with something missing carries a tag on
+and blue links, and the rest fades. Requirements that refine others get a column per
+level (Requirements, level 1; Level 2…), each to the right of what it breaks down. A node with something missing carries a tag on
 its top edge (**No tests**, **No requirement**, **Not linked**) and a dashed border; one
 that needs a look now (**Suspect**, **Broken link**) is orange. **Show gaps** lights
 up requirements without test cases, test cases that verify nothing or have suspect or

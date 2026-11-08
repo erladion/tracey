@@ -6,6 +6,7 @@ import { Dialog } from './Dialog';
 export interface NewItemRequest {
   kind: Kind;
   verifies?: string[];
+  refines?: string[]; // a requirement breaking these down
   components?: string[];
   variants?: string[];
 }
@@ -14,7 +15,7 @@ interface Props {
   request: NewItemRequest;
   index: ProjectIndex;
   onClose: () => void;
-  onCreate: (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[]; variants?: string[] }) => void;
+  onCreate: (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[] }) => void;
 }
 
 export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
@@ -27,20 +28,21 @@ export function NewItemDialog({ request, index, onClose, onCreate }: Props) {
   const id = typedId ?? next;
   const check = typedId == null ? { error: null, warning: null } : checkNewId(index, kind, typedId);
   const verifies = kind === 'testcase' ? request.verifies : undefined;
+  const refines = kind === 'requirement' ? request.refines : undefined;
   const canCreate = !!title.trim() && !check.error && !busy;
 
   return (
-    <Dialog title={`New ${kind === 'requirement' ? 'requirement' : 'test case'}`} onClose={onClose}>
+    <Dialog title={refines?.length ? `New requirement refining ${refines.join(', ')}` : `New ${kind === 'requirement' ? 'requirement' : 'test case'}`} onClose={onClose}>
       <form
         className="dialog-body"
         onSubmit={(e) => {
           e.preventDefault();
           if (!canCreate) return;
           setBusy(true);
-          onCreate(kind, title.trim(), { id: typedId?.trim() || undefined, verifies, components: request.components, variants });
+          onCreate(kind, title.trim(), { id: typedId?.trim() || undefined, verifies, refines, components: request.components, variants });
         }}
       >
-        {!request.verifies && (
+        {!request.verifies && !request.refines && (
           <div className="segmented" role="radiogroup" aria-label="Kind">
             {(['requirement', 'testcase'] as const).map((k) => (
               <button key={k} type="button" role="radio" aria-checked={kind === k} className={kind === k ? 'on' : ''} onClick={() => setKind(k)}>

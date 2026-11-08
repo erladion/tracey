@@ -213,6 +213,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
                   path={selected!}
                   onOpenId={openId}
                   onNewTest={(req) => setNewItem({ kind: 'testcase', verifies: [req.id], components: req.components, variants: req.variants })}
+                  onNewRefinement={(req) => setNewItem({ kind: 'requirement', refines: [req.id], components: req.components, variants: req.variants })}
                   onShowInGraph={(it) => {
                     setGraphFocus(`${it.kind === 'requirement' ? 'req' : 'test'}:${it.id}`);
                     setView('graph');

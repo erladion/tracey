@@ -6,7 +6,7 @@ import { summarize, today, type RunSummary, type TestRun } from './runs';
 
 export interface CoverageCounts {
   requirements: number; // not obsolete
-  tested: number; // verified by a test case
+  tested: number; // covered: verified by a test case, or through refinements
   suspect: number; // links to review: the requirement changed since
 }
 

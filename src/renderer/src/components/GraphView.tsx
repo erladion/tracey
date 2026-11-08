@@ -74,6 +74,9 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     [hiding, graph, mode, sel, up, down],
   );
   const cols = useMemo(() => columns(shown).filter((c) => c.nodes.length > 0), [shown]);
+  // With requirements refining others, a column per level.
+  const levels = cols.filter((c) => c.type === 'req').length;
+  const colLabel = (c: { type: NodeType; depth: number }) => (c.type === 'req' && levels > 1 ? (c.depth ? `Level ${c.depth + 1}` : 'Requirements, level 1') : LABELS[c.type]);
 
   // Spread the columns over the width there is; scroll (or zoom out) when it's not enough.
   const scroller = useRef<HTMLDivElement>(null);
@@ -126,7 +129,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     height: layout.height,
     nodeW: W,
     nodeH: H,
-    heads: cols.map((c) => ({ x: layout.pos.get(c.nodes[0].key)!.x, label: LABELS[c.type], count: c.nodes.length })),
+    heads: cols.map((c) => ({ x: layout.pos.get(c.nodes[0].key)!.x, label: colLabel(c), count: c.nodes.length })),
     nodes: shown.nodes.map((n) => ({ ...layout.pos.get(n.key)!, node: n, ...nodeLook(n) })),
     edges: shown.edges.map((e) => ({ d: curve(e.from, e.to), ...edgeLook(e) })),
   });
@@ -231,8 +234,8 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                   })}
                 </svg>
                 {cols.map((c) => (
-                  <div key={c.type} className="graph-col-head" style={{ left: layout.pos.get(c.nodes[0].key)!.x, width: W }}>
-                    <span className="strong">{LABELS[c.type]}</span> <span className="muted">{c.nodes.length}</span>
+                  <div key={`${c.type}${c.depth}`} className="graph-col-head" style={{ left: layout.pos.get(c.nodes[0].key)!.x, width: W }}>
+                    <span className="strong">{colLabel(c)}</span> <span className="muted">{c.nodes.length}</span>
                   </div>
                 ))}
                 {shown.nodes.map((n) => {
@@ -336,7 +339,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                 )}
               </div>
               {sel.commit && <CommitDetails c={sel.commit} componentName={(k) => index.config.components.find((x) => x.key === k)?.name ?? k} />}
-              <p className={`sel-status ${sel.gap ? (sel.warn ? 'warn' : 'gap') : 'ok'}`}>{sel.gap ?? statusText(sel, graph.fwd.get(sel.key)?.length ?? 0, graph.back.get(sel.key)?.length ?? 0)}</p>
+              <p className={`sel-status ${sel.gap ? (sel.warn ? 'warn' : 'gap') : 'ok'}`}>{sel.gap ?? statusText(sel, graph.fwd.get(sel.key) ?? [], graph.back.get(sel.key) ?? [])}</p>
               <div className="counts">
                 <div>
                   <span className="small muted">Upstream</span>
@@ -404,9 +407,16 @@ function CommitDetails({ c, componentName }: { c: LinkedCommit; componentName: (
   );
 }
 
-function statusText(n: GNode, downstream: number, upstream: number): string {
+function statusText(n: GNode, down: string[], up: string[]): string {
+  const downstream = down.length;
+  const upstream = up.length;
+  if (n.type === 'req') {
+    const tests = down.filter((k) => k.startsWith('test:')).length;
+    const refined = down.filter((k) => k.startsWith('req:')).length;
+    if (!tests && refined) return `Covered through the ${refined} requirement${refined === 1 ? '' : 's'} refining it.`;
+    return `Verified by ${tests} test case${tests === 1 ? '' : 's'}${refined ? `; refined by ${refined} requirement${refined === 1 ? '' : 's'}` : ''}.`;
+  }
   if (n.type === 'commit') return `Names ${downstream} issue${downstream === 1 ? '' : 's'} or item${downstream === 1 ? '' : 's'}.`;
-  if (n.type === 'req') return `Verified by ${downstream} test case${downstream === 1 ? '' : 's'}.`;
   if (n.type === 'test') return `Verifies ${upstream} requirement${upstream === 1 ? '' : 's'}.`;
   if (n.type === 'issue') return `Linked to ${downstream} requirement${downstream === 1 ? '' : 's'} or test case${downstream === 1 ? '' : 's'}.`;
   return `Covered by ${upstream} test case${upstream === 1 ? '' : 's'}.`;

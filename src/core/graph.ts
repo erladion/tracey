@@ -2,10 +2,11 @@
 //
 // Edges point downstream: a commit to the Jira issues (or items) its message names, an
 // issue to the requirements and test cases linked to it (links.ts: front matter,
-// labels, a field, mentions, remote links), a requirement to the test cases verifying
-// it, a test case to the components it's tagged with. Pure, so it's tested without a
+// labels, a field, mentions, remote links), a requirement to the requirements refining
+// it and the test cases verifying it, a test case to the components it's tagged with.
+// Refining requirements get a column each level down. Pure, so it's tested without a
 // browser.
-import { linksOf, type Item, type LinkState, type ProjectIndex } from './model';
+import { coveredRequirements, linksOf, refinesOf, type Item, type LinkState, type ProjectIndex } from './model';
 import type { LinkedCommit } from './commits';
 import { buildIssueLinks, type IssueLinks, type LinkSource } from './links';
 import type { JiraIssue } from '../shared/api';
@@ -31,7 +32,7 @@ export interface GNode {
 export interface GEdge {
   from: string;
   to: string;
-  state?: LinkState; // requirement → test case links
+  state?: LinkState; // requirement → test case and requirement → requirement links
   sources?: LinkSource[]; // issue → item links: where the link is written
 }
 
@@ -88,6 +89,7 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
   const components = new Map(index.config.components.map((c) => [c.key, c]));
   const usedComponents = new Set<string>();
   const issues = new Set<string>();
+  const covered = coveredRequirements(index);
 
   for (const it of items) {
     const key = `${it.kind === 'requirement' ? 'req' : 'test'}:${it.id}`;
@@ -100,7 +102,16 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
     if (it.kind === 'requirement') {
       const tests = linksOf(index, it).filter((l) => !filter.hideObsolete || live(l.test));
       for (const l of tests) edges.push({ from: key, to: `test:${l.test.id}`, state: l.state });
-      if (live(it) && !tests.some((l) => live(l.test))) [node.gap, node.tag] = ['No test case verifies this requirement.', 'No tests'];
+      const { up, down } = refinesOf(index, it);
+      for (const l of down) if (!filter.hideObsolete || live(l.child)) edges.push({ from: key, to: `req:${l.child.id}`, state: l.state });
+      const missing = it.refines.filter((v) => index.byId.get(v)?.kind !== 'requirement');
+      const suspect = up.filter((l) => l.state === 'suspect').map((l) => l.parent.id);
+      if (!live(it)) {
+        // Obsolete: nothing to look at.
+      } else if (missing.length) [node.gap, node.warn, node.tag] = [`Refines ${missing.join(', ')}, which ${missing.length === 1 ? "doesn't" : "don't"} exist or isn't a requirement.`, true, 'Broken link'];
+      else if (suspect.length) [node.gap, node.warn, node.tag] = [`${suspect.join(', ')} changed since this requirement was reviewed against it.`, true, 'Suspect'];
+      else if (!covered.has(it.id))
+        [node.gap, node.tag] = [down.length ? 'No test case verifies this requirement, nor all the requirements refining it.' : 'No test case verifies this requirement.', 'No tests'];
     } else {
       for (const c of it.components) {
         usedComponents.add(c);
@@ -179,7 +190,9 @@ export function buildGraph(index: ProjectIndex, filter: GraphFilter = {}, commit
 
 // Columns in order, each sorted to keep edges short: requirements by ID, every other
 // column by the average position of what it's linked to (barycentre ordering).
-export function columns(graph: Graph): { type: NodeType; nodes: GNode[] }[] {
+// Columns left to right: commits, issues, requirements (one column per level of
+// refinement), test cases, components. Each column is ordered to follow its links.
+export function columns(graph: Graph): { type: NodeType; depth: number; nodes: GNode[] }[] {
   const of = (t: NodeType) => graph.nodes.filter((n) => n.type === t);
   const pos = new Map<string, number>();
   const place = (list: GNode[]) => list.forEach((n, i) => pos.set(n.key, i));
@@ -192,8 +205,29 @@ export function columns(graph: Graph): { type: NodeType; nodes: GNode[] }[] {
     };
     return list.map((n, i) => ({ n, s: score(n), i })).sort((a, b) => a.s - b.s || a.i - b.i).map((x) => x.n);
   };
+  // A requirement's level: one more than the deepest requirement it refines.
+  const parents = (n: GNode) => (graph.back.get(n.key) ?? []).filter((k) => k.startsWith('req:'));
+  const depth = new Map<string, number>();
+  const levelOf = (n: GNode, path = new Set<string>()): number => {
+    const known = depth.get(n.key);
+    if (known != null) return known;
+    if (path.has(n.key)) return 0; // a loop
+    path.add(n.key);
+    const d = Math.max(-1, ...parents(n).map((k) => levelOf(graph.byKey.get(k)!, path))) + 1;
+    path.delete(n.key);
+    depth.set(n.key, d);
+    return d;
+  };
   const reqs = of('req');
-  place(reqs);
+  for (const r of reqs) levelOf(r);
+  const levels = Math.max(0, ...reqs.map((r) => depth.get(r.key)!)) + 1;
+  const reqCols: GNode[][] = [];
+  for (let d = 0; d < levels; d++) {
+    const here = reqs.filter((r) => depth.get(r.key) === d);
+    const ordered = d === 0 ? here : byNeighbours(here, parents);
+    place(ordered);
+    reqCols.push(ordered);
+  }
   const tests = byNeighbours(of('test'), (n) => graph.back.get(n.key) ?? []);
   place(tests);
   const comps = byNeighbours(of('component'), (n) => graph.back.get(n.key) ?? []);
@@ -202,10 +236,10 @@ export function columns(graph: Graph): { type: NodeType; nodes: GNode[] }[] {
   place(issues);
   const commits = byNeighbours(of('commit'), (n) => (graph.fwd.get(n.key) ?? []).filter((k) => k.startsWith('issue:')));
   return [
-    { type: 'commit' as const, nodes: commits },
-    { type: 'issue' as const, nodes: issues },
-    { type: 'req' as const, nodes: reqs },
-    { type: 'test' as const, nodes: tests },
-    { type: 'component' as const, nodes: comps },
+    { type: 'commit' as const, depth: 0, nodes: commits },
+    { type: 'issue' as const, depth: 0, nodes: issues },
+    ...reqCols.map((nodes, d) => ({ type: 'req' as const, depth: d, nodes })),
+    { type: 'test' as const, depth: 0, nodes: tests },
+    { type: 'component' as const, depth: 0, nodes: comps },
   ];
 }

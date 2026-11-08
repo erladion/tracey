@@ -103,11 +103,11 @@ export function CoverageLine({ points }: { points: TrendPoint[] }) {
   return (
     <figure className="chart" ref={ref} onPointerLeave={() => setHover(null)}>
       <figcaption>
-        <span className="chart-title">Requirements verified by a test case</span>
-        <span className="muted small">Share of requirements (not obsolete) with at least one test case</span>
+        <span className="chart-title">Requirements covered by tests</span>
+        <span className="muted small">Share of requirements (not obsolete) verified by a test case, or through the requirements refining them</span>
       </figcaption>
       {width > 0 && (
-        <svg width={width} height={PAD_T + PLOT_H + AXIS_H} role="img" aria-label="Requirements verified by a test case, at each test run and now">
+        <svg width={width} height={PAD_T + PLOT_H + AXIS_H} role="img" aria-label="Requirements covered by tests, at each test run and now">
           {[0, 25, 50, 75, 100].map((v) => (
             <g key={v}>
               <line className="chart-grid" x1={PAD_L} x2={width - PAD_R} y1={y(v)} y2={y(v)} />

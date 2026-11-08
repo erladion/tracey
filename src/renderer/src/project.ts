@@ -41,7 +41,7 @@ export interface Project {
   updateFields(path: string, changes: Record<string, unknown>): void;
   markReviewed(test: Item, reqIds: string[]): void;
   writeConfig(text: string): Promise<void>;
-  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; components?: string[]; variants?: string[] }): Promise<string>;
+  createItem(kind: Kind, title: string, opts?: { id?: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[] }): Promise<string>;
   deleteItem(path: string): Promise<void>; // any file: items and test runs
   runs: TestRun[];
   createFile(path: string, text: string): Promise<void>;
@@ -379,7 +379,7 @@ export function useProject(repo: RepoEntry): Project {
   );
 
   const createItem = useCallback(
-    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; components?: string[]; variants?: string[] } = {}) => {
+    async (kind: Kind, title: string, opts: { id?: string; verifies?: string[]; refines?: string[]; components?: string[]; variants?: string[] } = {}) => {
       const idx = indexRef.current;
       // A chosen ID is checked again here: another change may have taken it meanwhile.
       const id = opts.id?.trim() || nextId(idx, kind);
@@ -390,12 +390,13 @@ export function useProject(repo: RepoEntry): Project {
       const prefix = (kind === 'requirement' ? idx.config.requirements : idx.config.testcases).prefix;
       const path = newItemPath(idx, kind, id, title);
       const reviewed: Record<string, string> = {};
-      for (const r of opts.verifies ?? []) {
+      // New links start reviewed: they're made against the text as it is now.
+      for (const r of [...(opts.verifies ?? []), ...(opts.refines ?? [])]) {
         const req = idx.byId.get(r);
         if (req) reviewed[r] = fingerprint(req);
       }
       const status = (kind === 'requirement' ? idx.config.statuses : idx.config.testcaseStatuses)[0] ?? 'draft';
-      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, components: opts.components, variants: opts.variants, reviewed, type: !!prefix && !id.startsWith(prefix) });
+      const text = newItemText(kind, { id, title, status, verifies: opts.verifies, refines: kind === 'requirement' ? opts.refines : undefined, components: opts.components, variants: opts.variants, reviewed, type: !!prefix && !id.startsWith(prefix) });
       await api.writeFile(repo.id, path, text);
       const next = new Map(textsRef.current);
       next.set(path, text);

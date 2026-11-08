@@ -1,6 +1,6 @@
 // The repository as spreadsheet tables: requirements, test cases, the traceability
 // matrix, test runs and their results, and coverage over time.
-import { linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
+import { coveredRequirements, linksOf, variantNames, type Item, type LinkState, type ProjectIndex } from './model';
 import { lastResult, releaseOf, summarize, type TestRun } from './runs';
 import type { TrendPoint } from './trend';
 import { runEstimate } from './estimate';
@@ -47,6 +47,7 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
   const extra = (k: Item['kind']) => fieldsFor(index.config, k);
   const extraColumns = (k: Item['kind']) => extra(k).map((f) => ({ header: f.name, width: Math.min(30, Math.max(10, f.name.length + 2, ...f.values.map((v) => v.length + 2))), wrap: f.type === 'list' || f.type === 'choices' || f.type === 'text' }));
   const extraCells = (it: Item) => extra(it.kind).map((f) => (f.type === 'number' && typeof it.data[f.key] === 'number' ? (it.data[f.key] as number) : fieldText(it.data[f.key]) || null));
+  const covered = coveredRequirements(index);
   const runCases = (r: TestRun) => r.cases.filter((c) => !index.byId.has(c.id) || keep(index.byId.get(c.id)!));
 
   const requirements: Sheet = {
@@ -58,8 +59,10 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
       { header: 'Variants', width: 16 },
       { header: 'Components', width: 16 },
       { header: 'Jira', width: 16 },
+      { header: 'Refines', width: 14, wrap: true },
+      { header: 'Refined by', width: 16, wrap: true },
       { header: 'Test cases', width: 18, wrap: true },
-      { header: 'Covered', width: 9 },
+      { header: 'Covered', width: 12 },
       { header: 'To review', width: 18, wrap: true },
       { header: 'Last results', width: 36, wrap: true },
       ...extraColumns('requirement'),
@@ -67,7 +70,6 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
     ],
     rows: reqs.map((r) => {
       const links = linksOf(index, r).filter((l) => keep(l.test));
-      const covered = links.some((l) => l.test.status !== 'obsolete');
       return [
         r.id,
         r.title,
@@ -75,8 +77,10 @@ export function tables(index: ProjectIndex, o: TableOptions): Record<TableKey, S
         variantNames(index.config, r),
         componentNames(r),
         issues(r),
+        r.refines.join(', '),
+        (index.refinedBy.get(r.id) ?? []).filter(keep).map((c) => c.id).join(', '),
         links.map((l) => l.test.id).join(', '),
-        r.status === 'obsolete' ? '' : covered ? 'Yes' : 'No',
+        r.status === 'obsolete' ? '' : !covered.has(r.id) ? 'No' : covered.get(r.id) ? 'Through refinements' : 'Yes',
         links
           .filter((l) => l.state === 'suspect')
           .map((l) => l.test.id)
