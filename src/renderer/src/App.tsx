@@ -17,6 +17,7 @@ import { GraphView } from './components/GraphView';
 import { RunsView, type RunFocus } from './components/RunsView';
 import { GitBar } from './components/GitBar';
 import { NewItemDialog, type NewItemRequest } from './components/NewItemDialog';
+import { WorkListDialog } from './components/WorkList';
 import { notify } from './notify';
 import { load, save } from './storage';
 
@@ -86,6 +87,8 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
   useEffect(() => setPicked([]), [kind, repo.id]);
   const [graphFocus, setGraphFocus] = useState<string | null>(null);
   const [runFocus, setRunFocus] = useState<RunFocus | null>(null);
+  const [workOpen, setWorkOpen] = useState(false);
+  const [runFromWork, setRunFromWork] = useState(0); // bumped to start a test run from the work list
 
   const select = useCallback(
     (path: string | null) => {
@@ -177,6 +180,9 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
               </select>
             </label>
           )}
+          <button type="button" className={`button work-button${project.work.length ? ' has' : ''}`} onClick={() => setWorkOpen(true)} title="Tests collected to run">
+            Work list <span className="count">{project.work.length}</span>
+          </button>
           <button type="button" className="button primary" onClick={() => setNewItem({ kind })}>
             <Icon name="plus" /> New
           </button>
@@ -254,7 +260,7 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
         ) : view === 'coverage' ? (
           <CoverageView project={project} onOpenId={openId} onOpenPath={openPath} onVariant={chooseVariant} />
         ) : view === 'runs' ? (
-          <RunsView key={runFocus ? `${runFocus.path}:${runFocus.caseId}` : ''} project={project} focus={runFocus} onOpenId={openId} />
+          <RunsView key={runFocus ? `${runFocus.path}:${runFocus.caseId}` : ''} project={project} focus={runFocus} onOpenId={openId} fromWork={runFromWork} />
         ) : view === 'graph' ? (
           <GraphView project={project} focus={graphFocus} onOpenId={openId} />
         ) : (
@@ -264,6 +270,19 @@ function Workspace({ repo, onClose }: { repo: RepoEntry; onClose: () => void }) 
 
       <GitBar project={full} />
 
+      {workOpen && (
+        <WorkListDialog
+          project={project}
+          onOpenId={openId}
+          onClose={() => setWorkOpen(false)}
+          onNewRun={() => {
+            setWorkOpen(false);
+            setRunFocus(null);
+            setView('runs');
+            setRunFromWork((n) => n + 1);
+          }}
+        />
+      )}
       {newItem && (
         <NewItemDialog
           request={newItem}

@@ -4,6 +4,7 @@ export interface Toast {
   id: number;
   message: string;
   kind: ToastKind;
+  action?: { label: string; run: () => void }; // a button on the message: Undo, say
 }
 
 type Listener = (toasts: Toast[]) => void;
@@ -12,11 +13,12 @@ let nextId = 1;
 const listeners = new Set<Listener>();
 const emit = () => listeners.forEach((l) => l(toasts));
 
-export function notify(message: string, kind: ToastKind = 'info') {
-  const t = { id: nextId++, message, kind };
+export function notify(message: string, kind: ToastKind = 'info', action?: Toast['action']) {
+  const t = { id: nextId++, message, kind, action };
   toasts = [...toasts, t];
   emit();
-  setTimeout(() => dismiss(t.id), kind === 'error' ? 9000 : 3500);
+  // A message with something to do stays a little longer.
+  setTimeout(() => dismiss(t.id), kind === 'error' ? 9000 : action ? 8000 : 3500);
 }
 
 export function dismiss(id: number) {

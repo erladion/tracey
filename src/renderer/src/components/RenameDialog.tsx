@@ -52,7 +52,7 @@ export function RenameDialog({ project, item, onClose, onRenamed }: Props) {
         await project.deleteItem(plan.move.from);
       }
       const others = plan.texts.size - 1;
-      notify(`${item.id} is now ${newId}${others > 0 ? `, in ${plural(others, 'other file')} too` : ''}. Commit the change from the bottom bar.`, 'success');
+      notify(`${item.id} is now ${newId}${others > 0 ? `, in ${plural(others, 'other file')} too` : ''}.${project.git ? ' Commit the change from the bottom bar.' : ''}`, 'success');
       onClose();
     } catch (e) {
       notify(`Couldn’t change the ID: ${(e as Error).message}`, 'error');

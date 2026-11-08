@@ -527,7 +527,10 @@ function TrendCard({ project }: { project: Project }) {
       ) : (
         <TrendTable points={points} />
       )}
-      {unknown.length > 0 && (
+      {unknown.length > 0 && !project.git && (
+        <p className="muted small">Coverage at earlier runs needs git history, and this folder isn’t a git repository: only now is shown.</p>
+      )}
+      {unknown.length > 0 && project.git && (
         <p className="muted small">
           Coverage isn’t known for {unknown.map((p) => p.label).join(', ')}: {unknown.length === 1 ? 'it doesn’t' : 'they don’t'} record a requirements commit, or that commit
           isn’t in this copy (get the latest).

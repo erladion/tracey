@@ -9,7 +9,8 @@ import { edgePath, layoutGraph } from '../../../core/graphlayout';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import { byEvidence } from '../../../core/model';
-import { typeName, typePlural, typeWord } from '../../../core/config';
+import { isRunnable, typeName, typePlural, typeWord } from '../../../core/config';
+import { addToWork } from './WorkList';
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { StatusPill } from './bits';
@@ -67,6 +68,16 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const down = useMemo(() => (sel ? walk(sel.key, graph.fwd) : new Set<string>()), [sel, graph]);
   const gaps = graph.nodes.filter((n) => n.gap);
 
+  // The tests in the selected node's trace, for the work list.
+  const traceTests = useMemo(
+    () =>
+      sel
+        ? [sel.key, ...up, ...down]
+            .map((k) => graph.byKey.get(k)?.item)
+            .filter((i): i is NonNullable<typeof i> => !!i && isRunnable(index.config, i.kind) && i.status !== 'obsolete')
+        : [],
+    [sel, up, down, graph, index.config],
+  );
   const lit = (key: string) => (mode === 'gaps' ? !!graph.byKey.get(key)?.gap : !sel || key === sel.key || up.has(key) || down.has(key));
   const upPath = (k: string) => k === sel?.key || up.has(k);
   const downPath = (k: string) => k === sel?.key || down.has(k);
@@ -379,6 +390,16 @@ export function GraphView({ project, focus, onOpenId }: Props) {
                 {sel.item && (
                   <button type="button" className="button small" onClick={() => onOpenId(sel.item!.id)}>
                     Open
+                  </button>
+                )}
+                {traceTests.length > 0 && (
+                  <button
+                    type="button"
+                    className="button small"
+                    onClick={() => addToWork(project, traceTests.map((t) => ({ id: t.id, reason: `In the trace of ${sel.label}` })))}
+                    title="The tests in its trace: upstream and downstream"
+                  >
+                    <Icon name="plus" size={14} /> Add {traceTests.length} test{traceTests.length === 1 ? '' : 's'} to work list
                   </button>
                 )}
                 {sel.type === 'issue' && jira && (

@@ -33,18 +33,22 @@ export interface RunFocus {
   caseId: string;
 }
 
-export function RunsView({ project, focus, onOpenId }: { project: Project; focus?: RunFocus | null; onOpenId: (id: string) => void }) {
+export function RunsView({ project, focus, onOpenId, fromWork = 0 }: { project: Project; focus?: RunFocus | null; onOpenId: (id: string) => void; fromWork?: number }) {
   const { runs } = project;
   const key = `trace.run.${project.repo.id}`;
   const [selected, setSelected] = useState<string | null>(() => focus?.path ?? load<string>(key));
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<false | 'any' | 'work'>(fromWork ? 'work' : false);
+  // Asked for from the work list while this view was open.
+  useEffect(() => {
+    if (fromWork) setCreating('work');
+  }, [fromWork]);
   useEffect(() => save(key, selected), [key, selected]);
   const run = runs.find((r) => r.path === selected) ?? null;
 
   return (
     <>
       <aside className="sidebar runs-sidebar" aria-label="Test runs">
-        <button type="button" className="button primary" onClick={() => setCreating(true)}>
+        <button type="button" className="button primary" onClick={() => setCreating('any')}>
           <Icon name="plus" /> New test run
         </button>
         <ul className="item-list">
@@ -83,7 +87,7 @@ export function RunsView({ project, focus, onOpenId }: { project: Project; focus
               A test run lists the test cases to run for a release: those reached from the commits between two versions of the code, through their Jira issues and the
               components they change. Record a result for each, then download the report.
             </p>
-            <button type="button" className="button primary" onClick={() => setCreating(true)}>
+            <button type="button" className="button primary" onClick={() => setCreating('any')}>
               <Icon name="plus" /> New test run
             </button>
           </div>
@@ -92,6 +96,7 @@ export function RunsView({ project, focus, onOpenId }: { project: Project; focus
       {creating && (
         <NewRunDialog
           project={project}
+          fromWork={creating === 'work'}
           onClose={() => setCreating(false)}
           onCreated={(path) => {
             setCreating(false);
@@ -152,9 +157,18 @@ function RunDetail({
   useEffect(() => save(`trace.runAssigned.${run.path}`, assigned || null), [assigned, run.path]);
   const me = tester.trim();
   const whose = (c: RunCase) => (assigned === '' ? true : assigned === '\u0000me' ? !!me && c.assignee === me : assigned === '\u0000none' ? !c.assignee : c.assignee === assigned);
+  // Search: every word somewhere in the case's ID, title, assignee, tester or notes.
+  const [query, setQuery] = useState('');
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const matches = (c: RunCase) => {
+    if (!words.length) return true;
+    const hay = [c.id, index.byId.get(c.id)?.title ?? '', c.assignee, c.tester, c.note, ...Object.values(c.stepNotes)].join(' ').toLowerCase();
+    return words.every((w) => hay.includes(w));
+  };
   const cases = run.cases.filter(
     (c) =>
       whose(c) &&
+      matches(c) &&
       (filter === 'todo' ? c.result === 'not-run' : filter === 'problems' ? c.result === 'failed' || c.result === 'blocked' : filter === 'passed' ? c.result === 'passed' : true),
   );
   // Everyone who has tested or been assigned in any run: suggestions for assigning.
@@ -164,7 +178,7 @@ function RunDetail({
   );
   const assignees = [...new Set(run.cases.map((c) => c.assignee).filter(Boolean))].sort();
   // A page of cases at a time; the open one is always shown.
-  const page = useShown(cases.length, 200, `${run.path}\u0000${filter}\u0000${assigned}`, cases.findIndex((c) => c.id === open));
+  const page = useShown(cases.length, 200, `${run.path}\u0000${filter}\u0000${assigned}\u0000${query}`, cases.findIndex((c) => c.id === open));
   const [assignTo, setAssignTo] = useState('');
 
   const needTester = () => {
@@ -243,7 +257,7 @@ function RunDetail({
             onClick={async () => {
               const path = run.path.replace(/\.ya?ml$/i, '-report.md');
               await project.createFile(path, reportMarkdown(run, index));
-              notify(`Saved ${path}. Commit it to keep it with the run.`, 'success');
+              notify(`Saved ${path}.${project.git ? ' Commit it to keep it with the run.' : ''}`, 'success');
             }}
           >
             Save report to repository
@@ -298,6 +312,10 @@ function RunDetail({
             ))}
           </div>
           <div className="dialog-actions">
+            <div className="search run-search">
+              <Icon name="search" />
+              <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a case" aria-label="Find a case in this run" title="Searches the ID, title, who it's for, the tester and the notes" />
+            </div>
             <label className="field inline">
               <span>Assigned</span>
               <select value={assigned} onChange={(e) => setAssigned(e.target.value)} aria-label="Whose cases">
@@ -539,6 +557,11 @@ function AddCasesDialog({ project, run, onClose }: { project: Project; run: Test
   const tests = pool.items.filter(
     (i) => isRunnable(pool.config, i.kind) && i.status !== 'obsolete' && !inRun.has(i.id) && (!q || i.id.toLowerCase().includes(q) || i.title.toLowerCase().includes(q) || i.components.some((c) => c.includes(q))),
   );
+  // What's on the work list and could go in this run.
+  const fromList = project.work.filter((e) => {
+    const it = pool.byId.get(e.id);
+    return it && isRunnable(pool.config, it.kind) && it.status !== 'obsolete' && !inRun.has(e.id);
+  });
   return (
     <Dialog title="Add test cases" onClose={onClose} wide>
       <div className="dialog-body">
@@ -570,6 +593,18 @@ function AddCasesDialog({ project, run, onClose }: { project: Project; run: Test
           <button type="button" className="link-button" onClick={() => setChosen(new Set(tests.map((t) => t.id)))}>
             Select all shown
           </button>
+          {fromList.length > 0 && (
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => {
+                project.updateFile(run.path, (t) => addCases(t, fromList.map((e) => ({ id: e.id, reason: [e.reason] }))));
+                onClose();
+              }}
+            >
+              Add the work list ({fromList.length})
+            </button>
+          )}
           <span className="tool-spacer" />
           <button type="button" className="button" onClick={onClose}>
             Cancel
@@ -653,7 +688,7 @@ function ReleaseLine({ project, run }: { project: Project; run: TestRun }) {
 
 // ---- a new run ------------------------------------------------------------------------
 
-function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClose: () => void; onCreated: (path: string) => void }) {
+function NewRunDialog({ project, fromWork, onClose, onCreated }: { project: Project; fromWork: boolean; onClose: () => void; onCreated: (path: string) => void }) {
   const { code } = project;
   const variants = project.allIndex.config.variants;
   const [variant, setVariant] = useState(project.variant ?? '');
@@ -663,7 +698,8 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [components, setComponents] = useState(true);
-  const [scopeChoice, setScope] = useState<'impact' | 'all' | 'none' | null>(null);
+  const [scopeChoice, setScope] = useState<'impact' | 'all' | 'work' | 'none' | null>(fromWork ? 'work' : null);
+  const [emptyWork, setEmptyWork] = useState(true);
   // Until chosen: between versions when the code repository is connected (it may still be loading).
   const scope = scopeChoice ?? (code.repo || project.jira.status?.user ? 'impact' : 'all');
   const [name, setName] = useState('');
@@ -758,13 +794,18 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
   const allTests = useMemo(() => index.items.filter((i) => isRunnable(index.config, i.kind) && i.status !== 'obsolete'), [index]);
   const picked: { item: Item; reason: string[] }[] = useMemo(() => {
     if (scope === 'all') return allTests.map((item) => ({ item, reason: ['Full regression'] }));
+    if (scope === 'work')
+      return project.work.flatMap((e) => {
+        const item = index.byId.get(e.id);
+        return item && item.status !== 'obsolete' && isRunnable(index.config, item.kind) ? [{ item, reason: [e.reason] }] : [];
+      });
     if (scope === 'none' || !preview) return [];
     return [...preview.impact.cases]
       .map(([id, reasons]) => ({ item: index.byId.get(id)!, reason: reasons.map((r) => reasonText(r, componentName)) }))
       .filter((x) => x.item)
       .sort((a, b) => compareIds(a.item.id, b.item.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scope, preview, index, allTests]);
+  }, [scope, preview, index, allTests, project.work]);
 
   const create = async () => {
     setBusy(true);
@@ -794,6 +835,11 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
         cases: picked.map((p) => ({ id: p.item.id, reason: p.reason })),
       });
       await project.createFile(path, text);
+      if (scope === 'work' && emptyWork) {
+        const before = project.work;
+        project.clearWork();
+        notify('Made the test run and emptied the work list.', 'success', { label: 'Undo emptying', run: () => project.setWork(before) });
+      }
       onCreated(path);
     } catch (e) {
       notify((e as Error).message, 'error');
@@ -811,6 +857,9 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
           </button>
           <button type="button" role="radio" aria-checked={scope === 'all'} className={scope === 'all' ? 'on' : ''} onClick={() => setScope('all')}>
             {allTests.some((t) => t.kind !== 'testcase') ? 'All tests' : 'All test cases'} ({allTests.length})
+          </button>
+          <button type="button" role="radio" aria-checked={scope === 'work'} className={scope === 'work' ? 'on' : ''} onClick={() => setScope('work')} disabled={!project.work.length}>
+            Work list ({project.work.length})
           </button>
           <button type="button" role="radio" aria-checked={scope === 'none'} className={scope === 'none' ? 'on' : ''} onClick={() => setScope('none')}>
             Choose myself
@@ -926,6 +975,19 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
           </ul>
         )}
         {scope === 'none' && <p className="muted small">The run starts empty; add test cases to it with “Add test cases”.</p>}
+        {scope === 'work' && (
+          <>
+            {picked.length < project.work.length && (
+              <p className="muted small">
+                {project.work.length - picked.length} on the work list {project.work.length - picked.length === 1 ? 'is' : 'are'} left out: obsolete, gone, or not for this variant.
+              </p>
+            )}
+            <label className="check">
+              <input type="checkbox" checked={emptyWork} onChange={(e) => setEmptyWork(e.target.checked)} />
+              <span>Empty the work list once the run is made</span>
+            </label>
+          </>
+        )}
         {picked.length > 0 && (
           <p className="small run-estimate">
             Estimated time: <strong>{estimateText(estimateOf(picked.map((p) => p.item.id), index))}</strong>
@@ -967,8 +1029,8 @@ function NewRunDialog({ project, onClose, onCreated }: { project: Project; onClo
           />
         </label>
         <p className="muted small">
-          Saved as <code>{runPath(index.config.runs.dir, name.trim() || 'test-run', new Set(project.runs.map((r) => r.path)))}</code> in this repository; commit it like any other
-          change. Results are recorded in it as you go.
+          Saved as <code>{runPath(index.config.runs.dir, name.trim() || 'test-run', new Set(project.runs.map((r) => r.path)))}</code>
+          {project.git ? ' in this repository; commit it like any other change.' : '.'} Results are recorded in it as you go.
         </p>
         <div className="dialog-actions">
           <span className="tool-spacer" />

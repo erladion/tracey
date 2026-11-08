@@ -15,6 +15,7 @@ import { LinkBadge, ResultPill, StatusPill, VariantTag, timeAgo } from './bits';
 import type { RunFocus } from './RunsView';
 import { Dialog } from './Dialog';
 import { CompareDialog } from './Compare';
+import { WorkButton } from './WorkList';
 
 interface Props {
   project: Project;
@@ -47,9 +48,12 @@ export function TracePanel({ project, item, onOpenId, onNewTest, onNewRefinement
 
   return (
     <aside className="trace-panel" aria-label="Traceability">
-      <button type="button" className="button small graph-link" onClick={() => onShowInGraph(item)}>
-        <Icon name="logo" size={14} /> Show in traceability graph
-      </button>
+      <div className="panel-actions">
+        <button type="button" className="button small graph-link" onClick={() => onShowInGraph(item)}>
+          <Icon name="logo" size={14} /> Show in traceability graph
+        </button>
+        <WorkButton project={project} item={item} />
+      </div>
       {builtIn && (
       <section>
         <div className="panel-head">

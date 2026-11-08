@@ -11,6 +11,9 @@ import { METHODS, type Item } from '../../../core/model';
 import type { Project } from '../project';
 import { notify } from '../notify';
 import { ChipInput } from './bits';
+import { addToWork } from './WorkList';
+import { testsFor } from '../../../core/worklist';
+import { Icon } from '../icons';
 
 interface Props {
   project: Project;
@@ -77,7 +80,7 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
 
   const apply = () => {
     for (const [path, c] of changes) project.updateFields(path, c);
-    notify(`Changed ${changes.size} ${changes.size === 1 ? noun : nouns}. Commit them from the bottom bar.`, 'success');
+    notify(`Changed ${changes.size} ${changes.size === 1 ? noun : nouns}.${project.git ? ' Commit them from the bottom bar.' : ''}`, 'success');
     setEdit(emptyEdit());
     setTyped({});
   };
@@ -89,6 +92,15 @@ export function BulkEdit({ project, paths, onOpen, onClear }: Props) {
         <h1>
           {items.length} {items.length === 1 ? noun : nouns} picked
         </h1>
+        <span className="tool-spacer" />
+        <button
+          type="button"
+          className="button"
+          onClick={() => addToWork(project, testsFor(index, items), `No tests to add: ${items.length === 1 ? 'nothing verifies it' : 'nothing verifies these'}.`)}
+          title="Test cases themselves; for requirements and other verified items, the tests verifying them"
+        >
+          <Icon name="plus" size={14} /> Add to work list
+        </button>
         <button type="button" className="button" onClick={onClear}>
           Clear selection
         </button>

@@ -5,6 +5,8 @@ import { checkRules, itemLinks, linksOf, verification, type Item } from '../../.
 import type { Project } from '../project';
 import { Icon } from '../icons';
 import { ShowMore, StatusPill, useShown, VariantTag } from './bits';
+import { addToWork } from './WorkList';
+import { testsFor } from '../../../core/worklist';
 import { listValue, matchesSearch } from '../../../core/fields';
 
 const NONE = '\u0000none';
@@ -167,9 +169,21 @@ export function Sidebar({ project, kind, onKind, selected, onSelect, onNew, pick
             </button>
           </>
         ) : (
-          <button type="button" className="link-button small" onClick={() => setPicking(true)} title="Or Ctrl-click (⌘ on a Mac) and Shift-click in the list">
-            Change several at once…
-          </button>
+          <>
+            <button type="button" className="link-button small" onClick={() => setPicking(true)} title="Or Ctrl-click (⌘ on a Mac) and Shift-click in the list">
+              Change several at once…
+            </button>
+            {(query.trim() || status || component || Object.values(byField).some(Boolean)) && items.length > 0 && (
+              <button
+                type="button"
+                className="link-button small"
+                onClick={() => addToWork(project, testsFor(index, items, query.trim() ? `Found searching “${query.trim()}”` : 'Picked from a filtered list'), 'No tests to add: nothing verifies what’s shown.')}
+                title="Test cases shown; for requirements and other verified items shown, the tests verifying them"
+              >
+                Add the {items.length} shown to work list
+              </button>
+            )}
+          </>
         )}
       </div>
       <ul className="item-list" onKeyDown={move}>

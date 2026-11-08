@@ -211,6 +211,15 @@ fields (`status`, `components`…) can't be declared.
 With a `trace.yml`, only the two directories are read; without one, every Markdown file
 with front matter in the repository is.
 
+### Without git
+
+A folder that isn't a git repository opens too: editing, coverage, the graph, test
+runs and exports all work, and files are saved as they are. What needs git history
+isn't there: commits, branches and getting the latest, an item's history and change
+marks, **What changed** between versions, and coverage at earlier test runs (only now is
+shown). The bottom bar says "Not a git repository". Run `git init` and commit to have
+them from then on.
+
 ## Editing
 
 The text is edited as formatted text (ProseMirror, after Wysette's editor): headings,
@@ -388,6 +397,20 @@ when all passed. Marking the whole case directly still works. Notes on a case ta
 several lines. The run file keeps steps as small maps inside the case
 (`steps: {1: passed, 2: failed}`, `step-notes:`), so testers on different steps of one
 case merge too.
+
+**The work list.** Collect tests while looking around, then start a run with them or add
+them to one, without knowing their IDs. **Add to work list** is beside every item: a test
+case adds itself; a requirement adds the tests verifying it and those of the requirements
+refining it (any verified item adds its tests). It's also in the graph (the tests in the
+selected node's trace), on several picked items, and under a search in the list ("Add the
+12 shown"). **Work list** at the top shows them, with why each is there: take one off,
+tick several and take them off, or empty it, each with **Undo**. Then **New test run from
+these**, or add them to an existing run; the reasons go into the run. **New test run** and
+a run's **Add test cases** offer the work list too. It's kept on your computer, per
+repository, not in the repository.
+
+**Find a case.** The search box above a run's cases looks in the ID, the title, who
+it's for, the tester and the notes; with thousands of cases, it's the quick way to one.
 
 **Who runs what.** Assign a case to someone in its expanded view, or all the shown
 cases at once (filter first, say To do, then **Assign**). **Assigned → Mine** shows the
@@ -667,6 +690,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   runs.ts         test run files: read, create, record results (per step too); a test case's results; releases
   steps.ts        a test case's steps, from its Steps list
   verdict.ts      results in the matrix: where they come from, each requirement's verdict
+  worklist.ts     the work list: which tests an item stands for
   rename.ts       changing an ID, and everything that names it
   estimate.ts     test case time estimates and run totals
   changes.ts      what changed between two versions, and its document

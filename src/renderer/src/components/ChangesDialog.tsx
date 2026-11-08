@@ -26,6 +26,26 @@ interface Side {
 const LABEL = { added: 'Added', changed: 'Changed', removed: 'Removed' } as const;
 
 export function ChangesDialog({ project, onOpenId, onClose }: { project: Project; onOpenId: (id: string) => void; onClose: () => void }) {
+  // Earlier versions come from git history; a folder outside git has only now.
+  if (!project.git)
+    return (
+      <Dialog title="What changed" onClose={onClose}>
+        <div className="dialog-body">
+          <p>Comparing versions needs git history, and this folder isn’t a git repository: there’s only the version on disk now.</p>
+          <p className="muted small">To compare releases, keep the requirements in git (git init, then commit), and record test runs from then on.</p>
+          <div className="dialog-actions">
+            <span className="tool-spacer" />
+            <button type="button" className="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </div>
+      </Dialog>
+    );
+  return <Changes project={project} onOpenId={onOpenId} onClose={onClose} />;
+}
+
+function Changes({ project, onOpenId, onClose }: { project: Project; onOpenId: (id: string) => void; onClose: () => void }) {
   const repo = project.repo.id;
   // A release's requirements: as the newest of its runs that recorded them.
   const rels = useMemo(

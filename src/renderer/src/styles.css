@@ -3388,3 +3388,51 @@ textarea.note-input {
   gap: 4px 12px;
   padding: 10px 12px;
 }
+
+.run-search {
+  width: 210px;
+}
+
+.work-button .count {
+  margin-left: 6px;
+  color: var(--muted);
+  font-weight: 500;
+}
+.work-button.has .count {
+  color: var(--accent);
+  font-weight: 700;
+}
+.work-list {
+  max-height: 50vh;
+  overflow: auto;
+}
+.work-row {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto minmax(0, 0.8fr) auto;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 4px 0;
+}
+.work-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-reason {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.work-add-run {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

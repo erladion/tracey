@@ -7,6 +7,7 @@ import { parseConfig, typeOf } from '../../core/config';
 import { linkCommits, type LinkedCommit } from '../../core/commits';
 import { readRun, type TestRun } from '../../core/runs';
 import { load, save } from './storage';
+import { addEntries, type WorkEntry } from '../../core/worklist';
 import type { Kind } from '../../core/config';
 import { buildIndex, checkNewId, fingerprint, newItemPath, newItemText, nextId, type Item, type ProjectIndex } from '../../core/model';
 import { decodeText, encodeText, joinFrontMatter, setFields, splitFrontMatter } from '../../core/frontmatter';
@@ -27,6 +28,12 @@ export interface Project {
   git: GitStatus | null;
   saving: boolean;
   pending: boolean; // a large repository: the index hasn't caught up with the last edits yet
+  // The work list: tests collected to run (kept on this computer, per repository).
+  work: WorkEntry[];
+  addWork(entries: WorkEntry[]): number; // how many were new
+  removeWork(ids: string[]): void;
+  clearWork(): void;
+  setWork(entries: WorkEntry[]): void; // the whole list, as it was (undo)
   // The code repository, whose commits name Jira issues.
   code: CodeState;
   commits: LinkedCommit[];
@@ -271,6 +278,22 @@ export function useProject(repo: RepoEntry): Project {
     [indexTexts, config],
   );
   const indexPending = indexTexts !== texts;
+
+  // ---- the work list ----
+  const workKey = `trace.work.${repo.id}`;
+  const [work, setWork] = useState<WorkEntry[]>(() => load<WorkEntry[]>(workKey) ?? []);
+  const workRef = useRef(work);
+  workRef.current = work;
+  useEffect(() => save(workKey, work.length ? work : null), [workKey, work]);
+  const addWork = useCallback((entries: WorkEntry[]) => {
+    const before = workRef.current.length;
+    const next = addEntries(workRef.current, entries);
+    workRef.current = next;
+    setWork(next);
+    return next.length - before;
+  }, []);
+  const removeWork = useCallback((ids: string[]) => setWork((w) => w.filter((e) => !ids.includes(e.id))), []);
+  const clearWork = useCallback(() => setWork([]), []);
   // ---- Jira ----
   const cfg = index.config;
   const server = useMemo<JiraServer | null>(() => (cfg.jiraUrl ? { url: cfg.jiraUrl, api: cfg.jira.api } : null), [cfg.jiraUrl, cfg.jira.api]);
@@ -467,5 +490,5 @@ export function useProject(repo: RepoEntry): Project {
     [repo.id, refreshGit],
   );
 
-  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, pending: indexPending, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
+  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, pending: indexPending, work, addWork, removeWork, clearWork, setWork, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
 }
