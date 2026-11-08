@@ -22,7 +22,7 @@ import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 
 const args = process.argv.slice(2);
 
-if (args[0] === 'import-reqif' || args[0] === 'check') {
+if (['import-reqif', 'check', 'export-needs', 'import-needs'].includes(args[0])) {
   const { runCommand } = await import('../backend/cli');
   process.exit((await runCommand(args, 'node out/server/index.js')) ?? 2);
 }

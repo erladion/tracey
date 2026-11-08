@@ -4,6 +4,9 @@
 //   import-reqif EXPORT.reqifz… --init-map MAP.yml    write a map to edit
 //   import-reqif EXPORT.reqifz… --map MAP.yml --dry-run
 //   import-reqif EXPORT.reqifz… --map MAP.yml [--into DIR] [--force]
+//   export-needs [DIR] [--out needs.json] [--version 1.0] [--project NAME]
+//   import-needs NEEDS.json [--into DIR] [--version V] [--type spec=requirement]… [--link links=refines]…
+//                [--keep-fields a,b] [--dry-run]
 //
 // The DOORS import (ReqIF) takes one export or several (modules exported separately, read
 // as one so the links between them come across). Without --map, it guesses one. It never
@@ -15,6 +18,8 @@ import { readExport } from './reqifz';
 import { readProjectFiles } from './service';
 import { buildIndex, coverage, forVariant } from '../core/model';
 import { formatReport, guessMap, mapToYaml, planImport, readMap } from '../core/doors';
+import { formatNeedsReport, needsJson, planNeedsImport } from '../core/needs';
+import { basename } from 'node:path';
 
 async function allFiles(root: string, dir = root, out = new Set<string>()): Promise<Set<string>> {
   for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
@@ -32,6 +37,8 @@ export async function runCommand(args: string[], self: string): Promise<number |
   try {
     if (args[0] === 'import-reqif') return await importReqif(args, self);
     if (args[0] === 'check') return await check(args[1] ?? '.');
+    if (args[0] === 'export-needs') return await exportNeeds(args);
+    if (args[0] === 'import-needs') return await importNeeds(args, self);
     return null;
   } catch (e) {
     console.error((e as Error).message);
@@ -128,6 +135,73 @@ export async function importReqif(args: string[], self = 'node out/server/index.
     await fs.writeFile(join(into, 'trace.yml'), `# Made by the DOORS import. See README for every option.\n${plan.traceYml}`, { flag: 'wx' });
     console.log('Wrote trace.yml.');
   } else console.log(`\nSettings matching the import (merge into trace.yml):\n${plan.traceYml}`);
+  const shown = relative(process.cwd(), into);
+  console.log(`Done. Check it with: ${self} check ${!shown ? '.' : shown.startsWith('..') ? into : shown}`);
+  return 0;
+}
+
+// Options: --name value, repeatable ones (--type a=b) collected; the rest are positional.
+function options(args: string[], withValue: string[]) {
+  const rest: string[] = [];
+  const values = new Map<string, string[]>();
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i];
+    const name = a.startsWith('--') ? a.slice(2) : null;
+    if (name && withValue.includes(name)) values.set(name, [...(values.get(name) ?? []), args[++i] ?? '']);
+    else if (!name) rest.push(a);
+  }
+  const pairs = (name: string) =>
+    Object.fromEntries(
+      (values.get(name) ?? []).map((v) => {
+        const [k, ...to] = v.split('=');
+        return [k.trim(), to.join('=').trim()];
+      }),
+    );
+  return { rest, one: (name: string) => values.get(name)?.at(-1), pairs, flag: (name: string) => args.includes(`--${name}`) };
+}
+
+export async function exportNeeds(args: string[]): Promise<number> {
+  const o = options(args, ['out', 'version', 'project']);
+  const dir = resolve(o.rest[0] ?? '.');
+  const { config, files } = await readProjectFiles(dir);
+  const index = buildIndex(files, config);
+  const text = needsJson(index, { project: o.one('project') ?? basename(dir), version: o.one('version') });
+  const out = o.one('out') ?? 'needs.json';
+  if (out === '-') process.stdout.write(text);
+  else {
+    await fs.writeFile(resolve(out), text);
+    console.log(`Wrote ${out}: ${index.items.length} needs.`);
+  }
+  return 0;
+}
+
+export async function importNeeds(args: string[], self = 'node out/server/index.js'): Promise<number> {
+  const o = options(args, ['into', 'version', 'type', 'link', 'keep-fields']);
+  if (!o.rest.length) {
+    console.error(`Usage: ${self} import-needs NEEDS.json [--into DIR] [--version V] [--type NEEDTYPE=TYPE]… [--link FIELD=LINK]… [--keep-fields a,b] [--dry-run]`);
+    return 2;
+  }
+  const into = resolve(o.one('into') ?? '.');
+  const { config, files } = existsSync(into) ? await readProjectFiles(into) : { config: null, files: [] };
+  const index = buildIndex(files, config);
+  const plan = planNeedsImport(await fs.readFile(resolve(o.rest[0]), 'utf8'), index, {
+    version: o.one('version'),
+    types: o.pairs('type'),
+    links: o.pairs('link'),
+    keepFields: (o.one('keep-fields') ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    existingPaths: await allFiles(into),
+  });
+  console.log(formatNeedsReport(plan.report, index.config));
+  console.log(`\n${plan.files.size} files to write into ${into}.`);
+  if (o.flag('dry-run')) {
+    console.log('Dry run: nothing written.');
+    return 0;
+  }
+  for (const [path, data] of plan.files) {
+    const full = join(into, path);
+    await fs.mkdir(dirname(full), { recursive: true });
+    await fs.writeFile(full, data, { flag: 'wx' });
+  }
   const shown = relative(process.cwd(), into);
   console.log(`Done. Check it with: ${self} check ${!shown ? '.' : shown.startsWith('..') ? into : shown}`);
   return 0;

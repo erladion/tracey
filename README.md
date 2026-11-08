@@ -470,6 +470,40 @@ leaves out obsolete items unless asked.
   no macros.
 - **CSV**: one of those tables, as UTF-8 that Excel opens correctly. A cell that starts
   with `=`, `+`, `-` or `@` gets a leading `'`, so it can't run as a formula.
+- **needs.json**: everything for Sphinx-Needs (below).
+
+## Sphinx-Needs: needs.json
+
+Tracey writes and reads the `needs.json` that Sphinx-Needs' `needs` builder writes and
+its `needimport` directive reads (format 1), so a Sphinx documentation build can show
+Tracey's items, and needs from a Sphinx project can come into Tracey.
+
+```sh
+tracey export-needs [DIR] --out needs.json --version 2.4         # also: Coverage → Export… → needs.json
+tracey import-needs needs.json --into DIR --dry-run               # see what it would do
+tracey import-needs needs.json --into DIR --type spec=requirement --link links=refines
+```
+
+(`tracey` is `node out/server/index.js`, or the desktop app: `./Tracey.AppImage export-needs …`.)
+
+- **Export:** each item is a need with its `id`, `type` (`req` for requirements, `test`
+  for test cases, a declared type's key), `type_name`, `title`, `status`, `tags` (its
+  components), `content` (the Markdown text, as written: a MyST project reads it as is),
+  `docname` (its file), a list per link type (`verifies`, `refines`, `mitigates`…) and
+  `<link>_back` for the other direction, and its fields. In Sphinx, declare the link
+  types (`needs_extra_links` or `needs_links`) and fields to use them there.
+- **Import:** needs become items by type: `req` → requirement, `test` → test case, a
+  declared type by key or name, others as `--type` says (or left out, and reported).
+  Links come in by field: one named after a link type is that link type; Sphinx-Needs'
+  generic `links` (or any other) becomes the one link type that fits the two items'
+  types, or what `--link` says. Text comes from `content` (or `description`, before
+  Sphinx-Needs 4), kept as written: reStructuredText isn't converted, and the report
+  says how many look like it. Tags that are components become components, the rest a
+  `tags` field. Fields Tracey or `trace.yml` knows come in; others are left out and
+  listed, unless `--keep-fields` names them.
+- Links come in reviewed against the text as imported: a needs.json doesn't say what was
+  reviewed. IDs already in the repository are left as they are; links to them still
+  come in. Nothing is overwritten.
 
 ## Test results in the traceability matrix
 
@@ -600,6 +634,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   trend.ts        coverage and results at each test run
   reqif.ts        ReqIF (DOORS exports); xml.ts reads XML, xhtml.ts turns its rich text into Markdown
   doors.ts        the DOORS import: the map, the files, the report
+  needs.ts        Sphinx-Needs needs.json: export, and import with its report
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end

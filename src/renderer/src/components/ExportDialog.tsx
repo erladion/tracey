@@ -1,10 +1,11 @@
-// Export the requirements and test cases: a PDF document, an Excel workbook, or one
-// table as CSV.
+// Export the requirements and test cases: a PDF document, an Excel workbook, one table
+// as CSV, or everything as a Sphinx-Needs needs.json.
 import { useState } from 'react';
 import type { Project } from '../project';
 import { specHtml } from '../../../core/specdoc';
 import { slug, type Item } from '../../../core/model';
 import { customTypes } from '../../../core/config';
+import { needsJson } from '../../../core/needs';
 import { tables, TABLE_LABEL, type TableKey } from '../../../core/spreadsheet';
 import { csv, xlsx } from '../../../core/xlsx';
 import { imageUrl, savePdf } from '../pdf';
@@ -16,12 +17,13 @@ import { Dialog } from './Dialog';
 import { SourceSelect } from './ResultSource';
 import { describeSource, sourceName, sourceRuns, type ResultSource } from '../../../core/verdict';
 
-type Format = 'pdf' | 'xlsx' | 'csv';
+type Format = 'pdf' | 'xlsx' | 'csv' | 'needs';
 
 const FORMATS: [Format, string][] = [
   ['pdf', 'PDF document'],
   ['xlsx', 'Excel workbook'],
   ['csv', 'CSV'],
+  ['needs', 'needs.json'],
 ];
 
 const ALL_SHEETS: TableKey[] = ['requirements', 'testcases', 'others', 'matrix', 'runs', 'results', 'trend'];
@@ -51,6 +53,8 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
   const [sheets, setSheets] = useState<Set<TableKey>>(() => new Set(SHEETS));
   const [csvTable, setCsvTable] = useState<TableKey>('requirements');
   const [obsolete, setObsolete] = useState(false);
+  const [needsVersion, setNeedsVersion] = useState('1.0');
+  const [needsProject, setNeedsProject] = useState(repo.name);
   const [component, setComponent] = useState('');
   const [busy, setBusy] = useState(false);
   // Test results in the matrix: as chosen on the Coverage screen, unless changed here.
@@ -108,7 +112,9 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
   const exportIt = async () => {
     setBusy(true);
     try {
-      await (format === 'pdf' ? exportPdf() : exportTables());
+      if (format === 'needs')
+        download(`${fileName}.needs.json`, needsJson(index, { project: needsProject.trim() || repo.name, version: needsVersion.trim() || '1.0', obsolete }), 'application/json');
+      else await (format === 'pdf' ? exportPdf() : exportTables());
       onClose();
     } catch (e) {
       notify(`Couldn’t export: ${(e as Error).message}`, 'error');
@@ -138,11 +144,24 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
             </button>
           ))}
         </div>
-        {format !== 'csv' && (
+        {format === 'needs' && (
+          <p className="muted small">
+            Every item, with its links both ways, as Sphinx-Needs reads it (<code>needimport</code>): requirements are type <code>req</code>, test cases <code>test</code>, other
+            types keep their key, and components become tags.
+          </p>
+        )}
+        {format === 'needs' ? (
           <label className="field">
-            <span>{format === 'pdf' ? 'Title' : 'Name'}</span>
-            <input value={title} onChange={(e) => setTitle(e.target.value)} />
+            <span>Project</span>
+            <input value={needsProject} onChange={(e) => setNeedsProject(e.target.value)} />
           </label>
+        ) : (
+          format !== 'csv' && (
+            <label className="field">
+              <span>{format === 'pdf' ? 'Title' : 'Name'}</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+          )
         )}
         {format === 'pdf' && (
           <div className="stack tight">
@@ -182,14 +201,20 @@ export function ExportDialog({ project, source: initialSource, onClose }: { proj
             </select>
           </label>
         )}
-        {project.runs.length > 0 && (format === 'pdf' ? matrix : format === 'xlsx' ? sheets.has('matrix') : csvTable === 'matrix') && (
+        {project.runs.length > 0 && (format === 'pdf' ? matrix : format === 'xlsx' ? sheets.has('matrix') : format === 'csv' && csvTable === 'matrix') && (
           <label className="field">
             <span>Test results in the matrix</span>
             <SourceSelect runs={project.runs} value={source} onChange={setSource} />
           </label>
         )}
+        {format === 'needs' && (
+          <label className="field">
+            <span>Version</span>
+            <input value={needsVersion} onChange={(e) => setNeedsVersion(e.target.value)} placeholder="1.0" />
+          </label>
+        )}
         <div className="stack tight">{check('Include obsolete items', obsolete, setObsolete)}</div>
-        {components.length > 0 && (
+        {components.length > 0 && format !== 'needs' && (
           <label className="field">
             <span>Component</span>
             <select value={component} onChange={(e) => setComponent(e.target.value)}>
