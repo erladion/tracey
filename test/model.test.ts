@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex, checkNewId, coverage, fingerprint, globToRegExp, linkState, newItemPath, newItemText, nextId } from '../src/core/model';
+import { buildIndex, checkNewId, componentsForPath, coverage, fingerprint, globToRegExp, linkState, newItemPath, newItemText, nextId } from '../src/core/model';
 import { setFields, splitFrontMatter } from '../src/core/frontmatter';
 
 const req = `---
@@ -83,5 +83,18 @@ describe('model', () => {
     expect(globToRegExp('src/payments/**').test('src/payments/a/b.ts')).toBe(true);
     expect(globToRegExp('src/**/*.ts').test('src/x.ts')).toBe(true);
     expect(globToRegExp('src/*.ts').test('src/a/x.ts')).toBe(false);
+  });
+
+  it('leaves out of a component the paths its ! patterns name', () => {
+    const components = [
+      { key: 'payments', name: 'Payments', paths: ['src/payments/**', '!src/payments/refunds/**'] },
+      { key: 'refunds', name: 'Refunds', paths: ['src/payments/refunds/**'] },
+      { key: 'everything', name: 'Everything', paths: ['src/**'] },
+    ];
+    const keys = (f: string) => componentsForPath(f, components).map((c) => c.key);
+    expect(keys('src/payments/card.ts')).toEqual(['payments', 'everything']);
+    expect(keys('src/payments/refunds/full.ts')).toEqual(['refunds', 'everything']);
+    // Only exclusions: nothing.
+    expect(componentsForPath('src/a.ts', [{ key: 'x', name: 'X', paths: ['!src/b/**'] }])).toEqual([]);
   });
 });

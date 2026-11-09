@@ -690,6 +690,9 @@ export function globToRegExp(pattern: string): RegExp {
   return new RegExp(`^${re}$`);
 }
 
+// A component's paths: patterns it covers, and (starting with !) parts of those it doesn't,
+// as `["src/payments/**", "!src/payments/refunds/**"]` when refunds is its own component.
 export function componentsForPath(path: string, components: Component[]): Component[] {
-  return components.filter((c) => c.paths.some((p) => globToRegExp(p).test(path)));
+  const hit = (p: string) => globToRegExp(p).test(path);
+  return components.filter((c) => c.paths.some((p) => !p.startsWith('!') && hit(p)) && !c.paths.some((p) => p.startsWith('!') && hit(p.slice(1))));
 }

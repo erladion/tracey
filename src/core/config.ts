@@ -459,7 +459,9 @@ testcases:
   digits: 3
 statuses: [draft, review, approved, obsolete]
 testcaseStatuses: [draft, ready, obsolete]
-# Components: path patterns into the code, so changed files map to test cases.
+# Components: path patterns into the code, so changed files map to test cases. A pattern
+# starting with ! leaves a part out (a part that's a component of its own):
+#   paths: ["src/payments/**", "!src/payments/refunds/**"]
 components:
   payments:
     name: Payments
