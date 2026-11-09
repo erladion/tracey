@@ -347,6 +347,13 @@ Tokens: everyone uses their own, so Jira shows what each person may see.
   `TRACE_JIRA_EMAIL` for Cloud) is an optional shared token for people who haven't added
   their own; Settings says when it's in use.
 
+Reaching Jira: the desktop app connects like a browser on that computer would, with
+the certificates the system trusts (a company's own certificate authority) and its proxy
+settings. The web server connects with Node's: for a company certificate authority,
+start it with `NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem`. When Jira can't be
+reached, Settings says why: an unknown name (VPN?), no answer, or an untrusted
+certificate.
+
 With Jira connected, issues show their summary, status and fix versions, and a test
 run can cover a **fix version** (alone, or with a range of code versions).
 

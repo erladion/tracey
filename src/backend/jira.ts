@@ -17,6 +17,9 @@ export interface JiraCredentials {
   allowed(url: string): boolean; // whether requests may go to this server at all
   get(url: string): Promise<JiraAuth | null>;
   set(url: string, auth: JiraAuth | null): Promise<void>;
+  // How requests go out: the desktop app's goes through Chromium's network stack, which
+  // trusts the certificates the operating system trusts and uses its proxy settings.
+  fetch?: typeof fetch;
 }
 
 export const normalizeUrl = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase();
@@ -29,6 +32,29 @@ export function envAuth(url: string): JiraAuth | null {
 }
 
 class JiraError extends Error {}
+
+// Why a request got no answer, in words. Node says only "fetch failed" and keeps the
+// reason in `cause`; Chromium (the desktop app) says net::ERR_….
+export function reachError(e: unknown, base: string, desktop: boolean): string {
+  const err = e as Error & { cause?: { code?: string; message?: string } };
+  const code = err.cause?.code ?? /net::(ERR_[A-Z_]+)/.exec(err.message)?.[1] ?? '';
+  const detail = err.cause?.message && err.cause.message !== err.message ? `${err.message}: ${err.cause.message}` : err.message;
+  const why =
+    err.name === 'TimeoutError' || /TIMEOUT|TIMED_OUT/.test(code)
+      ? 'No answer within a minute. Is a VPN needed to reach it?'
+      : /ENOTFOUND|EAI_AGAIN|NAME_NOT_RESOLVED/.test(code)
+        ? 'That name isn’t known on this network: check jira.url in trace.yml, and whether a VPN is needed.'
+        : /ECONNREFUSED|CONNECTION_REFUSED/.test(code)
+          ? 'Nothing answers at that address: check jira.url (and its port) in trace.yml.'
+          : /CERT|SELF_SIGNED|UNABLE_TO_|ISSUER|SSL|TLS/.test(code)
+            ? desktop
+              ? 'Its certificate isn’t one this computer trusts: the company’s certificate authority may need installing (ask IT).'
+              : 'Its certificate isn’t one Node trusts: start the server with NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem.'
+            : /PROXY|TUNNEL/.test(code)
+              ? 'The proxy refused or failed: check the proxy settings.'
+              : '';
+  return `Couldn't reach Jira at ${base}: ${detail}${code && !detail.includes(code) ? ` (${code})` : ''}.${why ? ` ${why}` : ''}`;
+}
 
 function check(server: JiraServer): string {
   if (!/^https?:\/\/[^\s/]+/.test(server.url)) throw new JiraError('Set jira.url in trace.yml to the address of your Jira (https://…).');
@@ -50,7 +76,7 @@ export function createJira(creds: JiraCredentials) {
     if (init.body) headers['Content-Type'] = 'application/json';
     let res: Response;
     try {
-      res = await fetch(`${base}/rest/api/${server.api}${path}`, {
+      res = await (creds.fetch ?? fetch)(`${base}/rest/api/${server.api}${path}`, {
         method: init.method ?? 'GET',
         headers,
         body: init.body ? JSON.stringify(init.body) : undefined,
@@ -58,7 +84,7 @@ export function createJira(creds: JiraCredentials) {
         redirect: 'error',
       });
     } catch (e) {
-      throw new JiraError(`Couldn't reach Jira at ${base}: ${(e as Error).message}`);
+      throw new JiraError(reachError(e, base, creds.storedIn === 'computer'));
     }
     if (res.status === 401) throw new JiraError('Jira refused the token (401). Check it, and that it hasn’t expired.');
     if (res.status === 403) throw new JiraError('Jira said no (403): the token’s user may lack permission, or Jira wants a CAPTCHA after failed logins.');

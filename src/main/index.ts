@@ -105,6 +105,9 @@ const desktopJira: JiraCredentials = {
   canStore: true,
   storedIn: 'computer',
   allowed: () => true,
+  // Chromium's network stack, as a browser on this computer: the certificates the system
+  // trusts (a company's own certificate authority) and its proxy settings.
+  fetch: (url, init) => net.fetch(String(url), init),
   async get(url) {
     const env = envAuth(url);
     if (env) return env;
