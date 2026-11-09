@@ -60,8 +60,17 @@ jobs:
         shell: bash
         run: npm version --no-git-tag-version --allow-same-version "${GITHUB_REF_NAME#v}"
       - run: npm run build
+      # electron-builder downloads its tools while packaging; a server's hiccup (a 504)
+      # shouldn't fail the release, so it gets three tries.
       - name: Installer
-        run: npx electron-builder ${{ matrix.target }} --publish never
+        shell: bash
+        run: |
+          for try in 1 2 3; do
+            npx electron-builder ${{ matrix.target }} --publish never && exit 0
+            echo "Packaging failed (try $try); trying again in 30 seconds."
+            sleep 30
+          done
+          exit 1
       - uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.os }}
