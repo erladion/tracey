@@ -2170,8 +2170,9 @@ h3 {
   text-decoration: line-through;
 }
 /* The selected node: filled, with a ring around it. Those it traces to: blue edges. */
-.gnode.selected,
-.gnode.selected:hover {
+/* Doubled, to win over the node types' own looks (commits come later in this file). */
+.gnode.selected.selected,
+.gnode.selected.selected:hover {
   background: var(--accent);
   border: 2px solid var(--accent);
   color: var(--on-accent);
