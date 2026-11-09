@@ -1,6 +1,6 @@
 // The desktop app: one window, the shared back end over IPC, and the folders the
 // user has opened (most recent first) in the app's settings.
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, safeStorage, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, safeStorage, session, shell } from 'electron';
 import { existsSync, promises as fs, statSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -101,13 +101,28 @@ async function readTokens(): Promise<Record<string, string>> {
     return {};
   }
 }
+// A session of its own for Jira's REST API, sending what an API client (curl) would: no
+// browser User-Agent, no Sec-Fetch headers, no cookies.
+let jiraSes: Electron.Session | null = null;
+function jiraSession(): Electron.Session {
+  if (jiraSes) return jiraSes;
+  const ses = session.fromPartition('tracey-jira');
+  ses.setUserAgent(`Tracey/${app.getVersion()}`);
+  ses.webRequest.onBeforeSendHeaders((details, done) => {
+    const headers = Object.fromEntries(Object.entries(details.requestHeaders).filter(([k]) => !/^sec-fetch-|^sec-ch-|^accept-language$/i.test(k)));
+    done({ requestHeaders: headers });
+  });
+  return (jiraSes = ses);
+}
+
 const desktopJira: JiraCredentials = {
   canStore: true,
   storedIn: 'computer',
   allowed: () => true,
   // Chromium's network stack, as a browser on this computer: the certificates the system
-  // trusts (a company's own certificate authority) and its proxy settings.
-  fetch: (url, init) => net.fetch(String(url), init),
+  // trusts (a company's own certificate authority) and its proxy settings. But not as a
+  // browser to Jira, which treats those more strictly than API clients (403).
+  fetch: (url, init) => jiraSession().fetch(String(url), init),
   async get(url) {
     const env = envAuth(url);
     if (env) return env;
