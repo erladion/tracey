@@ -13,7 +13,10 @@ if (process.env.TRACE_USER_DATA) app.setPath('userData', process.env.TRACE_USER_
 
 // Run from a terminal with a command (`Tracey.AppImage import-reqif …`, `… check`), the
 // app does that and exits, without a window. A mistyped command says so instead of opening.
-const command = desktopCommand(process.argv.slice(app.isPackaged ? 1 : 2));
+// Run from source (`electron [switches] . [args]`), the app's folder is among them: not a command.
+const argv = process.argv.slice(1);
+if (!app.isPackaged) argv.splice(Math.max(0, argv.findIndex((a) => !a.startsWith('-'))), 1);
+const command = desktopCommand(argv);
 const isCommand = command !== null;
 if (command) {
   // An AppImage runs from its own mount; OWD is the folder it was started in.
