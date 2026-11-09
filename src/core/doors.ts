@@ -39,8 +39,8 @@ export interface DoorsMap {
 
 export interface ImportReport {
   title: string;
-  modules: { name: string; kind: ModuleMap['kind']; dir: string; prefix: string; items: number; headings: number; notes: number; empty: number }[];
-  links: { verifies: number; refines: number; dangling: number; ignored: Record<string, number>; odd: string[] };
+  modules: { name: string; kind: ModuleMap['kind']; dir: string; prefix: string; items: number; headings: number; notes: number; empty: number; steps: number }[];
+  links: { verifies: number; refines: number; steps: number; dangling: number; ignored: Record<string, number>; odd: string[] };
   images: { copied: number; missing: string[]; notShown: string[] };
   statuses: { value: string; kind: Kind; status: string; count: number; known: boolean }[];
   unknownVariants: string[];
@@ -48,6 +48,7 @@ export interface ImportReport {
   duplicates: string[];
   generatedIds: string[];
   unmappedAttributes: string[];
+  missingAttributes: string[]; // named in the map, but no object has them
 }
 
 export interface ImportPlan {
@@ -250,6 +251,7 @@ interface Planned {
   keep: Record<string, unknown>;
   verifies: string[];
   refines: string[];
+  steps: string[];
   path: string;
 }
 
@@ -296,7 +298,7 @@ export function planImport(
   const report: ImportReport = {
     title: reqif.title,
     modules: [],
-    links: { verifies: 0, refines: 0, dangling: 0, ignored: {}, odd: [] },
+    links: { verifies: 0, refines: 0, steps: 0, dangling: 0, ignored: {}, odd: [] },
     images: { copied: 0, missing: [], notShown: [] },
     statuses: [],
     unknownVariants: [],
@@ -304,6 +306,7 @@ export function planImport(
     duplicates: [],
     generatedIds: [],
     unmappedAttributes: [],
+    missingAttributes: [],
   };
   const taken = new Set([...(opts.existingPaths ?? [])]);
   const unique = (p: string) => {
@@ -352,9 +355,56 @@ export function planImport(
       .join('\n\n');
   };
 
+  // What an object becomes: a heading, information, nothing, or an item of its own.
+  const roleOf = (o: ReqifObject) => {
+    const text = firstValue(o, map.attributes.text);
+    const title = firstValue(o, map.attributes.title);
+    if (map.types.heading.includes(o.type) || (!!title && !text && !map.types.note.includes(o.type))) return 'heading';
+    if (map.types.note.includes(o.type)) return 'note';
+    return text || title ? 'item' : 'empty';
+  };
+
+  // Test steps: in a test-case module, an object linked to another object of the same
+  // module is a step of it (step → test case, or the other way for a type under
+  // `reversed`). Steps go in their test case's Steps list instead of files of their own.
+  const specOf = new Map<string, number>();
+  reqif.specs.forEach((s, i) => walkSpec(s).forEach((w) => specOf.set(w.object, i)));
+  const stepParents = new Map<string, string[]>(); // step object → its test cases' objects
+  const stepLinks = new Set<(typeof reqif.relations)[number]>();
+  for (const r of reqif.relations) {
+    if (!map.links.verifies.includes(r.type) && !map.links.refines.includes(r.type)) continue;
+    const i = specOf.get(r.source);
+    if (i === undefined || i !== specOf.get(r.target) || map.modules[reqif.specs[i].name]?.kind !== 'testcase') continue;
+    const [step, tc] = map.links.reversed.includes(r.type) ? [r.target, r.source] : [r.source, r.target];
+    const so = reqif.objects.get(step);
+    const to = reqif.objects.get(tc);
+    if (step === tc || !so || !to || roleOf(so) !== 'item' || roleOf(to) !== 'item') continue;
+    const parents = stepParents.get(step) ?? stepParents.set(step, []).get(step)!;
+    if (!parents.includes(tc)) parents.push(tc);
+    stepLinks.add(r);
+  }
+  // A step of a step belongs to the test case at the top; a loop of steps stays as it is.
+  for (const [step, parents] of stepParents) {
+    const top = new Set<string>();
+    for (const p of parents) {
+      const seen = new Set([step]);
+      const climb = (x: string): void => {
+        if (seen.has(x)) return;
+        seen.add(x);
+        const up = stepParents.get(x);
+        if (up) up.forEach(climb);
+        else top.add(x);
+      };
+      climb(p);
+    }
+    stepParents.set(step, [...top]);
+  }
+  for (const [step, parents] of stepParents) if (!parents.length) stepParents.delete(step);
+  const stepText = new Map<string, string>(); // in the module's order
+
   reqif.specs.forEach((spec) => {
     const m = map.modules[spec.name] ?? { kind: 'skip', dir: '', prefix: '' };
-    const row = { name: spec.name, kind: m.kind, dir: m.dir, prefix: m.prefix, items: 0, headings: 0, notes: 0, empty: 0 };
+    const row = { name: spec.name, kind: m.kind, dir: m.dir, prefix: m.prefix, items: 0, headings: 0, notes: 0, empty: 0, steps: 0 };
     report.modules.push(row);
     if (m.kind === 'skip') return;
     const kind = m.kind;
@@ -370,8 +420,8 @@ export function planImport(
       headingAt.length = w.depth - 1;
       const textValue = firstValue(o, map.attributes.text);
       const titleValue = firstValue(o, map.attributes.title);
-      const isHeading = map.types.heading.includes(o.type) || (!!titleValue && !textValue && !map.types.note.includes(o.type));
-      if (isHeading) {
+      const role = roleOf(o);
+      if (role === 'heading') {
         counters.length = w.depth;
         counters[w.depth - 1] = (counters[w.depth - 1] ?? 0) + 1;
         const number = Array.from({ length: w.depth }, (_, i) => counters[i] ?? 1).join('.');
@@ -382,7 +432,7 @@ export function planImport(
         row.headings++;
         continue;
       }
-      if (map.types.note.includes(o.type)) {
+      if (role === 'note') {
         const md = markdownOf(textValue ?? titleValue, spec.base, m.dir, `${slug(spec.name)}-note-${row.notes + 1}`);
         if (md) {
           outline.push(md);
@@ -391,12 +441,19 @@ export function planImport(
         }
         continue;
       }
-      if (!textValue && !titleValue) {
+      if (role === 'empty') {
         row.empty++;
         continue;
       }
-      // An item.
       const raw = firstValue(o, map.attributes.id)?.text.trim() ?? '';
+      if (stepParents.has(o.id)) {
+        // A step: one line in its test case's list.
+        const md = markdownOf(textValue ?? titleValue, spec.base, m.dir, `${m.prefix}${raw || 'step'}`);
+        stepText.set(o.id, md.replace(/\\\n/g, ' ').replace(/\s*\n+\s*/g, ' ').trim());
+        row.steps++;
+        continue;
+      }
+      // An item.
       let id = /^\d+$/.test(raw) ? `${m.prefix}${raw}` : /^[A-Za-z0-9][\w.-]*$/.test(raw) ? raw : '';
       if (!id) {
         let n = 1;
@@ -419,7 +476,7 @@ export function planImport(
       }
       const listOf = (attr: string | null, values: Record<string, string>, known: Set<string>, unknown: string[]) => {
         const v = attr ? o.values.get(attr) : undefined;
-        const names = v ? (v.enums ?? v.text.split(/[,;]\s*/)).map((s) => s.trim()).filter(Boolean) : [];
+        const names = v ? (v.enums ?? v.text.split(/[,;\n]\s*/)).map((s) => s.trim()).filter(Boolean) : [];
         return names.map((nm) => {
           const key = values[nm] ?? slug(nm);
           if (known.size && !known.has(key) && !unknown.includes(key)) unknown.push(key);
@@ -447,6 +504,7 @@ export function planImport(
         keep,
         verifies: [],
         refines: [],
+        steps: [],
         path: unique(`${m.dir ? m.dir + '/' : ''}${id}${slug(title) ? '-' + slug(title) : ''}.md`),
       };
       items.push(p);
@@ -462,6 +520,15 @@ export function planImport(
     files.set(unique(`${m.dir ? m.dir + '/' : ''}${sameDir ? slug(spec.name) || 'module' : 'README'}.md`), readme);
   });
 
+  // The steps, in the module's order, into their test cases.
+  for (const [step, text] of stepText)
+    for (const p of stepParents.get(step)!) {
+      const tc = byObject.get(p);
+      if (tc && text) tc.steps.push(text);
+    }
+  for (const it of items)
+    if (it.steps.length) it.body = [it.body, `## Steps\n\n${it.steps.map((s, i) => `${i + 1}. ${s}`).join('\n')}`].filter(Boolean).join('\n\n');
+
   // Links.
   for (const r of reqif.relations) {
     const verify = map.links.verifies.includes(r.type);
@@ -470,12 +537,23 @@ export function planImport(
       report.links.ignored[r.type || '(no type)'] = (report.links.ignored[r.type || '(no type)'] ?? 0) + 1;
       continue;
     }
-    const a = byObject.get(r.source);
-    const b = byObject.get(r.target);
-    if (!a || !b) {
-      report.links.dangling++;
+    if (stepLinks.has(r)) {
+      report.links.steps++;
       continue;
     }
+    // A step's other links are its test case's.
+    const ends = (id: string) => (stepParents.has(id) ? stepParents.get(id)!.map((p) => byObject.get(p)) : [byObject.get(id)]);
+    for (const a of ends(r.source))
+      for (const b of ends(r.target)) {
+        if (!a || !b) {
+          report.links.dangling++;
+          continue;
+        }
+        if (a !== b) link(r, a, b, refine);
+      }
+  }
+
+  function link(r: (typeof reqif.relations)[number], a: Planned, b: Planned, refine: boolean) {
     if (a.kind !== b.kind) {
       // A test case and a requirement: the test verifies it, whichever way DOORS drew it.
       const [test, req] = a.kind === 'testcase' ? [a, b] : [b, a];
@@ -523,6 +601,15 @@ export function planImport(
 
   report.statuses = [...statusCount.values()].map((s) => ({ ...s, known: (s.kind === 'testcase' ? config.testcaseStatuses : config.statuses).includes(s.status) }));
   report.unmappedAttributes = [...allAttrs].filter((a) => !usedAttrs.has(a) && !SYSTEM_ATTR.test(a)).sort();
+  // A name mistyped in the map would otherwise just leave the field empty.
+  const exported = new Set([...reqif.objects.values()].flatMap((o) => [...o.values.keys()]));
+  const named: [string, string | null][] = [
+    ['status', map.attributes.status],
+    ['variants', map.attributes.variants],
+    ['components', map.attributes.components],
+    ...map.attributes.keep.map((k): [string, string] => ['keep', k]),
+  ];
+  report.missingAttributes = named.filter(([, a]) => a && !exported.has(a)).map(([k, a]) => `${k}: “${a}”`);
 
   // trace.yml settings matching the import.
   const used = (k: Kind) => Object.values(map.modules).filter((x) => x.kind === k);
@@ -555,9 +642,9 @@ export function formatReport(r: ImportReport): string {
     lines.push(
       m.kind === 'skip'
         ? `  ${m.name}: skipped`
-        : `  ${m.name} → ${m.dir}/ (${m.kind === 'requirement' ? 'requirements' : 'test cases'}, ${m.prefix}…): ${plural(m.items, 'item', 'items')}, ${plural(m.headings, 'heading', 'headings')}, ${plural(m.notes, 'information object', 'information objects')}${m.empty ? `, ${plural(m.empty, 'empty object', 'empty objects')} left out` : ''}`,
+        : `  ${m.name} → ${m.dir}/ (${m.kind === 'requirement' ? 'requirements' : 'test cases'}, ${m.prefix}…): ${plural(m.items, 'item', 'items')}, ${plural(m.headings, 'heading', 'headings')}, ${plural(m.notes, 'information object', 'information objects')}${m.steps ? `, ${plural(m.steps, 'test step', 'test steps')} (in their test cases)` : ''}${m.empty ? `, ${plural(m.empty, 'empty object', 'empty objects')} left out` : ''}`,
     );
-  lines.push('', `Links: ${r.links.verifies} verifies, ${r.links.refines} refines${r.links.dangling ? `, ${plural(r.links.dangling, 'link', 'links')} to objects outside the import (left out)` : ''}.`);
+  lines.push('', `Links: ${r.links.verifies} verifies, ${r.links.refines} refines${r.links.steps ? `, ${r.links.steps} from test steps to their test cases` : ''}${r.links.dangling ? `, ${plural(r.links.dangling, 'link', 'links')} to objects outside the import (left out)` : ''}.`);
   for (const [t, n] of Object.entries(r.links.ignored)) lines.push(`  Link type “${t}” not mapped: ${n} links left out.`);
   for (const o of r.links.odd) lines.push(`  Left out: ${o}`);
   lines.push(`Pictures: ${r.images.copied} copied.`);
@@ -571,6 +658,7 @@ export function formatReport(r: ImportReport): string {
   if (r.unknownComponents.length) lines.push(`Components not in trace.yml yet: ${r.unknownComponents.join(', ')}`);
   if (r.generatedIds.length) lines.push(`IDs made up (objects without an ID): ${r.generatedIds.join(', ')}`);
   if (r.duplicates.length) lines.push(`Duplicate IDs (fix before committing): ${[...new Set(r.duplicates)].join(', ')}`);
+  if (r.missingAttributes.length) lines.push(`Not in the export (check the names in the map's attributes): ${r.missingAttributes.join(', ')}`);
   if (r.unmappedAttributes.length) lines.push(`Attributes not copied (add them under attributes.keep to keep them): ${r.unmappedAttributes.join(', ')}`);
   return lines.join('\n');
 }

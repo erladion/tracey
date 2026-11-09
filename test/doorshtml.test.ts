@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { allElements, parseHtml, textLines } from '../src/core/html';
 import { readDoorsHtml } from '../src/core/doorshtml';
-import { guessMap, planImport } from '../src/core/doors';
+import { formatReport, guessMap, planImport } from '../src/core/doors';
 import { parseConfig } from '../src/core/config';
 import { buildIndex, coverage } from '../src/core/model';
 import { readProjectFiles } from '../src/backend/service';
@@ -110,6 +110,49 @@ describe('DOORS modules exported as HTML', () => {
     expect(plan.files.get('requirements/README.md')).toContain('## 1 Payments');
     expect(plan.files.get('requirements/README.md')).toContain('### 1.1 Invoices');
     expect(plan.files.get('tests/README.md')).toContain('## 1 Retry');
+  });
+
+  it('puts test steps (linked to their test case in the same module) in the test case’s Steps list', () => {
+    const steps = readDoorsHtml([
+      { name: 'reqs.htm', html: REQS, key: 'f0' },
+      {
+        name: 'runs.htm',
+        key: 'f1',
+        html: `<html><head><title>Payment Tests</title></head><body><table>
+<tr><th>Absolute Number<th>Payment Tests<th>Links
+<tr><td>30<td><b>1 Retry</b><td>
+<tr><td>31<td>Retry on a gateway timeout<td>System Requirements: 2
+<tr><td>32<td>Make the gateway <b>time out</b><td>31
+<tr><td>33<td><p>Pay an invoice<p>with tax<td>31<br>System Requirements: 5
+<tr><td>34<td>Check there are three retries<td>31
+<tr><td>35<td>Invoice tax line<td>System Requirements: 5
+</table></body></html>`,
+      },
+    ]);
+    const map = guessMap(steps.reqif, config);
+    const plan = planImport(steps.reqif, map, config, { attachment: () => null });
+    const file = (start: string) => [...plan.files].find(([p]) => p.startsWith(start))?.[1] as string | undefined;
+    const tc31 = file('tests/TC-31-')!;
+    expect(tc31).toContain('## Steps\n\n1. Make the gateway **time out**\n2. Pay an invoice with tax\n3. Check there are three retries\n');
+    // The step's own link to a requirement is its test case's.
+    expect(tc31).toContain('verifies: [REQ-2, REQ-5]');
+    expect(file('tests/TC-32-')).toBeUndefined();
+    expect(file('tests/TC-35-')).toContain('verifies: [REQ-5]');
+    expect(plan.files.get('tests/README.md')).not.toContain('TC-32');
+    expect(plan.report.links.odd).toEqual([]);
+    expect(plan.report.links.steps).toBe(3);
+    expect(formatReport(plan.report)).toContain('2 items, 1 heading, 0 information objects, 3 test steps (in their test cases)');
+  });
+
+  it('takes the variants from the column the map names, and says when the map names a column that isn’t there', () => {
+    const map = guessMap(exp.reqif, config);
+    // Status as the variants column, one value per line in a cell.
+    const plan = planImport(exp.reqif, { ...map, attributes: { ...map.attributes, variants: 'Status' } }, config, { attachment: () => null });
+    const r2 = [...plan.files].find(([p]) => p.startsWith('requirements/REQ-2-'))![1] as string;
+    expect(r2).toContain('variants: [approved]');
+    const typo = planImport(exp.reqif, { ...map, attributes: { ...map.attributes, variants: 'Varaint', keep: ['Owner'] } }, config, { attachment: () => null });
+    expect(typo.report.missingAttributes).toEqual(['variants: “Varaint”', 'keep: “Owner”']);
+    expect(formatReport(typo.report)).toContain('Not in the export (check the names in the map\'s attributes): variants: “Varaint”, keep: “Owner”');
   });
 
   it('says when the export is not a table', () => {

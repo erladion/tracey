@@ -483,11 +483,17 @@ The map (YAML, guessed from the export, with what was found listed at the end) s
   ID prefix. An object's number (`ReqIF.ForeignID`, the absolute number) gets the prefix:
   SYS-123. Modules with "test" or "verification" in the name are guessed as test cases.
 - **attributes**: which hold the ID, title, text, status, variants and components;
-  `keep` copies others (Priority…) into the front matter as they are.
+  `keep` copies others (Priority…) into the front matter as they are. Use the
+  attribute's name (for an HTML export, the column's header): the report says when the
+  export has no attribute by that name.
 - **types**: object types that are headings, or information.
 - **values**: DOORS statuses, variants and components → Tracey's.
 - **links**: link types meaning *verifies* (a test case and a requirement, whichever
   way DOORS drew the link) and *refines* (between requirements: `refines: [STK-4]`).
+  In a test module, an object linked to another object of the same module is a test
+  step of it (step → test case; under `reversed` when your links point the other way):
+  the steps go, in the module's order, into the test case's Steps list, and a step's
+  links to requirements count for its test case.
 
 What comes across:
 
