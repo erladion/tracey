@@ -7,19 +7,29 @@ import { pathToFileURL } from 'node:url';
 import { createBackend, safePath, type RepoHost } from '../backend/service';
 import { envAuth, normalizeUrl, type JiraAuth, type JiraCredentials } from '../backend/jira';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
+import { desktopCommand, helpText } from '../backend/commandline';
 
 if (process.env.TRACE_USER_DATA) app.setPath('userData', process.env.TRACE_USER_DATA);
 
 // Run from a terminal with a command (`Tracey.AppImage import-reqif …`, `… check`), the
-// app does that and exits, without a window. Chromium's own switches may come first.
-const argv = process.argv.slice(app.isPackaged ? 1 : 2);
-const command = argv.slice(argv.findIndex((a) => !a.startsWith('-')));
-const isCommand = ['import-reqif', 'import-html', 'check', 'export-needs', 'import-needs'].includes(command[0]);
-if (isCommand) {
+// app does that and exits, without a window. A mistyped command says so instead of opening.
+const command = desktopCommand(process.argv.slice(app.isPackaged ? 1 : 2));
+const isCommand = command !== null;
+if (command) {
   // An AppImage runs from its own mount; OWD is the folder it was started in.
   if (process.env.OWD) process.chdir(process.env.OWD);
-  const self = process.env.APPIMAGE ? basename(process.env.APPIMAGE) : app.isPackaged ? basename(process.execPath) : 'electron .';
-  void import('../backend/cli').then(async ({ runCommand }) => app.exit((await runCommand(command, self)) ?? 2));
+  const self = process.env.APPIMAGE ? `./${basename(process.env.APPIMAGE)}` : app.isPackaged ? basename(process.execPath) : 'electron .';
+  if (command[0] === 'help') {
+    console.log(helpText(self));
+    app.exit(0);
+  } else if (command[0] === 'version') {
+    console.log(`Tracey ${app.getVersion()}`);
+    app.exit(0);
+  } else if (command[0] === 'unknown') {
+    const what = command[1]?.startsWith('-') ? `${command[1]} needs a command before it.` : `“${command[1]}” isn’t a command.`;
+    console.error(`${what}\n\n${helpText(self)}`);
+    app.exit(2);
+  } else void import('../backend/cli').then(async ({ runCommand }) => app.exit((await runCommand(command, self)) ?? 2));
 }
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'trace-file', privileges: { standard: true, secure: true, supportFetchAPI: true } }]);

@@ -19,10 +19,11 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createBackend, readProjectFiles, safePath, type RepoHost } from '../backend/service';
 import { createVault, jiraCookies, webJiraCredentials } from '../backend/webjira';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
+import { COMMANDS } from '../backend/commandline';
 
 const args = process.argv.slice(2);
 
-if (['import-reqif', 'import-html', 'check', 'export-needs', 'import-needs'].includes(args[0])) {
+if (COMMANDS.includes(args[0])) {
   const { runCommand } = await import('../backend/cli');
   process.exit((await runCommand(args, 'node out/server/index.js')) ?? 2);
 }
