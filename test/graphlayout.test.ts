@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex, type SourceFile } from '../src/core/model';
 import { buildGraph, columns } from '../src/core/graph';
-import { edgePath, freeY, layoutGraph, pack } from '../src/core/graphlayout';
+import { bandIndex, edgePath, freeY, layoutGraph, pack } from '../src/core/graphlayout';
 
 const O = { W: 160, H: 54, GAP: 60, ROW: 68, TOP: 36, INDENT: 16 };
 const req = (id: string, front = ''): SourceFile => ({ path: `requirements/${id}.md`, text: `---\nid: ${id}\ntitle: ${id}\nstatus: draft\n${front}---\n` });
@@ -65,5 +65,22 @@ describe('graph layout', () => {
     const lay = layoutGraph(g, cols, O);
     expect(['req:REQ-10', 'req:REQ-2', 'req:REQ-3'].map((k) => lay.pos.get(k)!.w)).toEqual([160, 144, 128]);
     expect(edgePath(lay, 'req:REQ-2', 'req:REQ-3', O)).toMatch(/^M \d+ [\d.]+ V [\d.]+ Q/); // an elbow
+  });
+});
+
+describe('bandIndex', () => {
+  it('finds what reaches into a band, in the original order, short and tall alike', () => {
+    const things = [
+      { n: 'a', y: [0, 50] },
+      { n: 'tall', y: [0, 100000] },
+      { n: 'b', y: [2900, 3100] },
+      { n: 'c', y: [5000, 5050] },
+      { n: 'd', y: [3050, 3060] },
+    ];
+    const near = bandIndex(things, (t) => t.y as [number, number], 1000, 24);
+    expect(near(3000, 3055).map((t) => t.n)).toEqual(['tall', 'b', 'd']);
+    expect(near(0, 10).map((t) => t.n)).toEqual(['a', 'tall']);
+    expect(near(60, 2800).map((t) => t.n)).toEqual(['tall']);
+    expect(near(200000, 300000)).toEqual([]);
   });
 });

@@ -169,3 +169,25 @@ export function freeY(lay: Layout, col: number, want: number, o: LayoutOptions, 
   const below = i + 1 < tops.length ? (tops[i] + o.H + tops[i + 1]) / 2 : tops[i] + o.H + clear;
   return Math.abs(above - want) <= Math.abs(below - want) ? above : below;
 }
+
+// What reaches into a horizontal band of a large graph, without looking at everything:
+// each thing is listed in the bands of height `band` its vertical extent covers (a very
+// tall one, spanning more than `maxBands`, is checked each time instead). The result
+// keeps the things' order.
+export function bandIndex<T>(things: T[], extent: (t: T) => [number, number], band = 1000, maxBands = 24): (top: number, bottom: number) => T[] {
+  const bands: number[][] = [];
+  const tall: number[] = [];
+  const spans = things.map(extent);
+  spans.forEach(([a, b], i) => {
+    const from = Math.max(0, Math.floor(a / band));
+    const to = Math.max(from, Math.floor(b / band));
+    if (to - from > maxBands) tall.push(i);
+    else for (let k = from; k <= to; k++) (bands[k] ??= []).push(i);
+  });
+  return (top, bottom) => {
+    const hit = new Set<number>();
+    for (let k = Math.max(0, Math.floor(top / band)); k <= Math.floor(bottom / band); k++) for (const i of bands[k] ?? []) if (spans[i][1] >= top && spans[i][0] <= bottom) hit.add(i);
+    for (const i of tall) if (spans[i][1] >= top && spans[i][0] <= bottom) hit.add(i);
+    return [...hit].sort((x, y) => x - y).map((i) => things[i]);
+  };
+}

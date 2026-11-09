@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildGraph, columns, subgraph, walk, type GNode, type NodeType } from '../../../core/graph';
 import { graphSvg, type GraphPicture } from '../../../core/graphsvg';
-import { edgePath, layoutGraph } from '../../../core/graphlayout';
+import { bandIndex, edgePath, layoutGraph } from '../../../core/graphlayout';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import { byEvidence } from '../../../core/model';
@@ -31,6 +31,8 @@ const ROW = 68; // vertical pitch
 const MIN_GAP = 56; // between columns, where the edges run
 const MAX_GAP = 160;
 const TOP = 36; // room for the column headings
+const MARGIN = 900; // drawn beyond the view on a large graph
+const STEP = 300; // how far the view moves before that's drawn again
 
 const LABELS: Record<NodeType, string> = { commit: 'Commits', issue: 'Jira issues', req: 'Requirements', test: 'Test cases', item: 'Items', component: 'Components' };
 const TYPE_LABEL: Record<NodeType, string> = { commit: 'Commit', issue: 'Jira issue', req: 'Requirement', test: 'Test case', item: 'Item', component: 'Component' };
@@ -66,7 +68,7 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const sel = selected && graph.byKey.has(selected) ? graph.byKey.get(selected)! : null;
   const up = useMemo(() => (sel ? walk(sel.key, graph.back) : new Set<string>()), [sel, graph]);
   const down = useMemo(() => (sel ? walk(sel.key, graph.fwd) : new Set<string>()), [sel, graph]);
-  const gaps = graph.nodes.filter((n) => n.gap);
+  const gaps = useMemo(() => graph.nodes.filter((n) => n.gap), [graph]);
 
   // The tests in the selected node's trace, for the work list.
   const traceTests = useMemo(
@@ -108,9 +110,13 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     const el = scroller.current;
     if (!el) return;
     let frame = 0;
+    // Drawn again only once the view has moved STEP: what's drawn reaches MARGIN beyond it.
     const look = () => {
       cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => setView({ x: el.scrollLeft / zoom, y: el.scrollTop / zoom, w: el.clientWidth / zoom, h: el.clientHeight / zoom }));
+      frame = requestAnimationFrame(() => {
+        const next = { x: el.scrollLeft / zoom, y: el.scrollTop / zoom, w: el.clientWidth / zoom, h: el.clientHeight / zoom };
+        setView((v) => (Math.abs(v.x - next.x) < STEP && Math.abs(v.y - next.y) < STEP && v.w === next.w && v.h === next.h ? v : next));
+      });
     };
     const ro = new ResizeObserver(() => {
       setAvail(el.clientWidth);
@@ -134,20 +140,38 @@ export function GraphView({ project, focus, onOpenId }: Props) {
   const layout = useMemo(() => layoutGraph(shown, cols, opts), [shown, cols, opts]);
   const curve = (a: string, b: string) => edgePath(layout, a, b, opts);
   // What's drawn: with more than a few hundred nodes, what's in view and a screen around
-  // it (links whose ends' box reaches into that). Scrolling draws the rest as it comes.
-  const MARGIN = 900;
+  // it (links whose ends' box reaches into that), found through an index of the graph's
+  // height rather than by looking at every node. Scrolling draws the rest as it comes.
   const culling = shown.nodes.length > 600;
-  const near = (x1: number, y1: number, x2: number, y2: number) =>
-    !culling || (x2 >= view.x - MARGIN && x1 <= view.x + view.w + MARGIN && y2 >= view.y - MARGIN && y1 <= view.y + view.h + MARGIN);
-  const drawnNodes = shown.nodes.filter((n) => {
+  const nodeBox = (n: GNode) => {
     const p = layout.pos.get(n.key)!;
-    return near(p.x, p.y, p.x + p.w, p.y + H) || n.key === sel?.key;
-  });
-  const drawnEdges = shown.edges.filter((e) => {
+    return [p.x, p.y, p.x + p.w, p.y + H] as const;
+  };
+  const edgeBox = (e: (typeof shown.edges)[number]) => {
     const p = layout.pos.get(e.from)!;
     const q = layout.pos.get(e.to)!;
-    return near(Math.min(p.x, q.x), Math.min(p.y, q.y), Math.max(p.x, q.x) + W, Math.max(p.y, q.y) + H);
-  });
+    return [Math.min(p.x, q.x), Math.min(p.y, q.y), Math.max(p.x, q.x) + W, Math.max(p.y, q.y) + H] as const;
+  };
+  const nearIndex = useMemo(
+    () => (culling ? { nodes: bandIndex(shown.nodes, (n) => [nodeBox(n)[1], nodeBox(n)[3]]), edges: bandIndex(shown.edges, (e) => [edgeBox(e)[1], edgeBox(e)[3]]) } : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [culling, shown, layout],
+  );
+  const top = view.y - MARGIN;
+  const bottom = view.y + view.h + MARGIN;
+  const across = (b: readonly number[]) => b[2] >= view.x - MARGIN && b[0] <= view.x + view.w + MARGIN;
+  const drawnNodes = useMemo(() => {
+    if (!nearIndex) return shown.nodes;
+    const out = nearIndex.nodes(top, bottom).filter((n) => across(nodeBox(n)));
+    if (sel && !out.includes(sel) && shown.nodes.includes(sel)) out.push(sel);
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nearIndex, shown, view, sel]);
+  const drawnEdges = useMemo(
+    () => (nearIndex ? nearIndex.edges(top, bottom).filter((e) => across(edgeBox(e))) : shown.edges),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [nearIndex, shown, view],
+  );
 
   // How each node and link is drawn, on screen and in the saved picture alike.
   const nodeLook = (n: GNode) => {
