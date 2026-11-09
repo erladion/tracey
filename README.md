@@ -450,7 +450,7 @@ repository** puts the Markdown next to the run, to commit with it.
 ## Importing from DOORS
 
 DOORS 9 and DOORS Next both export **ReqIF** (`.reqifz`, or `.reqif`). Export a
-baseline with its link modules, then:
+baseline with its link modules, then (without ReqIF, see [an HTML export](#without-reqif-an-html-export)):
 
 ```sh
 npm run build
@@ -510,6 +510,47 @@ It never overwrites a file, and stops when an imported ID is already in the repo
 (`--force` imports anyway). History isn't imported: commit the import as the first
 version ("Imported from DOORS baseline 3.2"), keep the export file, and set the DOORS
 modules read-only.
+
+### Without ReqIF: an HTML export
+
+When ReqIF isn't available, export each module as HTML instead. Formatting, tables,
+pictures and the heading structure come across as with ReqIF; links come from a column
+listing them.
+
+1. **Make a view** with these columns: **Absolute Number** (or your ID attribute), the
+   **main column** (headings and text), the status and any other attributes to keep,
+   and a **link column**: **Analysis → Wizard**, out-links (or in-links) through all link
+   modules, showing the linked objects' **Absolute Number**. When the modules' numbers
+   overlap, show the module name too. Turn the filter off.
+2. **File → Export → HTML**, one file per module, with the pictures DOORS writes beside it.
+3. Import the files together, so the links between them come across:
+
+```sh
+./Tracey.AppImage import-html reqs.htm tests.htm --init-map doors-map.yml
+./Tracey.AppImage import-html reqs.htm tests.htm --map doors-map.yml --into ../reqs --dry-run
+./Tracey.AppImage import-html reqs.htm tests.htm --map doors-map.yml --into ../reqs
+```
+
+Each step first says what it found in each file: which column is the ID, the main
+column, links and attributes, and how many headings and links. Check that before
+importing. What it reads:
+
+- **Modules** are named by the page title (or the file name); test-like names hold test
+  cases, as with ReqIF, and the map can change that.
+- **The ID**: a column named Absolute Number, Object Identifier or ID, or else a column of
+  unique numbers or IDs. Numbers get the module's prefix (SYS-12); IDs are kept as they are.
+- **Headings and text**: Object Heading and Object Text columns, or the main column, where
+  a cell in bold or an HTML heading on one line ("2.1 Payment") is a heading. The depth
+  comes from an Object Level column when there is one, else from the heading numbers.
+- **Links**: a column named like one (Out-links, Verifies, Satisfies…) whose cells name
+  objects by Absolute Number or ID, one per line, optionally with the module's name. A
+  test case and a requirement linked either way make *verifies*; requirements linked
+  make *refines*, from the row to what its column names (list the column under
+  `links.reversed` in the map when it's the other way, as in-links are).
+- **Pictures** beside the file are copied to `images/`. OLE objects DOORS writes as
+  Windows metafiles (.wmf, .emf) can't be shown: they're listed in the report, with a
+  note in the text.
+- The file's encoding: what it declares, else UTF-8, else Windows-1252.
 
 ## Export: PDF, Excel, CSV
 
@@ -724,6 +765,7 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   trend.ts        coverage and results at each test run
   reqif.ts        ReqIF (DOORS exports); xml.ts reads XML, xhtml.ts turns its rich text into Markdown
   doors.ts        the DOORS import: the map, the files, the report
+  doorshtml.ts    DOORS modules exported as HTML, read like ReqIF; html.ts reads forgiving HTML
   needs.ts        Sphinx-Needs needs.json: export, and import with its report
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project

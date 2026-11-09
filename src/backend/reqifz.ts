@@ -1,8 +1,10 @@
 // Reading a DOORS export: a .reqif file, or a .reqifz archive (a zip holding one or
-// more .reqif files and the pictures and objects they embed).
-import { promises as fs } from 'node:fs';
+// more .reqif files and the pictures and objects they embed), or modules exported as HTML.
+import { promises as fs, readFileSync, statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { emptyReqif, readReqif, type Reqif } from '../core/reqif';
+import { readDoorsHtml } from '../core/doorshtml';
 
 export interface ZipEntry {
   name: string;
@@ -68,6 +70,52 @@ export async function readExport(file: string | string[]): Promise<DoorsExport> 
     files.push(...one.files);
   }
   return { reqif, attachment: (path) => lookups.reduce<Uint8Array | null>((hit, look) => hit ?? look(path), null), files };
+}
+
+// A DOORS module exported as HTML (one file per module, several read together), with the
+// pictures DOORS writes beside it. `notes` says what was found in each file.
+export async function readHtmlExport(files: string[]): Promise<DoorsExport & { notes: string[] }> {
+  const read = await Promise.all(files.map(async (f, i) => ({ name: f, html: decodeHtml(await fs.readFile(f)), key: `f${i}` })));
+  const { reqif, embedded, notes } = readDoorsHtml(read);
+  return {
+    reqif,
+    notes,
+    files,
+    attachment: (path) => {
+      const hit = embedded.get(path);
+      if (hit) return hit;
+      const m = /^f(\d+)\/(.+)$/.exec(path);
+      // Only pictures, and only files: nothing else is copied into the repository.
+      if (!m || !files[Number(m[1])] || !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(m[2])) return null;
+      const full = join(dirname(files[Number(m[1])]), ...m[2].split('/'));
+      try {
+        return statSync(full).isFile() ? new Uint8Array(readFileSync(full)) : null;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+// HTML's bytes as text: a byte order mark, else the charset it declares, else UTF-8 if it
+// is valid UTF-8, else Windows-1252 (what DOORS 9 on Windows usually writes).
+export function decodeHtml(buf: Buffer): string {
+  if (buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) return buf.subarray(3).toString('utf8');
+  if (buf[0] === 0xff && buf[1] === 0xfe) return new TextDecoder('utf-16le').decode(buf.subarray(2));
+  if (buf[0] === 0xfe && buf[1] === 0xff) return new TextDecoder('utf-16be').decode(buf.subarray(2));
+  const head = buf.subarray(0, 4096).toString('latin1');
+  const declared = /<meta[^>]+charset\s*=\s*["']?\s*([\w-]+)/i.exec(head)?.[1];
+  if (declared)
+    try {
+      return new TextDecoder(declared.toLowerCase()).decode(buf);
+    } catch {
+      // An unknown charset: guess below.
+    }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buf);
+  } catch {
+    return new TextDecoder('windows-1252').decode(buf);
+  }
 }
 
 async function readOne(file: string, reqif: Reqif): Promise<Omit<DoorsExport, 'reqif'>> {

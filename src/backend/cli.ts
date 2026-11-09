@@ -4,6 +4,7 @@
 //   import-reqif EXPORT.reqifz… --init-map MAP.yml    write a map to edit
 //   import-reqif EXPORT.reqifz… --map MAP.yml --dry-run
 //   import-reqif EXPORT.reqifz… --map MAP.yml [--into DIR] [--force]
+//   import-html MODULE.htm…  (the same options: DOORS modules exported as HTML)
 //   export-needs [DIR] [--out needs.json] [--version 1.0] [--project NAME]
 //   import-needs NEEDS.json [--into DIR] [--version V] [--type spec=requirement]… [--link links=refines]…
 //                [--keep-fields a,b] [--dry-run]
@@ -11,10 +12,11 @@
 // The DOORS import (ReqIF) takes one export or several (modules exported separately, read
 // as one so the links between them come across). Without --map, it guesses one. It never
 // overwrites a file, and stops if an imported ID is already in the repository (--force
-// imports anyway; check then reports duplicates).
+// imports anyway; check then reports duplicates). import-html reads modules exported as
+// HTML instead (when ReqIF isn't available), and then works the same.
 import { existsSync, promises as fs } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { readExport } from './reqifz';
+import { readExport, readHtmlExport } from './reqifz';
 import { readProjectFiles } from './service';
 import { buildIndex, coverage, forVariant } from '../core/model';
 import { formatReport, guessMap, mapToYaml, planImport, readMap } from '../core/doors';
@@ -35,7 +37,7 @@ async function allFiles(root: string, dir = root, out = new Set<string>()): Prom
 // program, for the hints it prints.
 export async function runCommand(args: string[], self: string): Promise<number | null> {
   try {
-    if (args[0] === 'import-reqif') return await importReqif(args, self);
+    if (args[0] === 'import-reqif' || args[0] === 'import-html') return await importReqif(args, self);
     if (args[0] === 'check') return await check(args[1] ?? '.');
     if (args[0] === 'export-needs') return await exportNeeds(args);
     if (args[0] === 'import-needs') return await importNeeds(args, self);
@@ -85,13 +87,16 @@ export async function importReqif(args: string[], self = 'node out/server/index.
   const withValue = new Set(['--map', '--init-map', '--into']);
   const rest = args.slice(1);
   const exports = rest.filter((a, i) => !a.startsWith('--') && !withValue.has(rest[i - 1]));
+  const html = args[0] === 'import-html';
   if (!exports.length) {
-    console.error(`Usage: ${self} import-reqif EXPORT.reqif[z]… [--init-map MAP.yml | --map MAP.yml] [--into DIR] [--dry-run] [--force]`);
+    console.error(`Usage: ${self} ${html ? 'import-html MODULE.htm' : 'import-reqif EXPORT.reqif[z]'}… [--init-map MAP.yml | --map MAP.yml] [--into DIR] [--dry-run] [--force]`);
     return 2;
   }
   const into = resolve(opt('into') ?? '.');
-  const exp = await readExport(exports.map((f) => resolve(f)));
+  const exp = html ? await readHtmlExport(exports.map((f) => resolve(f))) : { ...(await readExport(exports.map((f) => resolve(f)))), notes: [] as string[] };
   if (exports.length > 1) console.log(`Read ${exports.length} exports together: ${exp.reqif.specs.length} modules.`);
+  // What the HTML held: which column is which, and links found. Worth a look before importing.
+  if (exp.notes.length) console.log(`${exp.notes.join('\n')}\n`);
   const { config, files } = existsSync(into) ? await readProjectFiles(into) : { config: null, files: [] };
   const index = buildIndex(files, config);
   const guess = guessMap(exp.reqif, index.config);

@@ -93,8 +93,16 @@ function inline(nodes: XmlNode[], ctx: XhtmlContext): string {
         out += objectImage(n, ctx);
         break;
       case 'img': {
-        const src = n.attrs.src ? ctx.image(n.attrs.src, '') : null;
-        out += src ? `![${escapeText(n.attrs.alt ?? '')}](${src})` : '';
+        const file = (n.attrs.src ?? '').split(/[?#]/)[0];
+        // Windows metafiles (how OLE objects are often drawn) and the like: no viewer shows them.
+        if (/\.(wmf|emf|ole|bin|tiff?)$/i.test(file)) {
+          const what = file.split('/').pop()!;
+          ctx.skipped?.(what);
+          out += `*(picture not imported: ${escapeText(what)})*`;
+          break;
+        }
+        const src = file ? ctx.image(n.attrs.src, '') : null;
+        out += src ? `![${escapeText(n.attrs.alt ?? '')}](${src.replace(/[ ()]/g, (ch) => encodeURIComponent(ch))})` : '';
         break;
       }
       case 'span':

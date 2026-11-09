@@ -14,7 +14,7 @@ if (process.env.TRACE_USER_DATA) app.setPath('userData', process.env.TRACE_USER_
 // app does that and exits, without a window. Chromium's own switches may come first.
 const argv = process.argv.slice(app.isPackaged ? 1 : 2);
 const command = argv.slice(argv.findIndex((a) => !a.startsWith('-')));
-const isCommand = ['import-reqif', 'check', 'export-needs', 'import-needs'].includes(command[0]);
+const isCommand = ['import-reqif', 'import-html', 'check', 'export-needs', 'import-needs'].includes(command[0]);
 if (isCommand) {
   // An AppImage runs from its own mount; OWD is the folder it was started in.
   if (process.env.OWD) process.chdir(process.env.OWD);
