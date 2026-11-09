@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex, type SourceFile } from '../src/core/model';
 import { buildGraph, columns } from '../src/core/graph';
-import { bandIndex, edgePath, freeY, layoutGraph, pack } from '../src/core/graphlayout';
+import { bandIndex, clipPath, edgePath, freeY, layoutGraph, pack } from '../src/core/graphlayout';
 
 const O = { W: 160, H: 54, GAP: 60, ROW: 68, TOP: 36, INDENT: 16 };
 const req = (id: string, front = ''): SourceFile => ({ path: `requirements/${id}.md`, text: `---\nid: ${id}\ntitle: ${id}\nstatus: draft\n${front}---\n` });
@@ -82,5 +82,41 @@ describe('bandIndex', () => {
     expect(near(0, 10).map((t) => t.n)).toEqual(['a', 'tall']);
     expect(near(60, 2800).map((t) => t.n)).toEqual(['tall']);
     expect(near(200000, 300000)).toEqual([]);
+  });
+});
+
+describe('clipPath', () => {
+  // A point on a cubic, for checking a cut piece lies on the original curve.
+  const at = (p: number[][], t: number) => [0, 1].map((k) => (1 - t) ** 3 * p[0][k] + 3 * (1 - t) ** 2 * t * p[1][k] + 3 * (1 - t) * t * t * p[2][k] + t ** 3 * p[3][k]);
+  const nums = (d: string) => (d.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/g) ?? []).map(Number);
+
+  it('keeps what is inside the band, and leaves out what is outside', () => {
+    expect(clipPath('M 0 10 C 50 10, 50 90, 100 90', 0, 100)).toBe('M 0 10 C 50 10, 50 90, 100 90');
+    expect(clipPath('M 0 10 C 50 10, 50 90, 100 90', 200, 300)).toBe('');
+    expect(clipPath('M 0 10 C 50 10, 50 90, 100 90 H 200 C 250 90, 250 5000, 300 5000', 0, 100)).toMatch(/^M 0 10 C 50 10, 50 90, 100 90 H 200 C /);
+  });
+
+  it('cuts a long curve to the piece in the band, on the original curve', () => {
+    const p = [[0, 0], [50, 0], [50, 100000], [100, 100000]];
+    const d = clipPath('M 0 0 C 50 0, 50 100000, 100 100000', 40000, 41000);
+    expect(d.startsWith('M ')).toBe(true);
+    const [x0, y0, , , , , x3, y3] = nums(d);
+    expect(y0).toBeCloseTo(40000, 3);
+    expect(y3).toBeCloseTo(41000, 3);
+    // The cut piece's ends lie on the original curve.
+    for (const [x, y] of [[x0, y0], [x3, y3]]) {
+      let lo = 0, hi = 1;
+      for (let k = 0; k < 60; k++) { const m = (lo + hi) / 2; if (at(p, m)[1] < y) lo = m; else hi = m; }
+      expect(at(p, lo)[0]).toBeCloseTo(x, 3);
+    }
+    // Upwards too.
+    const up = nums(clipPath('M 0 100000 C 50 100000, 50 0, 100 0', 40000, 41000));
+    expect(up[1]).toBeCloseTo(41000, 3);
+    expect(up[7]).toBeCloseTo(40000, 3);
+  });
+
+  it('cuts straight runs and keeps the elbow', () => {
+    expect(clipPath('M 10 0 V 5000', 1000, 2000)).toBe('M 10 1000 V 2000');
+    expect(clipPath('M 10 100 V 494 Q 10 500, 16 500 H 40', 0, 1000)).toBe('M 10 100 V 494 Q 10 500, 16 500 H 40');
   });
 });

@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildGraph, columns, subgraph, walk, type GNode, type NodeType } from '../../../core/graph';
 import { graphSvg, type GraphPicture } from '../../../core/graphsvg';
-import { bandIndex, edgePath, layoutGraph } from '../../../core/graphlayout';
+import { bandIndex, clipPath, edgePath, layoutGraph } from '../../../core/graphlayout';
 import type { LinkedCommit } from '../../../core/commits';
 import { SOURCE_LABEL } from '../../../core/links';
 import { byEvidence } from '../../../core/model';
@@ -167,10 +167,20 @@ export function GraphView({ project, focus, onOpenId }: Props) {
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nearIndex, shown, view, sel]);
+  // Each with its path; on a large graph, only the part near the view (a link fanning out
+  // to a component can run the graph's whole height, and drawing all of it is what costs).
   const drawnEdges = useMemo(
-    () => (nearIndex ? nearIndex.edges(top, bottom).filter((e) => across(edgeBox(e))) : shown.edges),
+    () =>
+      nearIndex
+        ? nearIndex.edges(top, bottom).flatMap((e) => {
+            if (!across(edgeBox(e))) return [];
+            // Cut at whole blocks, so the paths stay the same while the view moves within one.
+            const d = clipPath(curve(e.from, e.to), Math.floor(top / 2000) * 2000, Math.ceil(bottom / 2000) * 2000);
+            return d ? [{ e, d }] : [];
+          })
+        : shown.edges.map((e) => ({ e, d: curve(e.from, e.to) })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [nearIndex, shown, view],
+    [nearIndex, shown, view, layout, opts],
   );
 
   // How each node and link is drawn, on screen and in the saved picture alike.
@@ -297,9 +307,9 @@ export function GraphView({ project, focus, onOpenId }: Props) {
             <div className="graph-scroll" ref={scroller} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
               <div className="graph-canvas" style={{ width: layout.width, height: layout.height, zoom }} onClick={(e) => e.target === e.currentTarget && setSelected(null)}>
                 <svg width={layout.width} height={layout.height} className="graph-edges" aria-hidden="true">
-                  {drawnEdges.map((e) => {
+                  {drawnEdges.map(({ e, d }) => {
                     const look = edgeLook(e);
-                    return <path key={`${e.from}>${e.to}`} d={curve(e.from, e.to)} className={`edge${look.hot ? ' hot' : ''}${look.suspect ? ' suspect' : ''}${look.dim ? ' dim' : ''}`} />;
+                    return <path key={`${e.from}>${e.to}`} d={d} className={`edge${look.hot ? ' hot' : ''}${look.suspect ? ' suspect' : ''}${look.dim ? ' dim' : ''}`} />;
                   })}
                 </svg>
                 {cols.map((c, i) => (

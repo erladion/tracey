@@ -191,3 +191,111 @@ export function bandIndex<T>(things: T[], extent: (t: T) => [number, number], ba
     return [...hit].sort((x, y) => x - y).map((i) => things[i]);
   };
 }
+
+// A link's path cut to a horizontal band (top…bottom): the parts outside it left out. A
+// link running between nodes thousands of pixels apart is then drawn only where it can
+// be seen, which keeps scrolling a large graph cheap. Handles what edgePath writes: M, C
+// (curves whose height runs one way), H, V and Q (the short elbow, kept whole).
+export function clipPath(d: string, top: number, bottom: number): string {
+  const tokens = d.match(/[MCHVQ]|-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? [];
+  let i = 0;
+  const num = () => Number(tokens[i++]);
+  let x = 0;
+  let y = 0;
+  let out = '';
+  let pen = false; // whether the output's current point is (x, y)
+  const inside = (v: number) => v >= top && v <= bottom;
+  const moveTo = (px: number, py: number) => {
+    if (!pen) out += `${out ? ' ' : ''}M ${px} ${py}`;
+    pen = true;
+  };
+  // The point and the split of a cubic at t (de Casteljau).
+  const lerp = (a: number[], b: number[], t: number) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  const split = (p: number[][], t: number): [number[][], number[][]] => {
+    const ab = lerp(p[0], p[1], t);
+    const bc = lerp(p[1], p[2], t);
+    const cd = lerp(p[2], p[3], t);
+    const abc = lerp(ab, bc, t);
+    const bcd = lerp(bc, cd, t);
+    const m = lerp(abc, bcd, t);
+    return [
+      [p[0], ab, abc, m],
+      [m, bcd, cd, p[3]],
+    ];
+  };
+  const yAt = (p: number[][], t: number) => {
+    const u = 1 - t;
+    return u * u * u * p[0][1] + 3 * u * u * t * p[1][1] + 3 * u * t * t * p[2][1] + t * t * t * p[3][1];
+  };
+  // Where the curve's height reaches `v` (it runs one way between its ends).
+  const tAt = (p: number[][], v: number) => {
+    let lo = 0;
+    let hi = 1;
+    const rising = p[3][1] >= p[0][1];
+    for (let k = 0; k < 40; k++) {
+      const mid = (lo + hi) / 2;
+      if (yAt(p, mid) < v === rising) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  };
+  while (i < tokens.length) {
+    const cmd = tokens[i++];
+    if (cmd === 'M') {
+      x = num();
+      y = num();
+      pen = false;
+      if (inside(y)) moveTo(x, y);
+    } else if (cmd === 'H') {
+      const nx = num();
+      if (inside(y)) {
+        moveTo(x, y);
+        out += ` H ${nx}`;
+      }
+      x = nx;
+    } else if (cmd === 'V') {
+      const ny = num();
+      const a = Math.max(Math.min(y, ny), top);
+      const b = Math.min(Math.max(y, ny), bottom);
+      if (a <= b) {
+        const [from, to] = ny >= y ? [a, b] : [b, a];
+        if (from !== y) pen = false;
+        moveTo(x, from);
+        out += ` V ${to}`;
+        pen = to === ny;
+      } else pen = false;
+      y = ny;
+    } else if (cmd === 'Q') {
+      const c = [num(), num(), num(), num()];
+      if (inside(y) || inside(c[3])) {
+        moveTo(x, y);
+        out += ` Q ${c[0]} ${c[1]}, ${c[2]} ${c[3]}`;
+      } else pen = false;
+      [x, y] = [c[2], c[3]];
+    } else if (cmd === 'C') {
+      const p = [[x, y], [num(), num()], [num(), num()], [num(), num()]];
+      const [y0, y3] = [p[0][1], p[3][1]];
+      if (inside(y0) && inside(y3)) {
+        moveTo(x, y);
+        out += ` C ${p[1][0]} ${p[1][1]}, ${p[2][0]} ${p[2][1]}, ${p[3][0]} ${p[3][1]}`;
+      } else if (Math.max(y0, y3) >= top && Math.min(y0, y3) <= bottom) {
+        // Partly in the band: the piece of the curve inside it.
+        const lo = Math.max(top, Math.min(y0, y3));
+        const hi = Math.min(bottom, Math.max(y0, y3));
+        let t0 = y3 >= y0 ? tAt(p, lo) : tAt(p, hi);
+        let t1 = y3 >= y0 ? tAt(p, hi) : tAt(p, lo);
+        if (inside(y0)) t0 = 0;
+        if (inside(y3)) t1 = 1;
+        let piece = p;
+        if (t1 < 1) piece = split(piece, t1)[0];
+        if (t0 > 0) piece = split(piece, t0 / (t1 || 1))[1];
+        if (t0 > 0) pen = false;
+        moveTo(piece[0][0], piece[0][1]);
+        out += ` C ${piece[1][0]} ${piece[1][1]}, ${piece[2][0]} ${piece[2][1]}, ${piece[3][0]} ${piece[3][1]}`;
+        pen = t1 === 1;
+      } else pen = false;
+      [x, y] = p[3] as [number, number];
+    }
+  }
+  return out;
+}
