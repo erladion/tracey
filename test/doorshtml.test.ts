@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { allElements, parseHtml, textLines } from '../src/core/html';
 import { readDoorsHtml } from '../src/core/doorshtml';
-import { formatReport, guessMap, planImport } from '../src/core/doors';
+import { formatReport, guessMap, mapToYaml, planImport, readMap } from '../src/core/doors';
 import { parseConfig } from '../src/core/config';
 import { buildIndex, coverage } from '../src/core/model';
 import { readProjectFiles } from '../src/backend/service';
@@ -153,6 +153,21 @@ describe('DOORS modules exported as HTML', () => {
     const typo = planImport(exp.reqif, { ...map, attributes: { ...map.attributes, variants: 'Varaint', keep: ['Owner'] } }, config, { attachment: () => null });
     expect(typo.report.missingAttributes).toEqual(['variants: “Varaint”', 'keep: “Owner”']);
     expect(formatReport(typo.report)).toContain('Not in the export (check the names in the map\'s attributes): variants: “Varaint”, keep: “Owner”');
+  });
+
+  it('reads a variant value meaning every variant ("All") as no variants list', () => {
+    const all = readDoorsHtml([{ name: 'reqs.htm', html: REQS.replace('<TD>Proposed<TD>Pro<TD>', '<TD>Proposed<TD>All<TD>'), key: 'f0' }]);
+    const map = guessMap(all.reqif, config);
+    expect(map.values.variants).toEqual({ Base: 'base', Pro: 'pro', All: '*' });
+    expect(mapToYaml(map, all.reqif)).toMatch(/All: ["']\*["']/);
+    const plan = planImport(all.reqif, map, config, { attachment: () => null });
+    const file = (start: string) => [...plan.files].find(([p]) => p.startsWith(start))![1] as string;
+    expect(file('requirements/REQ-4-')).not.toContain('variants:');
+    expect(file('requirements/REQ-2-')).toContain('variants: [base, pro]');
+    expect(plan.report.unknownVariants).toEqual([]);
+    // Written by hand as "All:" (no value) or "All: '*'", it means the same.
+    expect(readMap('values:\n  variants:\n    All:\n    Base: base\n', map).values.variants).toMatchObject({ All: '*', Base: 'base' });
+    expect(readMap("values:\n  variants:\n    All: '*'\n", map).values.variants).toEqual({ All: '*' });
   });
 
   it('says when the export is not a table', () => {

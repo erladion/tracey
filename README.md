@@ -494,7 +494,9 @@ The map (YAML, guessed from the export, with what was found listed at the end) s
   attribute's name (for an HTML export, the column's header): the report says when the
   export has no attribute by that name.
 - **types**: object types that are headings, or information.
-- **values**: DOORS statuses, variants and components → Tracey's.
+- **values**: DOORS statuses, variants and components → Tracey's. A variant value
+  meaning every variant maps to `'*'` (`All: '*'`, guessed for All, Any, Both,
+  Common): those items get no `variants:` list, so they apply to all of them.
 - **links**: link types meaning *verifies* (a test case and a requirement, whichever
   way DOORS drew the link) and *refines* (between requirements: `refines: [STK-4]`).
   In a test module, an object linked to another object of the same module is a test

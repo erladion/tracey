@@ -61,6 +61,10 @@ export interface ImportPlan {
 const SYSTEM_ATTR =
   /^(ReqIF\..*|Created (By|On|Thru)|Last Modified (By|On)|Object (Number|Level|Identifier|Short Text|Heading|Text)|Absolute Number|Paragraph Style|Picture|TableType|TableCell.*|IsTableHeader|OLE|Linked to|URL|DXL|Identifier|Primary Text|Title|Artifact Type|Format|Modified (By|On)|Created|Modified)$/i;
 
+// A variant value meaning every variant.
+const ALL = '*';
+const ALL_NAMES = /^(all|any|both|common|all variants|alla|samtliga|gemensam)$/i;
+
 const STOP = new Set(['and', 'of', 'the', 'for', 'to', 'a', 'an', 'in', 'on', 'och', 'av', 'för']);
 
 function initials(name: string): string {
@@ -131,6 +135,15 @@ export function guessMap(reqif: Reqif, config: TraceConfig): DoorsMap {
   const keep = [...attrs].filter(([n, k]) => !mapped.has(n) && !SYSTEM_ATTR.test(n) && !k.has('xhtml')).map(([n]) => n);
 
   const statusValues = status ? [...(enumValues.get(status) ?? [])] : [];
+  // The values a variants or components attribute holds: its choices, or the words in it
+  // when it's text (one per line, or separated by commas).
+  const valuesOf = (attr: string | null): string[] => {
+    if (!attr) return [];
+    if (enumValues.has(attr)) return [...enumValues.get(attr)!];
+    const found = new Set<string>();
+    for (const o of reqif.objects.values()) for (const w of (o.values.get(attr)?.text ?? '').split(/[,;\n]\s*/)) if (w.trim()) found.add(w.trim());
+    return found.size <= 50 ? [...found] : [];
+  };
   const relTypes = [...new Set(reqif.relations.map((r) => r.type))];
   return {
     modules,
@@ -142,9 +155,11 @@ export function guessMap(reqif: Reqif, config: TraceConfig): DoorsMap {
     values: {
       status: Object.fromEntries(statusValues.map((v) => [v, guessStatus(v, config.statuses, 'requirement')])),
       testStatus: Object.fromEntries(statusValues.map((v) => [v, guessStatus(v, config.testcaseStatuses, 'testcase')])),
-      variants: Object.fromEntries([...(variants ? (enumValues.get(variants) ?? []) : [])].map((v) => [v, config.variants.find((x) => x.name.toLowerCase() === v.toLowerCase())?.key ?? slug(v)])),
+      variants: Object.fromEntries(
+        valuesOf(variants).map((v) => [v, ALL_NAMES.test(v.trim()) ? ALL : (config.variants.find((x) => x.name.toLowerCase() === v.toLowerCase())?.key ?? slug(v))]),
+      ),
       components: Object.fromEntries(
-        [...(components ? (enumValues.get(components) ?? []) : [])].map((v) => [v, config.components.find((x) => x.name.toLowerCase() === v.toLowerCase())?.key ?? slug(v)]),
+        valuesOf(components).map((v) => [v, config.components.find((x) => x.name.toLowerCase() === v.toLowerCase())?.key ?? slug(v)]),
       ),
     },
     links: {
@@ -185,7 +200,8 @@ export function mapToYaml(map: DoorsMap, reqif: Reqif): string {
 #   (the first with a value wins); keep: others copied into the front matter as they are.
 # types: object types that are headings, or information (kept in the module's README).
 # values: DOORS values → Tracey statuses (status for requirements, testStatus for test
-#   cases), variant keys and component keys.
+#   cases), variant keys and component keys. A variant value mapped to '*' (as "All" is)
+#   means every variant: the item gets no variants list, so it applies to all of them.
 # links: link types meaning "test case verifies requirement" (either direction), and
 #   "refines" between requirements (source refines target; list a type under reversed
 #   if its links point the other way).
@@ -226,7 +242,8 @@ export function readMap(text: string, fallback: DoorsMap): DoorsMap {
     values: {
       status: rec(o.values?.status, fallback.values.status),
       testStatus: rec(o.values?.testStatus, fallback.values.testStatus),
-      variants: rec(o.values?.variants, fallback.values.variants),
+      // An empty value ("All:") means every variant too.
+      variants: Object.fromEntries(Object.entries(rec(o.values?.variants, fallback.values.variants)).map(([k, v]) => [k, v === 'null' || v === '' ? ALL : v])),
       components: rec(o.values?.components, fallback.values.components),
     },
     links: { verifies: list(o.links?.verifies, fallback.links.verifies), refines: list(o.links?.refines, fallback.links.refines), reversed: list(o.links?.reversed, []) },
@@ -477,11 +494,11 @@ export function planImport(
       const listOf = (attr: string | null, values: Record<string, string>, known: Set<string>, unknown: string[]) => {
         const v = attr ? o.values.get(attr) : undefined;
         const names = v ? (v.enums ?? v.text.split(/[,;\n]\s*/)).map((s) => s.trim()).filter(Boolean) : [];
-        return names.map((nm) => {
-          const key = values[nm] ?? slug(nm);
-          if (known.size && !known.has(key) && !unknown.includes(key)) unknown.push(key);
-          return key;
-        });
+        const keys = names.map((nm) => values[nm] ?? slug(nm));
+        // A value meaning every variant ("All": '*'): no list, which is what that means.
+        if (keys.includes(ALL)) return [];
+        for (const key of keys) if (known.size && !known.has(key) && !unknown.includes(key)) unknown.push(key);
+        return keys;
       };
       const keep: Record<string, unknown> = {};
       for (const a of map.attributes.keep) {
