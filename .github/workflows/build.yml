@@ -1,5 +1,7 @@
 # Tests on every push and pull request; desktop installers (Linux AppImage, Windows
-# installer) on main, on tags and by hand; a GitHub release with them for a tag v*.
+# installer) and a GitHub release with them for a tag v*; the installers alone when run
+# by hand. They're kept as artifacts for a day only: Actions storage is limited, and the
+# release keeps its own copy.
 name: Build
 
 on:
@@ -35,7 +37,7 @@ jobs:
 
   installers:
     needs: test
-    if: github.event_name != 'pull_request'
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -76,6 +78,7 @@ jobs:
           name: installer-${{ matrix.os }}
           path: ${{ matrix.files }}
           if-no-files-found: error
+          retention-days: 1
 
   release:
     needs: installers

@@ -989,14 +989,18 @@ npm run dist:linux   # Linux: an .AppImage
 ### CI and releases
 
 GitHub Actions (`.github/workflows/build.yml`) runs the type check and tests on every push
-and pull request. On `main`, it also builds the Linux AppImage and the Windows installer
-(download them from the run's artifacts).
+and pull request.
 
-Pushing a tag `v1.2.3` makes a GitHub release with both installers, as version 1.2.3:
+Pushing a tag `v1.2.3` builds the Linux AppImage and the Windows installer, and makes a
+GitHub release with both, as version 1.2.3:
 
 ```sh
 git tag v1.2.3 && git push origin v1.2.3
 ```
+
+To build the installers without a release, run the workflow by hand (**Actions → Build →
+Run workflow**) and download them from the run's artifacts within a day. Artifacts are kept
+for one day only, as Actions storage is limited; releases keep their own copies.
 
 ### Code layout
 
