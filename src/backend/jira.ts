@@ -14,6 +14,7 @@ export interface JiraAuth {
 export interface JiraCredentials {
   canStore: boolean;
   storedIn: "computer" | "browser";
+  encrypted?: () => boolean; // whether a token saved now is encrypted (default: yes)
   allowed(url: string): boolean; // whether requests may go to this server at all
   get(url: string): Promise<JiraAuth | null>;
   set(url: string, auth: JiraAuth | null): Promise<void>;
@@ -249,6 +250,7 @@ export function createJira(creds: JiraCredentials) {
         shared: !!auth?.shared,
         canStore: creds.canStore,
         storedIn: creds.storedIn,
+        encrypted: creds.encrypted ? creds.encrypted() : true,
       };
       if (!auth) return { ...base, user: null, error: null };
       try {

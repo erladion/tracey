@@ -9,6 +9,7 @@ export interface LlmSetup {
   url: string; // the API's base, as http://localhost:8080/v1
   model: string; // '' : the server's first
   key: string | null; // sent as a Bearer token
+  keyFrom?: 'keychain' | 'file' | 'environment' | null;
   think: boolean;
   candidates: number; // 0: from the context size
 }
@@ -21,6 +22,7 @@ export interface LlmStore {
   get(): Promise<LlmSetup | null>;
   set(setup: Omit<LlmSetup, 'key'> & { key: string | null | undefined }): Promise<void>; // key undefined: keep it
   fetch?: typeof fetch; // the desktop app's goes through Chromium (system certificates, proxy)
+  keychain?: () => boolean; // whether a key saved now is encrypted
 }
 
 // The API's base: without a trailing slash, or the endpoint pasted by mistake.
@@ -115,7 +117,16 @@ export function createLlm(store: LlmStore) {
   return {
     async status(): Promise<LlmStatus> {
       const s = await store.get().catch(() => null);
-      const base = { editable: store.editable, url: s?.url ?? '', model: s?.model ?? '', hasKey: !!s?.key, think: !!s?.think, candidates: s?.candidates ?? 0 };
+      const base = {
+        editable: store.editable,
+        url: s?.url ?? '',
+        model: s?.model ?? '',
+        hasKey: !!s?.key,
+        keyFrom: s?.key ? (s.keyFrom ?? 'environment') : null,
+        keychain: store.keychain ? store.keychain() : true,
+        think: !!s?.think,
+        candidates: s?.candidates ?? 0,
+      };
       if (!s?.url) return { ...base, models: [], contextSize: null, error: null };
       try {
         const listed = await models(s);

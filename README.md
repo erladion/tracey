@@ -545,7 +545,7 @@ or a hosted one over https with an API key.
 |---|---|
 | Address | The API's base, as `http://localhost:8080/v1` or `https://llm.example.com/v1`. |
 | Model | One the server lists, or the server's first. |
-| API key | Sent as a Bearer token. Kept encrypted with the system keychain. |
+| API key | Sent as a Bearer token. Kept encrypted with the system keychain, or, on a computer without one (Linux without a keyring), in a file only you can read. |
 | Test cases per issue | How many candidates the model chooses from. Automatic: from the model's context window (vLLM's `max_model_len`, llama.cpp's `/props`), between 30 and 150. |
 | Let the model think | For reasoning models (Qwen3-style): slower, sometimes better. Off by default. |
 
@@ -561,6 +561,10 @@ Then, in **New test run** for a release:
 A local model takes a few seconds per issue. **Stop** keeps what's been suggested so far.
 Issue texts and test case titles are sent to the server, so mind where it runs. The
 matching assumes issues and test cases are written in the same language.
+
+In the desktop app, `TRACE_LLM_URL`, `TRACE_LLM_MODEL` and `TRACE_LLM_KEY` in the
+environment are defaults: what you save in Settings wins, and the environment's key is
+only sent to the environment's address.
 
 In the web version, the server's environment sets the model for everyone: `TRACE_LLM_URL`,
 `TRACE_LLM_MODEL`, `TRACE_LLM_KEY`, and optionally `TRACE_LLM_THINK=1` and
@@ -672,8 +676,9 @@ Everyone uses their own token, so Jira shows what each person may see. Add yours
 **Settings → Jira**.
 
 - **Desktop app**: the token is kept encrypted with the system keychain (Windows, macOS,
-  or Linux with a keyring). Without a keychain, set `TRACE_JIRA_URL` and
-  `TRACE_JIRA_TOKEN` in the environment instead.
+  or Linux with a keyring). On a computer without one, it's kept in a file only you can
+  read, and Settings says so. `TRACE_JIRA_URL` and `TRACE_JIRA_TOKEN` in the environment
+  work too, when no token is saved.
 - **Web version**: the token is kept in your browser, as a cookie the server encrypts
   with its secret (`TRACE_SECRET`, or one it creates in `<workspace>/.trace-secret`). The
   server stores no one's token, and page scripts can't read the cookie.

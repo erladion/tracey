@@ -102,7 +102,8 @@ export interface JiraStatus {
   hasToken: boolean;
   shared: boolean; // the token is the web server's, used by everyone who hasn't added their own
   canStore: boolean; // a token can be entered here
-  storedIn: 'computer' | 'browser'; // where an entered token is kept (encrypted)
+  storedIn: 'computer' | 'browser'; // where an entered token is kept
+  encrypted: boolean; // false: this computer has no keychain, so it's kept in a file only the user can read
   user: string | null; // who the token signs in as
   error: string | null;
 }
@@ -113,6 +114,8 @@ export interface LlmStatus {
   url: string; // '' : not set up
   model: string; // '' : the server's first
   hasKey: boolean;
+  keyFrom: 'keychain' | 'file' | 'environment' | null; // where the key in use comes from
+  keychain: boolean; // a key saved now is encrypted; false: kept in a file only the user can read
   think: boolean; // let reasoning models think before answering
   candidates: number; // test cases offered per issue; 0: from the context size
   models: string[]; // what the server lists

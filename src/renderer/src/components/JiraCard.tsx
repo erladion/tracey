@@ -112,7 +112,11 @@ export function JiraCard({ project }: { project: Project }) {
             </label>
           )}
           <label className="field grow">
-            <span>{cfg.jira.api === 3 ? 'API token' : 'Personal access token'} (kept encrypted {jira.status?.storedIn === 'browser' ? 'in this browser' : 'on this computer'})</span>
+            <span>{cfg.jira.api === 3 ? 'API token' : 'Personal access token'} (
+              {jira.status?.encrypted === false
+                ? 'kept in a file only you can read: this computer has no keychain'
+                : `kept encrypted ${jira.status?.storedIn === 'browser' ? 'in this browser' : 'on this computer'}`}
+              )</span>
             <input type="password" value={token} onChange={(e) => setToken(e.target.value)} autoComplete="off" placeholder={own ? '•••••••• (saved)' : ''} />
           </label>
           <button type="submit" className="button primary" disabled={busy || !token.trim() || (cfg.jira.api === 3 && !email.trim())}>

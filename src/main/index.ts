@@ -6,7 +6,7 @@ import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createBackend, safePath, type RepoHost } from '../backend/service';
 import { envAuth, normalizeUrl, type JiraAuth, type JiraCredentials } from '../backend/jira';
-import { envLlm, type LlmStore } from '../backend/llm';
+import { envLlm, normalizeLlmUrl, type LlmStore } from '../backend/llm';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 import { desktopCommand, helpText } from '../backend/commandline';
 
@@ -98,7 +98,7 @@ const desktopHost: RepoHost = {
 // Jira tokens: each user's own, encrypted with the system keychain (safeStorage), by Jira
 // address. TRACE_JIRA_URL + TRACE_JIRA_TOKEN in the environment work too.
 const tokensPath = () => join(app.getPath('userData'), 'jira-tokens.json');
-async function readTokens(): Promise<Record<string, string>> {
+async function readTokens(): Promise<Record<string, unknown>> {
   try {
     return JSON.parse(await fs.readFile(tokensPath(), 'utf8'));
   } catch {
@@ -119,6 +119,23 @@ function jiraSession(): Electron.Session {
   return (jiraSes = ses);
 }
 
+// Secrets (Jira tokens, the language model's API key): encrypted with the system keychain,
+// or, on a computer without one (Linux without a keyring), kept as they are in a file only
+// this user can read, as gh and docker do. Stored before as an encrypted string; as
+// { plain } without a keychain.
+const keychain = () => safeStorage.isEncryptionAvailable() && safeStorage.getSelectedStorageBackend?.() !== 'basic_text';
+type Sealed = string | { plain: string };
+const seal = (secret: string): Sealed => (keychain() ? safeStorage.encryptString(secret).toString('base64') : { plain: secret });
+function unseal(v: unknown): string | null {
+  if (v && typeof v === 'object' && typeof (v as { plain?: unknown }).plain === 'string') return (v as { plain: string }).plain;
+  if (typeof v !== 'string' || !v || !safeStorage.isEncryptionAvailable()) return null;
+  try {
+    return safeStorage.decryptString(Buffer.from(v, 'base64'));
+  } catch {
+    return null;
+  }
+}
+
 const desktopJira: JiraCredentials = {
   canStore: true,
   storedIn: 'computer',
@@ -127,67 +144,62 @@ const desktopJira: JiraCredentials = {
   // trusts (a company's own certificate authority) and its proxy settings. But not as a
   // browser to Jira, which treats those more strictly than API clients (403).
   fetch: (url, init) => jiraSession().fetch(String(url), init),
+  encrypted: () => keychain(),
+  // The token saved here, else TRACE_JIRA_URL + TRACE_JIRA_TOKEN.
   async get(url) {
-    const env = envAuth(url);
-    if (env) return env;
-    const stored = (await readTokens())[normalizeUrl(url)];
-    if (!stored || !safeStorage.isEncryptionAvailable()) return null;
-    try {
-      return JSON.parse(safeStorage.decryptString(Buffer.from(stored, 'base64'))) as JiraAuth;
-    } catch {
-      return null;
-    }
+    const saved = unseal((await readTokens())[normalizeUrl(url)]);
+    if (saved)
+      try {
+        return JSON.parse(saved) as JiraAuth;
+      } catch {
+        // Not readable: as if there were none.
+      }
+    return envAuth(url);
   },
   async set(url, auth) {
     const tokens = await readTokens();
     if (!auth) delete tokens[normalizeUrl(url)];
-    else {
-      if (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text')
-        throw new Error('This computer has no keychain to keep the token safe in. Set TRACE_JIRA_URL and TRACE_JIRA_TOKEN in the environment instead.');
-      tokens[normalizeUrl(url)] = safeStorage.encryptString(JSON.stringify(auth)).toString('base64');
-    }
+    else tokens[normalizeUrl(url)] = seal(JSON.stringify(auth));
     await fs.mkdir(app.getPath('userData'), { recursive: true });
     await fs.writeFile(tokensPath(), JSON.stringify(tokens, null, 2), { mode: 0o600 });
   },
 };
 
-// The language model: each user's, in llm.json beside the settings, the API key encrypted
-// with the system keychain like Jira tokens. TRACE_LLM_URL (and _MODEL, _KEY) work too.
+// The language model: each user's, in llm.json beside the settings (the API key sealed like
+// Jira tokens). TRACE_LLM_URL, _MODEL, _KEY… are the defaults: what's saved here wins, and
+// the environment's key is only sent to the environment's address.
 const llmPath = () => join(app.getPath('userData'), 'llm.json');
+type SavedLlm = { url?: string; model?: string; key?: Sealed | null; think?: boolean; candidates?: number };
+async function readLlm(): Promise<SavedLlm> {
+  try {
+    return JSON.parse(await fs.readFile(llmPath(), 'utf8')) as SavedLlm;
+  } catch {
+    return {};
+  }
+}
 const desktopLlm: LlmStore = {
   editable: true,
   desktop: true,
+  keychain: () => keychain(),
   fetch: (url, init) => jiraSession().fetch(String(url), init),
   async get() {
-    let saved: { url?: string; model?: string; key?: string | null; think?: boolean; candidates?: number } = {};
-    try {
-      saved = JSON.parse(await fs.readFile(llmPath(), 'utf8'));
-    } catch {
-      return envLlm();
-    }
-    if (!saved.url) return envLlm();
-    let key: string | null = null;
-    if (saved.key && safeStorage.isEncryptionAvailable())
-      try {
-        key = safeStorage.decryptString(Buffer.from(saved.key, 'base64'));
-      } catch {
-        key = null;
-      }
-    return { url: saved.url, model: saved.model ?? '', key, think: !!saved.think, candidates: Number(saved.candidates) || 0 };
+    const saved = await readLlm();
+    const env = envLlm();
+    if (!saved.url) return env ? { ...env, keyFrom: env.key ? 'environment' : null } : null;
+    const own = unseal(saved.key);
+    const envKey = env && env.url === normalizeLlmUrl(saved.url) ? env.key : null;
+    return {
+      url: saved.url,
+      model: saved.model ?? '',
+      key: own ?? envKey,
+      keyFrom: own ? (typeof saved.key === 'string' ? 'keychain' : 'file') : envKey ? 'environment' : null,
+      think: !!saved.think,
+      candidates: Number(saved.candidates) || 0,
+    };
   },
   async set(setup) {
-    let old: { key?: string | null } = {};
-    try {
-      old = JSON.parse(await fs.readFile(llmPath(), 'utf8'));
-    } catch {
-      // Nothing saved yet.
-    }
-    let key = old.key ?? null;
-    if (setup.key !== undefined) {
-      if (setup.key && (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text'))
-        throw new Error('This computer has no keychain to keep the API key safe in. Set TRACE_LLM_URL and TRACE_LLM_KEY in the environment instead.');
-      key = setup.key ? safeStorage.encryptString(setup.key).toString('base64') : null;
-    }
+    const old = await readLlm();
+    const key = setup.key === undefined ? (old.key ?? null) : setup.key ? seal(setup.key) : null;
     await fs.mkdir(app.getPath('userData'), { recursive: true });
     await fs.writeFile(llmPath(), JSON.stringify({ url: setup.url, model: setup.model, key, think: setup.think, candidates: setup.candidates }, null, 2), { mode: 0o600 });
   },

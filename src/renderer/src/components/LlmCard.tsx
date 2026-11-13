@@ -82,6 +82,8 @@ export function LlmCard() {
             <span className="muted small">
               Offers each issue its {perIssue} likeliest test cases{status.candidates ? '' : status.contextSize ? ', from the context size' : ' (the server doesn’t say its context size)'}
               {status.think ? '; the model thinks before answering' : ''}.
+              {status.keyFrom === 'environment' && ' The API key is TRACE_LLM_KEY’s.'}
+              {status.keyFrom === 'file' && ' The API key is kept in a file only you can read (this computer has no keychain).'}
             </span>
           </>
         )}
@@ -109,8 +111,14 @@ export function LlmCard() {
             </datalist>
           </label>
           <label className="field grow">
-            <span>API key, if it needs one (kept encrypted on this computer)</span>
-            <input type="password" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" placeholder={status.hasKey ? '•••••••• (saved)' : ''} />
+            <span>API key, if it needs one ({status.keychain ? 'kept encrypted on this computer' : 'kept in a file only you can read: this computer has no keychain'})</span>
+            <input
+              type="password"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              autoComplete="off"
+              placeholder={status.keyFrom === 'environment' ? 'TRACE_LLM_KEY’s (type one to use your own)' : status.hasKey ? '•••••••• (saved)' : ''}
+            />
           </label>
           <label className="field">
             <span>Test cases per issue</span>
@@ -124,7 +132,7 @@ export function LlmCard() {
             <button type="submit" className="button primary" disabled={busy}>
               Save
             </button>
-            {status.hasKey && (
+            {(status.keyFrom === 'keychain' || status.keyFrom === 'file') && (
               <button type="button" className="button" disabled={busy} onClick={() => void save(null)}>
                 Remove the key
               </button>
