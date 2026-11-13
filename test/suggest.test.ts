@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { buildIndex, type SourceFile } from '../src/core/model';
 import { candidateCount, issueText, readSuggestions, stripThinking, suggestPrompt, testIndex, words } from '../src/core/suggest';
-import { createLlm, normalizeLlmUrl, type LlmSetup } from '../src/backend/llm';
+import { createLlm, listedModels, normalizeLlmUrl, type LlmSetup } from '../src/backend/llm';
 import type { JiraIssue } from '../src/shared/api';
 
 const file = (path: string, front: string, body = ''): SourceFile => ({ path, text: `---\n${front}\n---\n${body}\n` });
@@ -159,6 +159,19 @@ describe('the language model client', () => {
       });
     });
     expect((await createLlm(store({ url: `https://127.0.0.1:${free}/v1` })).status()).error).toMatch(/^Couldn't reach the language model at https:\/\/127\.0\.0\.1:\d+\/v1: .*ECONNREFUSED.*Nothing answers at that address/);
+  });
+
+  it('reads the model list in every shape servers send it', () => {
+    // OpenAI and vLLM.
+    expect(listedModels({ object: 'list', data: [{ id: 'qwen-27b', max_model_len: 262144 }] })).toEqual([{ id: 'qwen-27b', contextSize: 262144 }]);
+    // llama.cpp: both lists, the same model in each.
+    expect(listedModels({ models: [{ name: 'q.gguf', model: 'q.gguf' }], object: 'list', data: [{ id: 'q.gguf', meta: { n_ctx_train: 262144 } }] })).toEqual([{ id: 'q.gguf' }]);
+    // Ollama's own, LM Studio's, a bare list, names as keys; and what isn't a list at all.
+    expect(listedModels({ models: [{ name: 'llama3:8b' }] }).map((m) => m.id)).toEqual(['llama3:8b']);
+    expect(listedModels([{ id: 'a', max_context_length: 32768 }, 'b'])).toEqual([{ id: 'a', contextSize: 32768 }, { id: 'b' }]);
+    expect(listedModels({ models: { 'qwen-27b': { context_length: 131072 }, count: 1 } })).toEqual([{ id: 'qwen-27b', contextSize: 131072 }]);
+    expect(listedModels({ models: 'qwen-27b', data: null })).toEqual([]);
+    expect(listedModels(null)).toEqual([]);
   });
 
   it('takes the API’s base however it’s pasted', () => {

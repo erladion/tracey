@@ -83,11 +83,7 @@ export function createLlm(store: LlmStore) {
 
   type Listed = { id: string; contextSize?: number };
   async function models(setup: LlmSetup): Promise<Listed[]> {
-    const r = await request<{ data?: { id?: string; max_model_len?: unknown }[]; models?: { name?: string; model?: string }[] }>(setup, '/models');
-    return [
-      ...(r.data ?? []).map((m) => ({ id: m.id ?? '', contextSize: typeof m.max_model_len === 'number' ? m.max_model_len : undefined })),
-      ...(r.models ?? []).map((m) => ({ id: m.model ?? m.name ?? '' })),
-    ].filter((m) => m.id);
+    return listedModels(await request<unknown>(setup, '/models'));
   }
 
   // The model's context window: from the model list (vLLM's max_model_len), else from
@@ -180,6 +176,35 @@ export function createLlm(store: LlmStore) {
 }
 
 const waitText = (ms: number) => (ms >= 120_000 ? `${Math.round(ms / 60_000)} minutes` : `${Math.round(ms / 1000)} seconds`);
+
+// The models in a /models answer, however the server shapes it: OpenAI's {data: [{id}]}
+// (vLLM adds max_model_len), llama.cpp's and Ollama's {models: [{name, model}]}, a bare
+// list, or names as an object's keys. Duplicates once; what can't be read, left out.
+export function listedModels(r: unknown): { id: string; contextSize?: number }[] {
+  const out: { id: string; contextSize?: number }[] = [];
+  const add = (m: unknown) => {
+    if (typeof m === 'string') return out.push({ id: m });
+    if (!m || typeof m !== 'object') return;
+    const x = m as Record<string, unknown>;
+    const id = [x.id, x.model, x.name].find((v) => typeof v === 'string' && v.trim()) as string | undefined;
+    if (!id) return;
+    // The window it runs with (not the one it was trained with, which may be larger).
+    const ctx = [x.max_model_len, x.context_length, x.max_context_length, x.context_window].find((v) => typeof v === 'number' && v > 0) as number | undefined;
+    out.push({ id, contextSize: ctx });
+  };
+  const list = (v: unknown) => {
+    if (Array.isArray(v)) v.forEach(add);
+    else if (v && typeof v === 'object') for (const [k, info] of Object.entries(v)) if (info && typeof info === 'object' && !Array.isArray(info)) add({ id: k, ...info });
+  };
+  if (Array.isArray(r)) list(r);
+  else if (r && typeof r === 'object') {
+    const o = r as Record<string, unknown>;
+    list(o.data);
+    list(o.models);
+  }
+  const seen = new Set<string>();
+  return out.filter((m) => !seen.has(m.id) && seen.add(m.id));
+}
 
 // What the server said went wrong, if it said (OpenAI style: {"error": {"message": …}}).
 function detailOf(text: string): string {

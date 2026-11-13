@@ -101,14 +101,12 @@ export function LlmCard() {
           </label>
           <label className="field">
             <span>Model</span>
-            <select value={model} onChange={(e) => setModel(e.target.value)}>
-              <option value="">The server’s first</option>
+            <input list="llm-models" value={model} onChange={(e) => setModel(e.target.value)} placeholder="the server’s first" spellCheck={false} />
+            <datalist id="llm-models">
               {models.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
+                <option key={m} value={m} />
               ))}
-            </select>
+            </datalist>
           </label>
           <label className="field grow">
             <span>API key, if it needs one (kept encrypted on this computer)</span>
