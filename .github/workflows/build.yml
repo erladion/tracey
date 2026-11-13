@@ -1,7 +1,7 @@
-# Tests on every push and pull request; desktop installers (Linux AppImage, Windows
-# installer) and a GitHub release with them for a tag v*; the installers alone when run
-# by hand. They're kept as artifacts for a day only: Actions storage is limited, and the
-# release keeps its own copy.
+# Tests on every push and pull request. For a tag v*: a draft GitHub release, the desktop
+# installers (Linux AppImage, Windows installer) attached to it straight from the jobs
+# that build them, then the release published. No artifacts, so releases use none of the
+# account's Actions storage. Run by hand, the installers are artifacts kept for a day.
 name: Build
 
 on:
@@ -35,9 +35,28 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  installers:
+  # A tag's release, as a draft until both installers are on it. Already there (a re-run): kept.
+  release:
     needs: test
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+                 --title "Tracey ${GITHUB_REF_NAME#v}" --generate-notes
+
+  installers:
+    needs: [test, release]
+    # The release job is skipped when run by hand: that's fine here.
+    if: >-
+      always() && needs.test.result == 'success' && needs.release.result != 'failure' && needs.release.result != 'cancelled'
+      && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch')
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +68,8 @@ jobs:
             target: --win
             files: dist/*.exe
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,30 +94,30 @@ jobs:
             sleep 30
           done
           exit 1
-      - uses: actions/upload-artifact@v4
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" ${{ matrix.files }} --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Keep as an artifact (run by hand)
+        if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+        uses: actions/upload-artifact@v4
         with:
           name: installer-${{ matrix.os }}
           path: ${{ matrix.files }}
           if-no-files-found: error
           retention-days: 1
 
-  release:
+  # Both installers are on it: the release goes out.
+  publish:
     needs: installers
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: installers
-          merge-multiple: true
-      - name: GitHub release
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          ls -l installers
-          gh release create "$GITHUB_REF_NAME" installers/* \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "Tracey ${GITHUB_REF_NAME#v}" \
-            --generate-notes
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
