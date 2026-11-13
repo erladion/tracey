@@ -88,3 +88,14 @@ export function linkQuery(index: ProjectIndex, links: IssueLinks): string | null
   const projects = projectsOf(index, links);
   return projects ? `project in (${[...projects].map((p) => `"${p}"`).join(', ')}) ORDER BY updated DESC` : null;
 }
+
+// Jira versions in the order to offer them: not released yet first (soonest due first,
+// undated after), then released ones (latest first); otherwise as the project lists them.
+export function versionOrder<T extends { released: boolean; releaseDate: string | null; order: number }>(versions: T[]): { upcoming: T[]; released: T[] } {
+  const byDate = (later: boolean) => (a: T, b: T) => {
+    if (a.releaseDate && b.releaseDate && a.releaseDate !== b.releaseDate) return (a.releaseDate < b.releaseDate ? -1 : 1) * (later ? -1 : 1);
+    if (!!a.releaseDate !== !!b.releaseDate) return a.releaseDate ? -1 : 1;
+    return (a.order - b.order) * (later ? -1 : 1);
+  };
+  return { upcoming: versions.filter((v) => !v.released).sort(byDate(false)), released: versions.filter((v) => v.released).sort(byDate(true)) };
+}

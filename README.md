@@ -534,6 +534,38 @@ It adds up the estimated time.
 You can also start a run with every test case, an empty one, or the
 [work list](#the-work-list).
 
+### Suggestions from a language model
+
+Links only find test cases someone connected to an issue. A language model can find more,
+by what the issues are about. Set one up under **Settings → Language model**: any server
+with an OpenAI-style API, such as llama.cpp (`llama-server`), vLLM, Ollama or LM Studio,
+or a hosted one over https with an API key.
+
+| Setting | What it does |
+|---|---|
+| Address | The API's base, as `http://localhost:8080/v1` or `https://llm.example.com/v1`. |
+| Model | One the server lists, or the server's first. |
+| API key | Sent as a Bearer token. Kept encrypted with the system keychain. |
+| Test cases per issue | How many candidates the model chooses from. Automatic: from the model's context window (vLLM's `max_model_len`, llama.cpp's `/props`), between 30 and 150. |
+| Let the model think | For reasoning models (Qwen3-style): slower, sometimes better. Off by default. |
+
+Then, in **New test run** for a release:
+
+1. Choose which issues: those with no test cases yet, or all of them.
+2. **Suggest**. For each issue, Tracey finds the likeliest test cases by their words (title,
+   text, the requirements they verify, components), and the model picks those that fit,
+   with a reason. It can only pick test cases it was offered, so it can't make up IDs.
+3. Untick what doesn't fit. The rest join the run, each with its reason
+   ("PAY-1 (suggested): tests split refunds"). Or **Add the chosen to the work list**.
+
+A local model takes a few seconds per issue. **Stop** keeps what's been suggested so far.
+Issue texts and test case titles are sent to the server, so mind where it runs. The
+matching assumes issues and test cases are written in the same language.
+
+In the web version, the server's environment sets the model for everyone: `TRACE_LLM_URL`,
+`TRACE_LLM_MODEL`, `TRACE_LLM_KEY`, and optionally `TRACE_LLM_THINK=1` and
+`TRACE_LLM_CANDIDATES`.
+
 ### Recording results
 
 Expand a case to test it. The numbered list under its **Steps** heading becomes a
@@ -654,8 +686,12 @@ Everyone uses their own token, so Jira shows what each person may see. Add yours
 
 - **Desktop app**: connects like a browser on that computer, with the certificates the
   system trusts (a company's own certificate authority) and its proxy settings.
-- **Web version**: connects with Node's network stack. For a company certificate
-  authority, start the server with `NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem`.
+- **Web version**: connects with Node's network stack, trusting the system's
+  certificates too and using `HTTPS_PROXY` / `NO_PROXY` from its environment, like
+  `curl` (Node 24 and later). Otherwise, for a company certificate authority, start the
+  server with `NODE_EXTRA_CA_CERTS=/path/to/company-ca.pem`.
+
+The language model's server is reached the same way.
 
 When Jira can't be reached or refuses, **Settings → Jira** says why: an unknown name
 (VPN?), no answer, an untrusted certificate, a token Jira didn't accept, or a sign-in
@@ -805,7 +841,9 @@ links:
 - **A README.md per module** with its headings, information objects and order, linking to
   the items, so the document structure is kept.
 - **A report**: counts per module, links left out, missing pictures, how statuses were
-  mapped, and attributes not copied.
+  mapped, attributes not copied, and IDs that clash: already in the repository, or twice
+  in the export (usually two modules given the same prefix, since DOORS numbers each
+  module from 1).
 - **trace.yml**: written if the repository has none; otherwise the matching settings are
   printed to merge in.
 
@@ -1033,10 +1071,12 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   doors.ts        the DOORS import: the map, the files, test steps, the report
   doorshtml.ts    DOORS modules exported as HTML, read like ReqIF; html.ts reads forgiving HTML
   needs.ts        Sphinx-Needs needs.json: export, and import with its report
+  suggest.ts      test cases for a Jira issue: candidates by their words, the model's question and answer
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end
-src/backend/      Node: files (with path checks), git, the Jira client, the commands (cli.ts, commandline.ts)
+src/backend/      Node: files (with path checks), git, the Jira and language model clients, the commands
+                  (cli.ts, commandline.ts), the web server's network settings (network.ts)
 src/main/         Electron: window, IPC, folder dialogs, recent repositories; commands from a terminal
 src/preload/      the IPC bridge
 src/server/       web server (same API over HTTP), and the same commands

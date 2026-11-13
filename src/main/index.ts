@@ -6,6 +6,7 @@ import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createBackend, safePath, type RepoHost } from '../backend/service';
 import { envAuth, normalizeUrl, type JiraAuth, type JiraCredentials } from '../backend/jira';
+import { envLlm, type LlmStore } from '../backend/llm';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 import { desktopCommand, helpText } from '../backend/commandline';
 
@@ -104,8 +105,8 @@ async function readTokens(): Promise<Record<string, string>> {
     return {};
   }
 }
-// A session of its own for Jira's REST API, sending what an API client (curl) would: no
-// browser User-Agent, no Sec-Fetch headers, no cookies.
+// A session of its own for Jira's REST API and the language model's, sending what an API
+// client (curl) would: no browser User-Agent, no Sec-Fetch headers, no cookies.
 let jiraSes: Electron.Session | null = null;
 function jiraSession(): Electron.Session {
   if (jiraSes) return jiraSes;
@@ -150,7 +151,49 @@ const desktopJira: JiraCredentials = {
   },
 };
 
-const backend: Api = { ...createBackend(desktopHost, desktopJira), exportPdf };
+// The language model: each user's, in llm.json beside the settings, the API key encrypted
+// with the system keychain like Jira tokens. TRACE_LLM_URL (and _MODEL, _KEY) work too.
+const llmPath = () => join(app.getPath('userData'), 'llm.json');
+const desktopLlm: LlmStore = {
+  editable: true,
+  desktop: true,
+  fetch: (url, init) => jiraSession().fetch(String(url), init),
+  async get() {
+    let saved: { url?: string; model?: string; key?: string | null; think?: boolean; candidates?: number } = {};
+    try {
+      saved = JSON.parse(await fs.readFile(llmPath(), 'utf8'));
+    } catch {
+      return envLlm();
+    }
+    if (!saved.url) return envLlm();
+    let key: string | null = null;
+    if (saved.key && safeStorage.isEncryptionAvailable())
+      try {
+        key = safeStorage.decryptString(Buffer.from(saved.key, 'base64'));
+      } catch {
+        key = null;
+      }
+    return { url: saved.url, model: saved.model ?? '', key, think: !!saved.think, candidates: Number(saved.candidates) || 0 };
+  },
+  async set(setup) {
+    let old: { key?: string | null } = {};
+    try {
+      old = JSON.parse(await fs.readFile(llmPath(), 'utf8'));
+    } catch {
+      // Nothing saved yet.
+    }
+    let key = old.key ?? null;
+    if (setup.key !== undefined) {
+      if (setup.key && (!safeStorage.isEncryptionAvailable() || safeStorage.getSelectedStorageBackend?.() === 'basic_text'))
+        throw new Error('This computer has no keychain to keep the API key safe in. Set TRACE_LLM_URL and TRACE_LLM_KEY in the environment instead.');
+      key = setup.key ? safeStorage.encryptString(setup.key).toString('base64') : null;
+    }
+    await fs.mkdir(app.getPath('userData'), { recursive: true });
+    await fs.writeFile(llmPath(), JSON.stringify({ url: setup.url, model: setup.model, key, think: setup.think, candidates: setup.candidates }, null, 2), { mode: 0o600 });
+  },
+};
+
+const backend: Api = { ...createBackend(desktopHost, desktopJira, desktopLlm), exportPdf };
 
 // Renders the document in a hidden window (no scripts, nothing but the page) and saves
 // it as a PDF where the user chooses.

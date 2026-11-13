@@ -9,6 +9,7 @@ import { projectFiles } from '../core/sample';
 import { looksLike, MAX_IMAGE_BYTES } from '../core/images';
 import { git, GitError, remoteKey } from './git';
 import { createJira, type JiraCredentials } from './jira';
+import { createLlm, type LlmStore } from './llm';
 
 export interface RepoHost {
   list(): Promise<RepoEntry[]>;
@@ -105,9 +106,13 @@ export async function readProjectFilesAt(root: string, commit: string): Promise<
   return { config, files };
 }
 
-export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
+// No language model: what the tests and anything without one use.
+const noLlm: LlmStore = { editable: false, desktop: false, get: async () => null, set: async () => {} };
+
+export function createBackend(host: RepoHost, jiraCreds: JiraCredentials, llmStore: LlmStore = noLlm): Api {
   const root = (repo: string) => host.resolve(repo);
   const jira = createJira(jiraCreds);
+  const llm = createLlm(llmStore);
 
   async function writeProject(dest: string, examples: boolean) {
     for (const [rel, text] of Object.entries(projectFiles(examples))) {
@@ -229,6 +234,10 @@ export function createBackend(host: RepoHost, jiraCreds: JiraCredentials): Api {
     jiraSetToken: (server, token, email) => jira.setToken(server, token, email),
     jiraSearch: (server, jql, field, max) => jira.search(server, jql, field, max),
     jiraRemoteLinks: (server, keys) => jira.remoteLinks(server, keys),
+    jiraVersions: (server, projects) => jira.versions(server, Array.isArray(projects) ? projects.map(String) : []),
+    llmStatus: () => llm.status(),
+    llmSetup: (settings) => llm.setup(settings),
+    llmChat: (messages, json) => llm.chat(messages, !!json),
     gitTags: async (repo) => git.tags(await root(repo)),
     gitRange: async (repo, from, to) => git.range(await root(repo), from, to),
     gitCommitOf: async (repo, ref) => git.verifyRef(await root(repo), String(ref)),

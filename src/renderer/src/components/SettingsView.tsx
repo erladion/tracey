@@ -5,6 +5,7 @@ import type { Project } from '../project';
 import { notify } from '../notify';
 import { CodeRepoCard } from './CodeRepoCard';
 import { JiraCard } from './JiraCard';
+import { LlmCard } from './LlmCard';
 import { VariantsCard } from './VariantsCard';
 
 export function SettingsView({ project }: { project: Project }) {
@@ -25,6 +26,7 @@ export function SettingsView({ project }: { project: Project }) {
       </div>
       <JiraCard project={project} />
       <CodeRepoCard project={project} />
+      <LlmCard />
       <VariantsCard project={project} blocked={dirty} />
       <div className="dash-columns">
         <section className="card grow">

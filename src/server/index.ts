@@ -18,8 +18,12 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createBackend, readProjectFiles, safePath, type RepoHost } from '../backend/service';
 import { createVault, jiraCookies, webJiraCredentials } from '../backend/webjira';
+import { envLlm, type LlmStore } from '../backend/llm';
+import { useSystemNetworkSettings } from '../backend/network';
 import { API_METHODS, type Api, type RepoEntry } from '../shared/api';
 import { COMMANDS } from '../backend/commandline';
+
+useSystemNetworkSettings();
 
 const args = process.argv.slice(2);
 
@@ -93,7 +97,10 @@ async function secret(): Promise<string> {
 // Jira: only the addresses in TRACE_JIRA_URL, so a repository's trace.yml can't point
 // the server (or anyone's token) somewhere else.
 const jiraUrls = (process.env.TRACE_JIRA_URL ?? '').split(',').map((u) => u.trim()).filter(Boolean);
-const backend = createBackend(webHost, webJiraCredentials(createVault(await secret()), jiraUrls));
+// The language model: the server's own, from its environment (TRACE_LLM_URL, TRACE_LLM_MODEL,
+// TRACE_LLM_KEY, TRACE_LLM_THINK, TRACE_LLM_CANDIDATES); people can't point it elsewhere.
+const webLlm: LlmStore = { editable: false, desktop: false, get: async () => envLlm(), set: async () => {} };
+const backend = createBackend(webHost, webJiraCredentials(createVault(await secret()), jiraUrls), webLlm);
 
 // ---- HTTP --------------------------------------------------------------------------------
 

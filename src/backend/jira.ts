@@ -1,6 +1,6 @@
 // A small Jira REST client: Data Center / Server (API 2, personal access token as a
 // Bearer token) and Cloud (API 3, email + API token). Only reads.
-import type { JiraIssue, JiraServer, JiraStatus } from "../shared/api";
+import type { JiraIssue, JiraServer, JiraStatus, JiraVersion } from "../shared/api";
 
 export interface JiraAuth {
   token: string;
@@ -79,21 +79,41 @@ export function forbidden(
 
 // Why a request got no answer, in words. Node says only "fetch failed" and keeps the
 // reason in `cause`; Chromium (the desktop app) says net::ERR_….
-export function reachError(e: unknown, base: string, desktop: boolean): string {
-  const err = e as Error & { cause?: { code?: string; message?: string } };
-  const code =
-    err.cause?.code ?? /net::(ERR_[A-Z_]+)/.exec(err.message)?.[1] ?? "";
+export function networkCause(e: unknown): { code?: string; message: string } | undefined {
+  let found: { code?: string; message: string } | undefined;
+  let current: unknown = e;
+  for (let depth = 0; current && depth < 8; depth++) {
+    const x = current as { code?: unknown; message?: unknown; cause?: unknown; errors?: unknown[] };
+    if (typeof x.code === "string") found = { code: x.code, message: String(x.message || x.code).replace(/; if the root CA is installed locally.*$/, "") };
+    current = x.cause ?? (Array.isArray(x.errors) ? x.errors[0] : undefined);
+  }
+  return found;
+}
+
+// `what` is shown as the server's name, `where` as the setting holding its address.
+export function reachError(
+  e: unknown,
+  base: string,
+  desktop: boolean,
+  o: { what?: string; where?: string; waited?: string } = {},
+): string {
+  const { what = "Jira", where = "jira.url in trace.yml", waited = "a minute" } = o;
+  const err = e as Error;
+  // The innermost error with a code, through `cause` and AggregateError (both addresses of
+  // localhost refused, say), as in Smith's errors.ts.
+  const cause = networkCause(e);
+  const code = cause?.code ?? /net::(ERR_[A-Z_]+)/.exec(err.message)?.[1] ?? "";
   const detail =
-    err.cause?.message && err.cause.message !== err.message
-      ? `${err.message}: ${err.cause.message}`
+    cause?.message && cause.message !== err.message
+      ? `${err.message}: ${cause.message}`
       : err.message;
   const why =
     err.name === "TimeoutError" || /TIMEOUT|TIMED_OUT/.test(code)
-      ? "No answer within a minute. Is a VPN needed to reach it?"
+      ? `No answer within ${waited}. Is a VPN needed to reach it?`
       : /ENOTFOUND|EAI_AGAIN|NAME_NOT_RESOLVED/.test(code)
-        ? "That name isn’t known on this network: check jira.url in trace.yml, and whether a VPN is needed."
+        ? `That name isn’t known on this network: check ${where}, and whether a VPN is needed.`
         : /ECONNREFUSED|CONNECTION_REFUSED/.test(code)
-          ? "Nothing answers at that address: check jira.url (and its port) in trace.yml."
+          ? `Nothing answers at that address: check ${where} (and its port).`
           : /CERT|SELF_SIGNED|UNABLE_TO_|ISSUER|SSL|TLS/.test(code)
             ? desktop
               ? "Its certificate isn’t one this computer trusts: the company’s certificate authority may need installing (ask IT)."
@@ -101,7 +121,7 @@ export function reachError(e: unknown, base: string, desktop: boolean): string {
             : /PROXY|TUNNEL/.test(code)
               ? "The proxy refused or failed: check the proxy settings."
               : "";
-  return `Couldn't reach Jira at ${base}: ${detail}${code && !detail.includes(code) ? ` (${code})` : ""}.${why ? ` ${why}` : ""}`;
+  return `Couldn't reach ${what} at ${base}: ${detail}${code && !detail.includes(code) ? ` (${code})` : ""}.${why ? ` ${why}` : ""}`;
 }
 
 function check(server: JiraServer): string {
@@ -347,6 +367,20 @@ export function createJira(creds: JiraCredentials) {
           if (/\(\s*\)/.test(query)) return { issues: [], total: 0, missing };
         }
       }
+    },
+
+    // The projects' versions (releases), as Jira lists them: archived ones left out, the
+    // same name in several projects once.
+    async versions(server: JiraServer, projects: string[]): Promise<JiraVersion[]> {
+      const byName = new Map<string, JiraVersion>();
+      for (const p of projects.filter((k) => /^[A-Z][A-Z0-9_]*$/.test(k)).slice(0, 20)) {
+        const list = await request<{ name?: string; released?: boolean; archived?: boolean; releaseDate?: string }[]>(server, `/project/${encodeURIComponent(p)}/versions`);
+        list.forEach((v, order) => {
+          if (!v.name || v.archived || byName.has(v.name)) return;
+          byName.set(v.name, { name: v.name, released: !!v.released, releaseDate: v.releaseDate ?? null, project: p, order });
+        });
+      }
+      return [...byName.values()];
     },
 
     async remoteLinks(

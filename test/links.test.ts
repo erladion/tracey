@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildIndex } from '../src/core/model';
 import { projectFiles } from '../src/core/sample';
-import { buildIssueLinks, linkQuery } from '../src/core/links';
+import { buildIssueLinks, linkQuery, versionOrder } from '../src/core/links';
 import { linkCommits, commitsFor } from '../src/core/commits';
 import { impact, reasonText } from '../src/core/impact';
 import { buildGraph } from '../src/core/graph';
@@ -65,5 +65,20 @@ describe('issue links', () => {
     const g = buildGraph(index, {}, linked, links);
     expect(g.byKey.get('issue:PROJ-466')!.sub).toBe('Retry failed payments');
     expect(g.edges.find((e) => e.from === 'issue:PROJ-502' && e.to === 'test:TC-140')!.sources).toEqual(['field']);
+  });
+});
+
+describe('Jira versions to offer', () => {
+  it('puts the ones not released yet first, soonest due first, then released ones latest first', () => {
+    const v = (name: string, released: boolean, releaseDate: string | null, order: number) => ({ name, released, releaseDate, order });
+    const { upcoming, released } = versionOrder([
+      v('2.3.0', true, '2026-09-01', 0),
+      v('2.4.1', false, null, 3),
+      v('2.4.0', false, '2026-12-01', 2),
+      v('2.3.1', true, '2026-10-15', 1),
+      v('3.0.0', false, '2027-03-01', 4),
+    ]);
+    expect(upcoming.map((x) => x.name)).toEqual(['2.4.0', '3.0.0', '2.4.1']);
+    expect(released.map((x) => x.name)).toEqual(['2.3.1', '2.3.0']);
   });
 });

@@ -3627,3 +3627,36 @@ textarea.note-input {
 .tab-dot.review {
   background: var(--warn-line);
 }
+
+/* Test cases the language model suggests in a new run */
+.suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.suggest .inline-form {
+  align-items: center;
+  gap: 8px;
+}
+.suggest-list {
+  max-height: 300px;
+  overflow: auto;
+}
+.suggest-issue {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.suggest-issue:first-child {
+  border-top: 0;
+}
+.suggest-row {
+  align-items: flex-start;
+  margin-left: 12px;
+}

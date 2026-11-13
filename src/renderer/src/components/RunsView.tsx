@@ -6,8 +6,8 @@ import type { Project } from '../project';
 import { compareIds, forVariant, type Item } from '../../../core/model';
 import { isRunnable } from '../../../core/config';
 import { linkCommits } from '../../../core/commits';
-import { buildIssueLinks, projectsOf } from '../../../core/links';
-import type { Commit, JiraIssue } from '../../../shared/api';
+import { buildIssueLinks, projectsOf, versionOrder } from '../../../core/links';
+import type { Commit, JiraIssue, JiraVersion } from '../../../shared/api';
 import { impact, reasonText, type Impact } from '../../../core/impact';
 import { addCases, newRunText, releaseFrom, removeCase, resultFromSteps, runPath, setCase, setRelease as setRunRelease, setStep, stepProblems, summarize, today, RESULTS, type Result, type RunCase, type TestRun } from '../../../core/runs';
 import { stepsOf } from '../../../core/steps';
@@ -21,6 +21,7 @@ import { download } from '../download';
 import { Icon } from '../icons';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
+import { SuggestTests, type Chosen } from './SuggestTests';
 import { RESULT_LABEL, ShowMore, StatusPill, useShown, VariantTag } from './bits';
 import { load, save } from '../storage';
 
@@ -702,6 +703,9 @@ function ReleaseLine({ project, run }: { project: Project; run: TestRun }) {
 
 // ---- a new run ------------------------------------------------------------------------
 
+// The dropdown's "Another name…": no Jira version is called this (Jira trims names).
+const OTHER_VERSION = ' another';
+
 function NewRunDialog({ project, fromWork, onClose, onCreated }: { project: Project; fromWork: boolean; onClose: () => void; onCreated: (path: string) => void }) {
   const { code } = project;
   const variants = project.allIndex.config.variants;
@@ -803,10 +807,28 @@ function NewRunDialog({ project, fromWork, onClose, onCreated }: { project: Proj
     };
   }, [scope, range, fvIssues, index, project.jira.issues, components]);
   const fixVersions = useMemo(() => [...new Set(project.jira.issues.flatMap((i) => i.fixVersions))].sort((a, b) => compareIds(b, a)), [project.jira.issues]);
+  // The projects' versions as Jira lists them, for the dropdown; null until read (or if
+  // they can't be, when the field takes a typed name instead).
+  const [jiraVersions, setJiraVersions] = useState<JiraVersion[] | null>(null);
+  const [otherVersion, setOtherVersion] = useState(false);
+  useEffect(() => {
+    if (!jiraOn || !project.jira.server) return;
+    const projects = projectsOf(index, project.links);
+    if (!projects) return;
+    api.jiraVersions(project.jira.server, [...projects]).then(
+      (v) => setJiraVersions(v.length ? v : null),
+      () => setJiraVersions(null),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jiraOn, project.jira.server]);
+  const versionLists = useMemo(() => (jiraVersions ? versionOrder(jiraVersions) : null), [jiraVersions]);
+  const manyProjects = new Set(jiraVersions?.map((v) => v.project)).size > 1;
+  const versionLabel = (v: JiraVersion) =>
+    `${v.name}${v.releaseDate ? ` · ${v.released ? 'released' : 'due'} ${v.releaseDate}` : ''}${manyProjects ? ` (${v.project})` : ''}`;
 
   const componentName = (k: string) => index.config.components.find((c) => c.key === k)?.name ?? k;
   const allTests = useMemo(() => index.items.filter((i) => isRunnable(index.config, i.kind) && i.status !== 'obsolete'), [index]);
-  const picked: { item: Item; reason: string[] }[] = useMemo(() => {
+  const linkedPicks: { item: Item; reason: string[] }[] = useMemo(() => {
     if (scope === 'all') return allTests.map((item) => ({ item, reason: ['Full regression'] }));
     if (scope === 'work')
       return project.work.flatMap((e) => {
@@ -820,6 +842,29 @@ function NewRunDialog({ project, fromWork, onClose, onCreated }: { project: Proj
       .sort((a, b) => compareIds(a.item.id, b.item.id));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, preview, index, allTests, project.work]);
+
+  // The release's issues as read from Jira (the fix version's, and those the commits name),
+  // the test cases each already brings, and the language model's chosen suggestions.
+  const [suggested, setSuggested] = useState<Chosen[]>([]);
+  const releaseIssues = useMemo(() => {
+    if (!preview) return [];
+    const byKey = new Map([...project.jira.issues, ...(fvIssues?.issues ?? [])].map((i) => [i.key, i]));
+    return preview.impact.issues.map((k) => byKey.get(k)).filter((i): i is JiraIssue => !!i);
+  }, [preview, project.jira.issues, fvIssues]);
+  const linkedByIssue = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const [id, reasons] of preview?.impact.cases ?? []) for (const r of reasons) if (r.kind === 'issue') (m.get(r.issue) ?? m.set(r.issue, new Set()).get(r.issue)!).add(id);
+    return m;
+  }, [preview]);
+  const linkedIds = useMemo(() => new Set(linkedPicks.map((p) => p.item.id)), [linkedPicks]);
+  const picked = useMemo(() => {
+    if (scope !== 'impact' || !suggested.length) return linkedPicks;
+    const extra = suggested.flatMap((c) => {
+      const item = index.byId.get(c.id);
+      return item && !linkedIds.has(c.id) ? [{ item, reason: [c.reason] }] : [];
+    });
+    return [...linkedPicks, ...extra].sort((a, b) => compareIds(a.item.id, b.item.id));
+  }, [scope, suggested, linkedPicks, linkedIds, index]);
 
   const create = async () => {
     setBusy(true);
@@ -917,7 +962,46 @@ function NewRunDialog({ project, fromWork, onClose, onCreated }: { project: Proj
                 </datalist>
               </div>
             )}
-            {jiraOn && (
+            {jiraOn && versionLists && (
+              <div className="field">
+                <label className="field">
+                  <span>{code.repo ? 'And' : 'Issues in'} Jira release (optional)</span>
+                  <select
+                    value={otherVersion ? OTHER_VERSION : fixVersion}
+                    onChange={(e) => {
+                      const other = e.target.value === OTHER_VERSION;
+                      setOtherVersion(other);
+                      setFixVersion(other ? '' : e.target.value);
+                    }}
+                  >
+                    <option value="">None</option>
+                    {versionLists.upcoming.length > 0 && (
+                      <optgroup label="Not released yet">
+                        {versionLists.upcoming.map((v) => (
+                          <option key={v.name} value={v.name}>
+                            {versionLabel(v)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {versionLists.released.length > 0 && (
+                      <optgroup label="Released">
+                        {versionLists.released.map((v) => (
+                          <option key={v.name} value={v.name}>
+                            {versionLabel(v)}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <option value={OTHER_VERSION}>Another name…</option>
+                  </select>
+                </label>
+                {otherVersion && (
+                  <input aria-label="Fix version name" value={fixVersion} onChange={(e) => setFixVersion(e.target.value)} placeholder="2.4.0" spellCheck={false} autoFocus />
+                )}
+              </div>
+            )}
+            {jiraOn && !versionLists && (
               <label className="field">
                 <span>{code.repo ? 'And' : 'Issues in'} Jira fix version (optional)</span>
                 <input list="fix-version-list" value={fixVersion} onChange={(e) => setFixVersion(e.target.value)} placeholder="2.4.0" spellCheck={false} />
@@ -974,6 +1058,10 @@ function NewRunDialog({ project, fromWork, onClose, onCreated }: { project: Proj
               )}
             </div>
           </>
+        )}
+
+        {scope === 'impact' && im && releaseIssues.length > 0 && (
+          <SuggestTests project={project} index={index} issues={releaseIssues} linked={linkedByIssue} picked={linkedIds} onChange={setSuggested} />
         )}
 
         {picked.length > 0 && (

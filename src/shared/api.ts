@@ -84,6 +84,15 @@ export interface JiraIssue {
   remoteLinks: { url: string; title: string }[] | null; // null: not read
 }
 
+// A version (release) of a Jira project.
+export interface JiraVersion {
+  name: string;
+  released: boolean;
+  releaseDate: string | null; // 2026-12-01
+  project: string;
+  order: number; // where the project lists it
+}
+
 export interface JiraServer {
   url: string; // https://jira.example.com
   api: 2 | 3; // 2: Data Center / Server (personal access token); 3: Cloud (email + API token)
@@ -96,6 +105,32 @@ export interface JiraStatus {
   storedIn: 'computer' | 'browser'; // where an entered token is kept (encrypted)
   user: string | null; // who the token signs in as
   error: string | null;
+}
+
+// The language model (an OpenAI-style API) suggesting test cases for Jira issues.
+export interface LlmStatus {
+  editable: boolean; // set here (desktop), or where the server runs (web)
+  url: string; // '' : not set up
+  model: string; // '' : the server's first
+  hasKey: boolean;
+  think: boolean; // let reasoning models think before answering
+  candidates: number; // test cases offered per issue; 0: from the context size
+  models: string[]; // what the server lists
+  contextSize: number | null; // the model's context window, when the server says
+  error: string | null;
+}
+
+export interface LlmSettings {
+  url: string;
+  model: string;
+  key?: string | null; // undefined: keep the saved one; null or '': remove it
+  think: boolean;
+  candidates: number;
+}
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
 }
 
 export interface Identity {
@@ -160,6 +195,14 @@ export interface Api {
   // Issues matching JQL (up to `max`), with `field` (a custom field's id or name) read into JiraIssue.field.
   jiraSearch(server: JiraServer, jql: string, field: string | null, max: number): Promise<{ issues: JiraIssue[]; total: number; missing: string[] }>;
   jiraRemoteLinks(server: JiraServer, keys: string[]): Promise<Record<string, { url: string; title: string }[]>>;
+  // The projects' versions (releases), archived ones left out.
+  jiraVersions(server: JiraServer, projects: string[]): Promise<JiraVersion[]>;
+
+  // The language model
+  llmStatus(): Promise<LlmStatus>;
+  llmSetup(settings: LlmSettings): Promise<void>; // desktop only
+  // The model's answer; json: ask for JSON only where the server can.
+  llmChat(messages: ChatMessage[], json: boolean): Promise<string>;
 }
 
 export type ApiMethod = keyof Api;
@@ -201,4 +244,8 @@ export const API_METHODS: ApiMethod[] = [
   'jiraSetToken',
   'jiraSearch',
   'jiraRemoteLinks',
+  'jiraVersions',
+  'llmStatus',
+  'llmSetup',
+  'llmChat',
 ];
