@@ -45,7 +45,8 @@ export interface ImportReport {
   statuses: { value: string; kind: Kind; status: string; count: number; known: boolean }[];
   unknownVariants: string[];
   unknownComponents: string[];
-  duplicates: string[];
+  duplicates: { id: string; modules: [string, string] }[]; // an ID twice in the export
+  existing: string[]; // IDs already in the repository
   generatedIds: string[];
   unmappedAttributes: string[];
   missingAttributes: string[]; // named in the map, but no object has them
@@ -321,6 +322,7 @@ export function planImport(
     unknownVariants: [],
     unknownComponents: [],
     duplicates: [],
+    existing: [],
     generatedIds: [],
     unmappedAttributes: [],
     missingAttributes: [],
@@ -338,6 +340,7 @@ export function planImport(
   const allAttrs = new Set<string>();
   const statusCount = new Map<string, { value: string; kind: Kind; status: string; count: number }>();
   const ids = new Set(opts.existingIds ?? []);
+  const idModule = new Map<string, string>(); // the module each imported ID came from
   const variantKeys = new Set(config.variants.map((v) => v.key));
   const componentKeys = new Set(config.components.map((c) => c.key));
 
@@ -478,8 +481,10 @@ export function planImport(
         id = `${m.prefix}X${n}`;
         report.generatedIds.push(`${id} (${spec.name}, no ID attribute)`);
       }
-      if (ids.has(id)) report.duplicates.push(id);
+      if (idModule.has(id)) report.duplicates.push({ id, modules: [idModule.get(id)!, spec.name] });
+      else if (ids.has(id)) report.existing.push(id);
       ids.add(id);
+      idModule.set(id, spec.name);
       const body = markdownOf(textValue, spec.base, m.dir, id);
       const title = titleValue?.text.trim() || titleFrom(body) || id;
       const statusRaw = map.attributes.status ? o.values.get(map.attributes.status)?.text.trim() : '';
@@ -674,7 +679,23 @@ export function formatReport(r: ImportReport): string {
   if (r.unknownVariants.length) lines.push(`Variants not in trace.yml yet: ${r.unknownVariants.join(', ')}`);
   if (r.unknownComponents.length) lines.push(`Components not in trace.yml yet: ${r.unknownComponents.join(', ')}`);
   if (r.generatedIds.length) lines.push(`IDs made up (objects without an ID): ${r.generatedIds.join(', ')}`);
-  if (r.duplicates.length) lines.push(`Duplicate IDs (fix before committing): ${[...new Set(r.duplicates)].join(', ')}`);
+  const some = (ids: string[]) => `${ids.slice(0, 15).join(', ')}${ids.length > 15 ? `, … (${ids.length} in all)` : ''}`;
+  if (r.existing.length)
+    lines.push(`Already in the repository (${r.existing.length}): ${some(r.existing)}. Imported there before? Import into an empty folder, or delete the earlier import first.`);
+  // Twice in the export: per pair of modules, which usually share a prefix while both number from 1.
+  const pairs = new Map<string, string[]>();
+  for (const d of r.duplicates) {
+    const key = d.modules[0] === d.modules[1] ? `in ${d.modules[0]}` : `in both ${d.modules[0]} and ${d.modules[1]}`;
+    pairs.set(key, [...(pairs.get(key) ?? []), d.id]);
+  }
+  for (const [where, ids] of pairs)
+    lines.push(
+      `Twice in the export, ${where} (${ids.length}): ${some(ids)}. ${
+        where.startsWith('in both')
+          ? 'DOORS numbers each module from 1: give the two modules different prefixes in the map.'
+          : 'The same rows twice: was the module given twice, or is the ID column not unique?'
+      }`,
+    );
   if (r.missingAttributes.length) lines.push(`Not in the export (check the names in the map's attributes): ${r.missingAttributes.join(', ')}`);
   if (r.unmappedAttributes.length) lines.push(`Attributes not copied (add them under attributes.keep to keep them): ${r.unmappedAttributes.join(', ')}`);
   return lines.join('\n');

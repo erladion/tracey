@@ -170,6 +170,23 @@ describe('DOORS modules exported as HTML', () => {
     expect(readMap("values:\n  variants:\n    All: '*'\n", map).values.variants).toEqual({ All: '*' });
   });
 
+  it('tells IDs already in the repository from IDs twice in the export', () => {
+    // Two requirement modules numbered from 1, given the same prefix in the map.
+    const two = readDoorsHtml([
+      { name: 'sys.htm', html: REQS, key: 'f0' },
+      { name: 'sw.htm', html: REQS.replace('System Requirements</TITLE>', 'Software Requirements</TITLE>'), key: 'f1' },
+    ]);
+    const guess = guessMap(two.reqif, config);
+    expect(guess.modules['System Requirements'].prefix).not.toBe(guess.modules['Software Requirements'].prefix);
+    const map = { ...guess, modules: { 'System Requirements': guess.modules['System Requirements'], 'Software Requirements': { ...guess.modules['Software Requirements'], prefix: guess.modules['System Requirements'].prefix } } };
+    const plan = planImport(two.reqif, map, config, { attachment: () => null, existingIds: new Set(['SR-2']) });
+    expect(plan.report.existing).toEqual(['SR-2']);
+    expect(plan.report.duplicates.map((d) => d.id)).toEqual(['SR-2', 'SR-4', 'SR-5', 'SR-6']);
+    const text = formatReport(plan.report);
+    expect(text).toContain('Already in the repository (1): SR-2. Imported there before?');
+    expect(text).toContain('Twice in the export, in both System Requirements and Software Requirements (4): SR-2, SR-4, SR-5, SR-6. DOORS numbers each module from 1: give the two modules different prefixes in the map.');
+  });
+
   it('says when the export is not a table', () => {
     expect(() => readDoorsHtml([{ name: 'doc.htm', html: '<h1>Spec</h1><p>Text only</p>', key: 'f0' }])).toThrow(/no table/);
   });

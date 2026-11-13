@@ -122,7 +122,7 @@ export async function importReqif(args: string[], self = 'node out/server/index.
     date: new Date().toISOString().slice(0, 10),
   });
   console.log(formatReport(plan.report));
-  const clashes = [...new Set(plan.report.duplicates)].filter((id) => existingIds.has(id));
+  const clashes = [...new Set(plan.report.existing)];
   console.log(`\n${plan.files.size} files to write into ${into}.`);
   if (args.includes('--dry-run')) {
     console.log('Dry run: nothing written.');
