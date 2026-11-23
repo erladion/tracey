@@ -108,3 +108,9 @@ describe('a large traceability matrix sheet', () => {
     expect(m.rows[n]).toEqual(['REQ-2', 'Two', null, null, null]);
   });
 });
+
+it('reads steps under a bold label, as in a Sphinx need', () => {
+  const s = stepsOf('Intro.\n\n**Steps**\n\n1. Fail a payment.\n2. Watch.\n\n**Expected**\n\nThree tries.\n');
+  expect(s.steps).toEqual(['Fail a payment.', 'Watch.']);
+  expect(s.rest).toBe('Intro.\n\n**Expected**\n\nThree tries.');
+});

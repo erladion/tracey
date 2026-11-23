@@ -14,6 +14,7 @@
 // written (a MyST project reads it as is).
 import { linksFrom, linksTo, typeKey, typeOf, type Kind, type TraceConfig } from './config';
 import { setFields } from './frontmatter';
+import { isNeedPath, needFile } from './myst';
 import { fingerprint, newItemPath, slug, type Item, type ProjectIndex } from './model';
 
 const TO_SPHINX: Record<string, string> = { requirement: 'req', testcase: 'test' };
@@ -51,7 +52,7 @@ export function needsJson(index: ProjectIndex, o: NeedsExportOptions): string {
       status: it.status || null,
       tags: it.components,
       content: it.body.trim(),
-      docname: it.path.replace(/\.md$/i, ''),
+      docname: needFile(it.path).replace(/\.md$/i, ''),
       links: [],
     };
     for (const l of linksFrom(index.config, it.kind)) need[l.key] = targets(it, l.key);
@@ -196,6 +197,7 @@ export function planNeedsImport(text: string, index: ProjectIndex, o: NeedsImpor
     const tags = list(n.tags);
     const fields: Record<string, unknown> = {
       id: key,
+      ...(config.sphinx ? { type: kind } : {}), // a Sphinx need: the directive it becomes
       title,
       status: n.status == null || n.status === '' ? (typeOf(config, kind).statuses[0] ?? 'draft') : String(n.status),
       components: components.size ? tags.filter((t) => components.has(t)) : tags,
@@ -249,9 +251,11 @@ export function planNeedsImport(text: string, index: ProjectIndex, o: NeedsImpor
         if (f) reviewed[target] = f;
       }
     if (Object.keys(reviewed).length) fields.reviewed = reviewed;
-    const base = newItemPath({ ...index, byPath: new Map() }, p.kind, id, p.title).replace(/\.md$/, '');
-    let path = `${base}.md`;
-    for (let i = 2; taken.has(path) || index.byPath.has(path); i++) path = `${base}-${i}.md`;
+    const at = newItemPath({ ...index, byPath: new Map() }, p.kind, id, p.title);
+    const base = at.replace(/\.md$/, '');
+    // A Sphinx-Needs project: a need in a MyST file, named by its ID (already unique).
+    let path = isNeedPath(at) ? at : `${base}.md`;
+    if (!isNeedPath(at)) for (let i = 2; taken.has(path) || index.byPath.has(path); i++) path = `${base}-${i}.md`;
     taken.add(path);
     files.set(path, `---\n${setFields(null, fields)}---\n${p.body ? `${p.body}\n` : ''}`);
   }

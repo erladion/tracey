@@ -4,6 +4,7 @@
 // writes what it gives.
 import { decodeText, encodeText, joinFrontMatter, setFields, splitFrontMatter } from './frontmatter';
 import { buildIndex, fingerprint, linkState, type Item, type ProjectIndex, type SourceFile } from './model';
+import { isNeedPath } from './myst';
 
 export interface RenamePlan {
   texts: Map<string, string>; // path (as it is now) → its new text; only files that change
@@ -25,6 +26,7 @@ export function idPattern(id: string): RegExp {
 // Where the file goes when it's named after the ID: requirements/REQ-07-retry.md →
 // requirements/REQ-7-retry.md. null: it isn't.
 export function movedPath(path: string, oldId: string, newId: string, taken: (p: string) => boolean): string | null {
+  if (isNeedPath(path)) return null; // a Sphinx need: its path follows its ID by itself
   const slash = path.lastIndexOf('/') + 1;
   const name = path.slice(slash);
   if (!name.startsWith(oldId) || !/^(-|\.md$)/i.test(name.slice(oldId.length))) return null;

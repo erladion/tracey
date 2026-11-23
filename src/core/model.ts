@@ -8,6 +8,7 @@ import { parseDuration } from './estimate';
 import { fieldIssue } from './fields';
 import { customLinks, isRunnable, isVerifiable, linksFrom, parseConfig, typeOf, type Component, type Kind, type LinkDef, type RuleDef, type TraceConfig, statusesFor } from './config';
 import { decodeText, readFrontMatter, splitFrontMatter } from './frontmatter';
+import { directiveOf, idPatternOf, isNeedPath, needFile, needPath, optionsOf, readConfPy, STANDARD_OPTIONS, withSphinxTypes, type NeedSeen, type SphinxDeclared } from './myst';
 
 export interface SourceFile {
   path: string; // relative to the repository root, with /
@@ -58,7 +59,8 @@ export interface Problem {
     | 'bad-field'
     | 'refine-loop'
     | 'bad-verification'
-    | 'wrong-link-type';
+    | 'wrong-link-type'
+    | 'sphinx';
   message: string;
   path?: string;
   id?: string;
@@ -110,6 +112,7 @@ export interface ProjectIndex {
   refinedBy: Map<string, Item[]>; // requirement ID → requirements refining it
   linkedBy: Map<string, Map<string, Item[]>>; // declared link type → ID → the items linking to it
   problems: Problem[];
+  sphinx?: SphinxDeclared | null; // a Sphinx-Needs project: what its conf.py declares (null: no conf.py)
 }
 
 const list = (v: unknown): string[] =>
@@ -145,6 +148,10 @@ export function readItem(file: SourceFile, config: TraceConfig): { item: Item | 
   const id = data.id == null ? '' : String(data.id).trim();
   const kind = kindOf(id, data, file.path, config);
   if (!id || !kind) {
+    if (isNeedPath(file.path)) {
+      if (kind) problems.push({ severity: 'warning', code: 'no-id', message: `This ${String(data.type ?? 'need')} has no :id:, so nothing can link to it. Give it one.`, path: file.path });
+      return { item: null, problems };
+    }
     if (configured && front != null && !/(^|\/)(README|index)\.md$/i.test(file.path))
       problems.push({ severity: 'warning', code: 'no-id', message: 'No id in the front matter, so this file is not a requirement or test case.', path: file.path });
     return { item: null, problems };
@@ -233,17 +240,22 @@ function readChecked(f: SourceFile, config: TraceConfig): ReturnType<typeof read
 }
 
 export function buildIndex(files: SourceFile[], configText: string | null): ProjectIndex {
-  const { config, error } = parseConfig(configText);
-  const problems: Problem[] = error ? [{ severity: 'error', code: 'config', message: error, path: 'trace.yml' }] : [];
+  const parsed = parseConfig(configText);
+  const problems: Problem[] = parsed.error ? [{ severity: 'error', code: 'config', message: parsed.error, path: 'trace.yml' }] : [];
+  // A Sphinx-Needs project: conf.py's declarations, and the types it declares as item types.
+  const sphinx = parsed.config.sphinx ? readConfPy(files.find((f) => f.path === parsed.config.sphinx!.conf)?.text ?? null) : undefined;
+  const config = parsed.config.sphinx ? withSphinxTypes(parsed.config, sphinx ?? null, needsSeen(files)) : parsed.config;
+  // Items read under other settings are read again.
+  const settings = config === parsed.config ? configText : `${configText}\n${JSON.stringify([config.types, config.sphinx?.types, config.sphinx?.reads])}`;
   const items: Item[] = [];
   // Other projects or versions (the trend reads old ones) replace entries as they go;
   // it's emptied when it grows well past what one project holds.
   if (readCache.size > 4 * files.length + 2000) readCache.clear();
   for (const f of files) {
-    if (!/\.md$/i.test(f.path)) continue; // test runs and other files
+    if (!/\.md(#[^/]*)?$/i.test(f.path)) continue; // test runs and other files
     const hit = readCache.get(f.path);
-    const r = hit && hit.text === f.text && hit.configText === configText ? hit.read : readChecked(f, config);
-    if (r !== hit?.read) readCache.set(f.path, { text: f.text, configText, read: r });
+    const r = hit && hit.text === f.text && hit.configText === settings ? hit.read : readChecked(f, config);
+    if (r !== hit?.read) readCache.set(f.path, { text: f.text, configText: settings, read: r });
     problems.push(...r.problems);
     if (r.item) items.push(r.item);
   }
@@ -360,7 +372,70 @@ export function buildIndex(files: SourceFile[], configText: string | null): Proj
       if (p && p !== it && p.kind === 'requirement') queue.push(...p.refines);
     }
   }
-  return { config, items, byId, byPath, verifiedBy, refinedBy, linkedBy, problems };
+  if (config.sphinx) problems.push(...sphinxProblems(files, items, config, sphinx ?? null, byId));
+  return { config, items, byId, byPath, verifiedBy, refinedBy, linkedBy, problems, sphinx };
+}
+
+// The needs among the files, as their item texts say (the type is the directive, for the
+// types withSphinxTypes settles).
+function needsSeen(files: SourceFile[]): NeedSeen[] {
+  const field = (front: string, key: string) => new RegExp(`^${key}: *(.*)$`, 'm').exec(front)?.[1].trim().replace(/^(["'])(.*)\1$/, '$2') ?? '';
+  return files.flatMap((f) => {
+    if (!isNeedPath(f.path)) return [];
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(f.text)?.[1] ?? '';
+    return [{ directive: field(front, 'type'), id: field(front, 'id'), status: field(front, 'status') || null }];
+  });
+}
+
+// What a Sphinx build would trip over, or what Tracey leaves out: options conf.py doesn't
+// declare, IDs its pattern refuses, and needs of types that aren't item types.
+function sphinxProblems(files: SourceFile[], items: Item[], config: TraceConfig, declared: SphinxDeclared | null, byId: Map<string, Item>): Problem[] {
+  const problems: Problem[] = [];
+  const conf = config.sphinx!.conf;
+  if (!declared) problems.push({ severity: 'warning', code: 'sphinx', message: `There's no ${conf}, so Tracey can't check needs against what Sphinx-Needs declares. Set sphinx-needs: conf: in trace.yml.`, path: 'trace.yml' });
+  const unmapped = new Map<string, number>();
+  for (const f of files) {
+    if (!isNeedPath(f.path) || byId.get(/^id: (.+)$/m.exec(f.text)?.[1] ?? '')?.path === f.path) continue;
+    const type = /^type: (.+)$/m.exec(f.text)?.[1]?.trim();
+    if (type && !config.types.some((t) => t.key === type)) unmapped.set(type, (unmapped.get(type) ?? 0) + 1);
+  }
+  for (const [type, n] of unmapped)
+    problems.push({
+      severity: 'warning',
+      code: 'sphinx',
+      message: `${n} ${type} need${n === 1 ? ' isn’t' : 's aren’t'} shown: ${type} isn't an item type${declared && !declared.directives.some((d) => d.directive === type) ? `, and needs_types in ${conf} doesn't declare it` : ''}. Map it under sphinx-needs: types: (${type}: requirement), or declare it under types:.`,
+      path: 'trace.yml',
+    });
+  if (!declared) return problems;
+  const ctx = { config, declared, kindOfId: (id: string) => byId.get(id)?.kind ?? null };
+  const undeclared = new Map<string, string[]>();
+  const known = new Set([...STANDARD_OPTIONS, ...declared.options, ...declared.links]);
+  const pattern = idPatternOf(declared);
+  const directives = new Set(declared.directives.map((d) => d.directive));
+  for (const it of items) {
+    if (!isNeedPath(it.path)) continue;
+    if (!pattern.test(it.id))
+      problems.push({ severity: 'warning', code: 'sphinx', message: `${it.id} doesn't match the ID pattern Sphinx-Needs checks (${pattern.source}).`, path: it.path, id: it.id });
+    if (declared.complete)
+      for (const o of optionsOf(`---\n${it.front ?? ''}---\n`, ctx)) if (!known.has(o)) (undeclared.get(o) ?? undeclared.set(o, []).get(o)!).push(it.id);
+  }
+  for (const [o, ids] of undeclared) {
+    const link = config.links.some((l) => l.key === o);
+    problems.push({
+      severity: 'warning',
+      code: 'sphinx',
+      message: `Sphinx-Needs doesn't know the option :${o}:, which ${ids.length > 3 ? `${ids.slice(0, 3).join(', ')} and ${ids.length - 3} more use` : `${ids.join(', ')} use${ids.length === 1 ? 's' : ''}`}. Add ${link ? `{"option": "${o}"} to needs_extra_links` : `"${o}" to needs_extra_options`} in ${conf}${link ? `, or map an option to ${o} under sphinx-needs: links:` : ''}.`,
+      path: conf,
+    });
+  }
+  // needs_types replaces Sphinx-Needs' own types, so what Tracey writes must be in it.
+  if (directives.size)
+    for (const t of config.types) {
+      const d = directiveOf(config, t.key);
+      if ((t.builtIn || items.some((i) => i.kind === t.key && isNeedPath(i.path))) && !directives.has(d))
+        problems.push({ severity: 'warning', code: 'sphinx', message: `New ${t.plural.toLowerCase()} are written as {${d}}, which needs_types in ${conf} doesn't declare. Map another directive to ${t.key} under sphinx-needs: types:.`, path: conf });
+    }
+  return problems;
 }
 
 // ---- variants ------------------------------------------------------------------------
@@ -396,7 +471,7 @@ export function forVariant(index: ProjectIndex, variant: string): ProjectIndex {
   const linkedBy = new Map([...index.linkedBy].map(([k, m]) => [k, keep(m)]));
   // Problems about items the variant doesn't have aren't its problems.
   const problems = index.problems.filter((p) => !p.path || !index.byPath.has(p.path) || byPath.has(p.path));
-  return { config: index.config, items, byId, byPath, verifiedBy, refinedBy, linkedBy, problems };
+  return { config: index.config, items, byId, byPath, verifiedBy, refinedBy, linkedBy, problems, sphinx: index.sphinx };
 }
 
 // REQ-2 before REQ-10.
@@ -610,6 +685,11 @@ export function checkNewId(index: ProjectIndex, kind: Kind, raw: string): { erro
   const taken = index.items.find((i) => i.id.toLowerCase() === id.toLowerCase());
   if (taken) return { error: `${taken.id} is already used by ${taken.path}.`, warning: null };
   if (otherType) return { error: `IDs starting with ${otherType.prefix} are ${otherType.plural.toLowerCase()}. Use one starting with ${own}.`, warning: null };
+  if (index.config.sphinx) {
+    const pattern = idPatternOf(index.sphinx ?? null);
+    if (!pattern.test(id)) return { error: `Sphinx-Needs takes IDs matching ${pattern.source}${index.sphinx?.idRegex ? '' : ' (capital letters, digits and _, five or more)'}.`, warning: null };
+    return ok(own && !id.startsWith(own) ? `It doesn’t start with ${own}.` : null);
+  }
   if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(id))
     return ok(`Tracey recognizes IDs in text, commit messages and Jira when they look like ${own || 'TC-'}123 (capital letters, a dash, a number). This one is only linked through fields such as Verifies.`);
   if (own && !id.startsWith(own)) return ok(`It doesn’t start with ${own}, so the file says what it is (type: ${kind}).`);
@@ -628,12 +708,24 @@ export function slug(title: string): string {
 }
 
 export function newItemPath(index: ProjectIndex, kind: Kind, id: string, title: string): string {
+  if (index.config.sphinx) return needPath(newNeedFile(index, kind), id);
   const dir = typeOf(index.config, kind).dir;
   const s = slug(title);
   const base = `${dir ? dir + '/' : ''}${id}${s ? '-' + s : ''}`;
   let path = `${base}.md`;
   for (let n = 2; index.byPath.has(path); n++) path = `${base}-${n}.md`;
   return path;
+}
+
+// The MyST file a new need goes in: as trace.yml says, else the one holding the most of
+// its type, else one named after the type in the MyST folder.
+export function newNeedFile(index: ProjectIndex, kind: Kind): string {
+  const sphinx = index.config.sphinx!;
+  if (sphinx.files[kind]) return sphinx.files[kind];
+  const counts = new Map<string, number>();
+  for (const it of index.items) if (it.kind === kind && isNeedPath(it.path)) counts.set(needFile(it.path), (counts.get(needFile(it.path)) ?? 0) + 1);
+  const most = [...counts].sort((a, b) => b[1] - a[1])[0]?.[0];
+  return most ?? `${sphinx.dir ? `${sphinx.dir}/` : ''}${slug(typeOf(index.config, kind).plural) || kind}.md`;
 }
 
 export function newItemText(
@@ -650,6 +742,7 @@ export function newItemText(
     reviewed?: Record<string, string>;
     type?: boolean;
     steps?: boolean; // start with Steps and Expected headings (test cases, and runnable types)
+    labels?: boolean; // bold labels instead of headings (a Sphinx need can't hold headings)
   },
 ): string {
   const yamlString = (s: string) => (/^[\w .,()/-]*$/.test(s) && !/^[\s-]|:\s|\s$/.test(s) && s !== '' ? s : JSON.stringify(s));
@@ -664,7 +757,7 @@ export function newItemText(
   for (const [key, ids] of Object.entries(fields.links ?? {})) if (ids.length) lines.push(`${key}: [${ids.join(', ')}]`);
   const r = Object.entries(fields.reviewed ?? {});
   if (r.length) lines.push('reviewed:', ...r.map(([k, v]) => `  ${k}: "${v}"`));
-  const body = kind === 'testcase' || fields.steps ? '## Steps\n\n1. \n\n## Expected\n\n' : '';
+  const body = kind === 'testcase' || fields.steps ? (fields.labels ? '**Steps**\n\n1. \n\n**Expected**\n\n' : '## Steps\n\n1. \n\n## Expected\n\n') : '';
   return `---\n${lines.join('\n')}\n---\n${body}`;
 }
 

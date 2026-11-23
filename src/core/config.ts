@@ -19,6 +19,11 @@
 //     verifies: { to: [requirement, architecture] }   what tests may verify, besides requirements
 //   rules:                       what counts as a gap, besides requirements without tests
 //     - { every: risk, needs: mitigates }
+//   sphinx-needs:                needs in MyST files, read and edited where they are (see myst.ts)
+//     dir: docs                  where the MyST files are; conf: docs/conf.py
+//     types: { spec: requirement }     need directive → item type (req, test built in)
+//     links: { tests: verifies }       need option → link type (by name, `links` by what it connects)
+//     files: { requirement: docs/requirements.md }   where new needs go
 import { isMap, isScalar, parse, parseDocument, stringify } from 'yaml';
 
 export type IssueLinkSource = 'labels' | 'field' | 'text' | 'remote-links';
@@ -124,7 +129,20 @@ export interface TraceConfig {
   types: TypeDef[]; // requirement, testcase, then the declared ones in order
   links: LinkDef[]; // verifies, refines, then the declared ones
   rules: RuleDef[];
+  sphinx: SphinxConfig | null; // a Sphinx-Needs project: items are needs in MyST files
   notes: string[]; // parts of trace.yml that couldn't be used, and why
+}
+
+// Sphinx-Needs: requirements and test cases as need directives in MyST Markdown,
+// ```{req} Title  with :id:, :status:, :links:… Sphinx stays the source; Tracey reads
+// each need as an item and writes changes back into its directive.
+export interface SphinxConfig {
+  dir: string; // where the MyST files are ('' : the whole repository)
+  conf: string; // its conf.py, read for the types, options and ID pattern it declares
+  types: Record<string, Kind>; // need directive → item type, beyond req, test and the types' own keys
+  reads: Record<string, Kind>; // need directive → item type it's read as, new ones being written by another
+  links: Record<string, string>; // need option → link type, beyond those named like a link type
+  files: Record<Kind, string>; // where new needs of a type go ('' : beside the most of them)
 }
 
 export const CONFIG_FILES = ['trace.yml', '.trace.yml'];
@@ -145,6 +163,7 @@ export const DEFAULT_CONFIG: TraceConfig = {
   types: [],
   links: [],
   rules: [],
+  sphinx: null,
   notes: [],
 };
 const BUILT_IN_LINKS: readonly LinkDef[] = [
@@ -205,8 +224,10 @@ export function parseConfig(text: string | null): ConfigResult {
       variants.push({ key, name: typeof v === 'string' ? v : str((v as Record<string, unknown> | null)?.name, key) });
   const jira = (o.jira && typeof o.jira === 'object' ? o.jira : {}) as Record<string, unknown>;
   const notes: string[] = [];
-  const requirements = kind(o.requirements, DEFAULT_CONFIG.requirements);
-  const testcases = kind(o.testcases, DEFAULT_CONFIG.testcases);
+  // Sphinx-Needs' default ID pattern is [A-Z0-9_]{5,}: no dashes.
+  const sphinxOn = o['sphinx-needs'] != null && o['sphinx-needs'] !== false;
+  const requirements = kind(o.requirements, sphinxOn ? { ...DEFAULT_CONFIG.requirements, prefix: 'REQ_', digits: 3 } : DEFAULT_CONFIG.requirements);
+  const testcases = kind(o.testcases, sphinxOn ? { ...DEFAULT_CONFIG.testcases, prefix: 'TC_' } : DEFAULT_CONFIG.testcases);
   const statuses = strList(o.statuses, DEFAULT_CONFIG.statuses);
   const testcaseStatuses = strList(o.testcaseStatuses ?? o['testcase-statuses'], DEFAULT_CONFIG.testcaseStatuses);
   const types = [...builtInTypes({ requirements, testcases, statuses, testcaseStatuses }), ...typeDefs(o.types, statuses, testcaseStatuses, notes)];
@@ -218,6 +239,7 @@ export function parseConfig(text: string | null): ConfigResult {
     return false;
   });
   const rules = ruleDefs(o.rules, types, links, notes);
+  const sphinx = sphinxOn ? sphinxDef(o['sphinx-needs'], types, links, notes) : null;
   const code = (o.code && typeof o.code === 'object' ? o.code : {}) as Record<string, unknown>;
   const commitCount = Number(code.commits);
   return {
@@ -247,10 +269,36 @@ export function parseConfig(text: string | null): ConfigResult {
       types,
       links,
       rules,
+      sphinx,
       notes,
     },
     error: null,
   };
+}
+
+//   sphinx-needs: { dir: docs, types: { spec: requirement }, links: { tests: verifies }, files: { testcase: docs/tests.md } }
+//   sphinx-needs: true           everything by default
+function sphinxDef(v: unknown, types: TypeDef[], links: LinkDef[], notes: string[]): SphinxConfig {
+  const o = (v && typeof v === 'object' && !Array.isArray(v) ? v : {}) as Record<string, unknown>;
+  const map = (x: unknown) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.entries(x as Record<string, unknown>) : []);
+  const clean = (p: string) => p.replace(/^\.?\/+|\/+$/g, '');
+  const dir = typeof o.dir === 'string' && o.dir.trim() !== '.' ? clean(o.dir.trim()) : '';
+  const out: SphinxConfig = { dir, conf: typeof o.conf === 'string' && o.conf.trim() ? clean(o.conf.trim()) : dir ? `${dir}/conf.py` : 'conf.py', types: {}, reads: {}, links: {}, files: {} };
+  for (const [directive, t] of map(o.types)) {
+    const k = typeKey(types, String(t ?? ''));
+    if (k) out.types[directive] = k;
+    else notes.push(`sphinx-needs: types: ${directive} names “${String(t)}”, which isn't an item type.`);
+  }
+  for (const [option, l] of map(o.links)) {
+    if (links.some((x) => x.key === String(l))) out.links[option] = String(l);
+    else notes.push(`sphinx-needs: links: ${option} names “${String(l)}”, which isn't a link type.`);
+  }
+  for (const [t, file] of map(o.files)) {
+    const k = typeKey(types, t);
+    if (k && typeof file === 'string' && /\.md$/i.test(file)) out.files[k] = clean(file.trim());
+    else notes.push(`sphinx-needs: files: ${t} should name an item type and a .md file.`);
+  }
+  return out;
 }
 
 // trace.yml with its variants replaced. Only those lines change; the rest of the file
@@ -311,6 +359,14 @@ export function typeKey(types: TypeDef[], name: string): string | null {
 }
 
 const RESERVED = new Set(['requirement', 'testcase', 'commit', 'issue', 'component', 'item', 'req', 'test']);
+
+// An item type declared somewhere other than trace.yml (a Sphinx-Needs project's conf.py),
+// under a key that may also hold underscores. null: the key can't be a type's.
+export function outsideType(key: string, o: { name: string; prefix: string; digits: number; statuses: string[] }): TypeDef | null {
+  if (!/^[a-z][a-z0-9_-]*$/.test(key) || RESERVED.has(key)) return null;
+  const name = o.name.trim() || label(key);
+  return { key, name, plural: /s$/i.test(name) ? name : `${name}s`, statuses: o.statuses, builtIn: false, runnable: false, dir: key, prefix: o.prefix, digits: o.digits };
+}
 
 //   risk: { name: Risk, plural: Risks, prefix: RSK-, dir: risks, digits: 2, statuses: [open, closed] }
 function typeDefs(v: unknown, statuses: string[], testStatuses: string[], notes: string[]): TypeDef[] {

@@ -1,6 +1,6 @@
 // Commits, linked by the keys in their messages: a Jira key (PROJ-466) links a commit
 // to that issue, and through it to the requirements naming it in `jira:`; a
-// requirement or test case ID (REQ-07) links it to that item directly. The files a
+// requirement or test case ID (REQ-07, REQ_007) links it to that item directly. The files a
 // commit changed map to components through their paths in trace.yml.
 import type { Commit } from '../shared/api';
 import { componentsForPath, type Item, type ProjectIndex } from './model';
@@ -14,6 +14,8 @@ export interface LinkedCommit {
 }
 
 const KEY = /\b([A-Z][A-Z0-9_]+)-(\d+)\b/g;
+// Item IDs, also those with no dash (Sphinx-Needs' REQ_007): only those that are items count.
+const ITEM = /\b[A-Z][A-Z0-9_-]*\d\b/g;
 // Look like Jira keys, aren't.
 const NOT_JIRA = new Set(['UTF', 'SHA', 'ISO', 'RFC', 'HTTP', 'TLS', 'SSL', 'X', 'ES', 'MD', 'AES', 'RSA', 'CVE', 'WIP']);
 
@@ -24,6 +26,7 @@ export function linkCommits(commits: Commit[], index: ProjectIndex, links: Issue
     const text = `${commit.subject}\n${commit.body}`;
     const issues = new Set<string>();
     const items = new Set<string>();
+    for (const m of text.matchAll(ITEM)) if (index.byId.has(m[0])) items.add(m[0]);
     for (const m of text.matchAll(KEY)) {
       const key = m[0];
       if (index.byId.has(key)) items.add(key);

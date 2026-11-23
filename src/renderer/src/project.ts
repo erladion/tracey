@@ -54,6 +54,8 @@ export interface Project {
   runs: TestRun[];
   createFile(path: string, text: string): Promise<void>;
   updateFile(path: string, change: (text: string) => string): void;
+  // A Sphinx need whose ID changed: saved where it is, then known by its new path.
+  renamePath(from: string, to: string): Promise<void>;
   flush(): Promise<void>;
   refreshGit(): Promise<void>;
 }
@@ -408,6 +410,22 @@ export function useProject(repo: RepoEntry): Project {
     },
     [setText],
   );
+  const renamePath = useCallback(
+    async (from: string, to: string) => {
+      if (pending.current.has(from)) {
+        clearTimeout(pending.current.get(from));
+        write(from);
+      }
+      await Promise.all([...inFlight.current]);
+      const next = new Map<string, string>();
+      for (const [k, v] of textsRef.current) next.set(k === from ? to : k, v);
+      textsRef.current = next;
+      setTexts(next);
+      void refreshGit();
+    },
+    [write, refreshGit],
+  );
+
   const indexRef = useRef(index);
   indexRef.current = index;
 
@@ -458,12 +476,14 @@ export function useProject(repo: RepoEntry): Project {
         status,
         verifies: type.runnable ? (opts.verifies ?? []) : undefined,
         steps: type.runnable,
+        labels: !!idx.config.sphinx,
         refines: kind === 'requirement' ? opts.refines : undefined,
         links,
         components: opts.components,
         variants: opts.variants,
         reviewed,
-        type: !!prefix && !id.startsWith(prefix),
+        // A Sphinx need always says: it's the directive it's written as.
+        type: (!!prefix && !id.startsWith(prefix)) || !!idx.config.sphinx,
       });
       await api.writeFile(repo.id, path, text);
       const next = new Map(textsRef.current);
@@ -490,5 +510,5 @@ export function useProject(repo: RepoEntry): Project {
     [repo.id, refreshGit],
   );
 
-  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, pending: indexPending, work, addWork, removeWork, clearWork, setWork, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, flush, refreshGit };
+  return { repo, loading, error, config, texts, index, allIndex: index, variant: null, git, saving, pending: indexPending, work, addWork, removeWork, clearWork, setWork, code, commits, setCodeRepo, reloadCommits, jira, links, refreshJira, searchJira, reload, setText, updateFields, markReviewed, writeConfig, createItem, deleteItem, runs, createFile, updateFile, renamePath, flush, refreshGit };
 }

@@ -21,6 +21,8 @@ process. Both have the same interface.
   cases and components.
 - **Your own structure**: product variants, item types (risks, architecture…), link
   types and rules for what counts as a gap.
+- **Sphinx-Needs projects**: requirements and tests written as needs in MyST Markdown,
+  opened and edited where they are.
 - **Import and export**: DOORS (ReqIF or HTML), Sphinx-Needs, PDF, Excel and CSV.
 - **A `check` command** for CI.
 
@@ -29,6 +31,7 @@ process. Both have the same interface.
 - [Getting started](#getting-started)
 - [How items are stored](#how-items-are-stored)
 - [Settings: trace.yml](#settings-traceyml)
+- [Sphinx-Needs projects](#sphinx-needs-projects)
 - [Working in the app](#working-in-the-app)
 - [Coverage and traceability](#coverage-and-traceability)
 - [Test runs](#test-runs)
@@ -101,6 +104,9 @@ requirements/REQ-07-….md     one file per requirement
 tests/TC-102-….md            one file per test case
 test-runs/release-2-4-0.yml  one file per test run
 ```
+
+(A Sphinx-Needs project keeps them as needs in MyST files instead: see
+[Sphinx-Needs projects](#sphinx-needs-projects).)
 
 A requirement:
 
@@ -240,6 +246,9 @@ jira:
 
 code:
   repository: https://bitbucket.example.com/scm/proj/app.git   # see The code repository below
+
+sphinx-needs:                         # see Sphinx-Needs projects below
+  dir: docs
 ```
 
 Anything that can't be used is listed under **Problems** and in **Settings**, with why.
@@ -320,6 +329,119 @@ The graph puts each type in its own column, in the order the links go (risks,
 requirements, architecture, test cases).
 
 ---
+
+## Sphinx-Needs projects
+
+Tracey can work on a [Sphinx-Needs](https://sphinx-needs.readthedocs.io) project as it
+is: requirements and tests written as need directives in MyST Markdown, with Sphinx
+building the documentation. Each need is an item. Edits go back into its directive, and
+the rest of the file stays as written.
+
+````markdown
+```{req} Retry failed payments
+:id: REQ_001
+:status: open
+:tags: payments
+:links: REQ_000
+
+Retry up to three times, waiting longer each time.
+```
+
+:::{test} Payment stops after three retries
+:id: TC_001
+:status: open
+:links: REQ_001
+
+**Steps**
+
+1. Make the gateway time out.
+
+**Expected**
+
+Three tries, then an error.
+:::
+````
+
+**Opening one**: open the repository as usual. Without a `trace.yml`, a `conf.py` that
+loads `sphinx_needs` (at the root, or in `docs/`, `doc/`, `source/` or `docs/source/`)
+is enough. Tracey then makes up its settings from the needs it finds: their ID
+prefixes and statuses. Save them from **Settings** to keep them as `trace.yml`. With a
+`trace.yml`, add a `sphinx-needs:` section:
+
+```yaml
+requirements: { prefix: REQ_, digits: 3 }   # Sphinx-Needs IDs have no dashes
+testcases:    { prefix: TC_,  digits: 3 }
+statuses: [open, approved, closed]
+sphinx-needs:
+  dir: docs                        # where the MyST files are; '.' for the whole repository
+  conf: docs/conf.py               # the default: conf.py in dir
+  types: { spec: requirement }     # directive → item type; req and test are built in
+  links: { tests: verifies }       # option → link type
+  files:                           # where new needs go
+    requirement: docs/requirements.md
+    testcase: docs/tests.md
+```
+
+**How a need reads**:
+- The directive is the type: `{req}` a requirement, `{test}` a test case, a type of
+  your own by its key (`{risk}`), and others as `types:` maps them.
+- **Types `conf.py` declares** in `needs_types` (or Sphinx-Needs' own `{spec}` and
+  `{impl}`, without `needs_types`) are item types too, with no settings needed:
+  - One titled like an item type is read as it: `{tc}` titled "Test Case" holds test
+    cases. New test cases are written as `{tc}`, unless `{test}` is declared too.
+  - Any other is a type of its own, keyed by its directive and named by its title
+    (`{spec}` titled "Specification" holds Specifications). It has the ID prefix and digits its needs have (else
+    `conf.py`'s prefix), and the statuses they use.
+  - `trace.yml` wins: `types: { spec: requirement }` makes specifications requirements
+    (so they roll up into coverage as levels), and a type it declares is used as
+    declared.
+- Needs of a type that is none of these aren't items. Issues says how many, and links
+  to them are kept as written.
+- The directive's argument is the title. `:id:` and `:status:` are what they say.
+- `:tags:` that are components become components. The rest stay tags.
+- **Links**: an option named after a link type (`:verifies:`, `:refines:`,
+  `:mitigates:`) is that link type, and so is one mapped under `links:`. The generic
+  `:links:` becomes the one link type joining the two items' types: a test case's
+  `:links: REQ_001` verifies it, and a requirement's refines it.
+- Other options are fields: `:priority: High` is the `priority` field. A flag
+  (`:collapse:`) stays one.
+- The directive's text is the item's text, in MyST Markdown. Roles (``{need}`REQ_001` ``),
+  nested directives and anything else Tracey doesn't edit are kept byte for byte.
+
+**How Tracey writes it**: in place, with the options in their order and the fence as it
+was. A new link goes under `:links:` when that reads back as the same link type,
+otherwise under an option named after the link type. A new need goes at the end of
+the file holding most needs of its type (or the one `files:` names), in that file's
+fence style. A need can't hold headings, so a new test case's steps are under
+**Steps** and **Expected** labels, which test runs read like headings.
+
+**What Sphinx needs to know**: `:reviewed:` (the [suspect link](#suspect-links)
+fingerprints), and fields such as `:verification:` and `:estimate:`, are options of
+Tracey's own. Sphinx-Needs refuses options it isn't told about, so Tracey reads
+`conf.py` and lists in Issues each option to add to `needs_extra_options` (or
+`needs_extra_links`), IDs that don't match `needs_id_regex`, and directives
+`needs_types` doesn't declare. For example:
+
+```python
+needs_extra_options = ["reviewed", "verification", "evidence", "estimate"]
+```
+
+**Git**: changes, history, blame and committing work per need. A need's history lists
+only the commits that changed it. Committing a need commits its file, so other changed
+needs in the same file go with it. Changes to the page around the needs show as a
+change to the file.
+
+**The graph and everything else** work as for Markdown items: the same project as
+needs or as Markdown files draws the same graph. Commit messages and Jira issues naming
+`REQ_001` link to it as they do to `REQ-07`. Component nodes come from tags that are
+components in `trace.yml`. Each type `conf.py` declares has a column of its own, unless
+it's read as requirements or test cases. A generic `:links:` between two such types
+joins them only when `trace.yml` declares a link type for them; until then it's kept as
+written and draws no line.
+
+**Not yet**: `.rst` files (only MyST), needs written inside other needs, and
+`{eval-rst}` blocks. Renaming an ID changes it in needs, but not in the rest of the
+documentation (`{need}` roles in other pages): search for those.
 
 ## Working in the app
 
@@ -908,8 +1030,10 @@ How it reads the files:
 
 ### Sphinx-Needs
 
-Tracey writes and reads the `needs.json` that Sphinx-Needs' `needs` builder writes and
-its `needimport` directive reads (format 1). A Sphinx build can then show Tracey's items,
+To work on a Sphinx-Needs project directly, see
+[Sphinx-Needs projects](#sphinx-needs-projects). Tracey also writes and reads the
+`needs.json` that Sphinx-Needs' `needs` builder writes and its `needimport` directive
+reads (format 1). A Sphinx build can then show Tracey's items,
 and needs from a Sphinx project can come into Tracey.
 
 ```sh
@@ -1080,12 +1204,14 @@ src/core/       pure TypeScript, shared by everything (and unit-tested)
   doors.ts        the DOORS import: the map, the files, test steps, the report
   doorshtml.ts    DOORS modules exported as HTML, read like ReqIF; html.ts reads forgiving HTML
   needs.ts        Sphinx-Needs needs.json: export, and import with its report
+  myst.ts         Sphinx-Needs in MyST files: needs ↔ items, written back in place; conf.py
   suggest.ts      test cases for a Jira issue: candidates by their words, the model's question and answer
   markdown/       schema, Markdown ↔ ProseMirror with source preservation
   sample.ts       files of a new project
 src/shared/api.ts the calls the interface makes to the back end
 src/backend/      Node: files (with path checks), git, the Jira and language model clients, the commands
-                  (cli.ts, commandline.ts), the web server's network settings (network.ts)
+                  (cli.ts, commandline.ts), the web server's network settings (network.ts),
+                  Sphinx-Needs projects on disk and in git (sphinx.ts)
 src/main/         Electron: window, IPC, folder dialogs, recent repositories; commands from a terminal
 src/preload/      the IPC bridge
 src/server/       web server (same API over HTTP), and the same commands

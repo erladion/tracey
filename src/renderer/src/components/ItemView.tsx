@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Node as PMNode } from 'prosemirror-model';
 import { decodeText, encodeText, joinFrontMatter, readFrontMatter, setFields, splitFrontMatter } from '../../../core/frontmatter';
+import { isNeedPath } from '../../../core/myst';
 import { parseBody, serializeBody, type ParsedBody } from '../../../core/markdown/markdown';
 import { isRunnable, isVerifiable, linksFrom, statusesFor, typeOf, typeWord } from '../../../core/config';
 import { byEvidence, fingerprint, itemLinks, newItemPath, nextId, linkedIds, linksOf, METHOD_LABEL, METHODS, refinesOf, type Item } from '../../../core/model';
@@ -394,7 +395,15 @@ export function ItemView({ project, path, onOpenId, onNewTest, onNewRefinement, 
     return (
       <div className="empty-state">
         <h2>{path}</h2>
-        <p>{error ? `The front matter can't be read: ${error}` : 'This file has no id in its front matter, so it is not a requirement or test case.'}</p>
+        <p>
+          {isNeedPath(path)
+            ? raw
+              ? 'This need has no :id:, or its type isn’t one of Tracey’s item types (see Issues).'
+              : 'This need isn’t in its file any more: its ID may have changed there.'
+            : error
+              ? `The front matter can't be read: ${error}`
+              : 'This file has no id in its front matter, so it is not a requirement or test case.'}
+        </p>
       </div>
     );
   }

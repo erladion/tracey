@@ -18,6 +18,8 @@ import { existsSync, promises as fs } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { readExport, readHtmlExport } from './reqifz';
 import { readProjectFiles } from './service';
+import { writeNeedFile } from './sphinx';
+import { splitNeedPath } from '../core/myst';
 import { buildIndex, coverage, forVariant } from '../core/model';
 import { formatReport, guessMap, mapToYaml, planImport, readMap } from '../core/doors';
 import { formatNeedsReport, needsJson, planNeedsImport } from '../core/needs';
@@ -204,9 +206,14 @@ export async function importNeeds(args: string[], self = 'node out/server/index.
     return 0;
   }
   for (const [path, data] of plan.files) {
-    const full = join(into, path);
-    await fs.mkdir(dirname(full), { recursive: true });
-    await fs.writeFile(full, data, { flag: 'wx' });
+    const need = splitNeedPath(path);
+    const full = join(into, need ? need.file : path);
+    // A Sphinx-Needs project: each need goes into its MyST file.
+    if (need) await writeNeedFile(into, need, full, data);
+    else {
+      await fs.mkdir(dirname(full), { recursive: true });
+      await fs.writeFile(full, data, { flag: 'wx' });
+    }
   }
   const shown = relative(process.cwd(), into);
   console.log(`Done. Check it with: ${self} check ${!shown ? '.' : shown.startsWith('..') ? into : shown}`);

@@ -33,7 +33,8 @@ export interface IssueLinks {
   issues: Map<string, JiraIssue>; // what's known about each issue from Jira
 }
 
-const ID = /\b[A-Z][A-Z0-9_]*-\d+\b/g;
+// REQ-07, and Sphinx-Needs' REQ_007: only those that are items count.
+const ID = /\b[A-Z][A-Z0-9_-]*\d\b/g;
 
 // Requirement and test case IDs in a piece of text (only ones that exist).
 export function itemIdsIn(text: string, index: ProjectIndex): string[] {

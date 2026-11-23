@@ -4,6 +4,7 @@
 import { useMemo, useState } from 'react';
 import { checkNewId, type Item } from '../../../core/model';
 import { movedPath, planRename } from '../../../core/rename';
+import { needFile, needPath, splitNeedPath } from '../../../core/myst';
 import type { Project } from '../project';
 import { notify } from '../notify';
 import { Dialog } from './Dialog';
@@ -30,7 +31,9 @@ export function RenameDialog({ project, item, onClose, onRenamed }: Props) {
     if (c.error && newId.toLowerCase() === item.id.toLowerCase() && !same && !index.items.some((i) => i !== item && i.id.toLowerCase() === newId.toLowerCase())) return { error: null, warning: c.warning };
     return c;
   }, [index, item, newId, same]);
-  const canMove = !same && !!newId && movedPath(item.path, item.id, newId, () => false) !== null;
+  // A Sphinx need's path is its file and ID: it follows the ID, in place in its file.
+  const need = splitNeedPath(item.path);
+  const canMove = !need && !same && !!newId && movedPath(item.path, item.id, newId, () => false) !== null;
   const plan = useMemo(
     () => (same || check.error ? null : planRename(index, project.texts, project.config, item, newId, moveFile && canMove)),
     [same, check.error, index, project.texts, project.config, item, newId, moveFile, canMove],
@@ -46,6 +49,11 @@ export function RenameDialog({ project, item, onClose, onRenamed }: Props) {
     setBusy(true);
     try {
       for (const [path, text] of plan.texts) if (path !== plan.move?.from) project.setText(path, text);
+      if (need && !plan.duplicate) {
+        const to = needPath(needFile(item.path), newId);
+        await project.renamePath(item.path, to);
+        onRenamed(to);
+      }
       if (plan.move) {
         await project.createFile(plan.move.to, plan.texts.get(plan.move.from) ?? project.texts.get(plan.move.from) ?? '');
         onRenamed(plan.move.to);

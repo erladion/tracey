@@ -97,7 +97,8 @@ export interface RefTarget {
   title: string;
 }
 export const refsKey = new PluginKey<Map<string, RefTarget>>('refs');
-const REF = /\b[A-Z][A-Z0-9_]*-\d+\b/g;
+// REQ-07, and Sphinx-Needs' REQ_007: only IDs that are items are marked.
+const REF = /\b[A-Z][A-Z0-9_-]*\d\b/g;
 
 function refDecorations(doc: PMNode, refs: Map<string, RefTarget>): DecorationSet {
   const decos: Decoration[] = [];

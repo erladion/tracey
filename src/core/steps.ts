@@ -1,10 +1,12 @@
-// A test case's steps: the numbered list under its "Steps" heading (also "Test steps",
-// "Procedure"), as recorded one by one in a test run. The rest of the text (Expected,
+// A test case's steps: the numbered list under its "Steps" heading or **Steps** label
+// (also "Test steps", "Procedure"), as recorded one by one in a test run. The rest of the text (Expected,
 // notes) is everything else.
 import MarkdownIt from 'markdown-it';
 
 const md = MarkdownIt('commonmark');
-const HEADING = /^\s{0,3}(#{1,6})\s+(?:test\s+)?(?:steps|procedure)\b.*$/i;
+// A heading, or (in a Sphinx need, which can't hold headings) a bold label on its own line.
+const HEADING = /^\s{0,3}(#{1,6}\s+|\*\*)(?:test\s+)?(?:steps|procedure)\b[^*]*(?:\*\*:?)?\s*$/i;
+const LABEL = /^\s{0,3}\*\*[^*]+\*\*:?\s*$/;
 
 export interface Steps {
   steps: string[]; // each step's text (inline Markdown, one line)
@@ -15,11 +17,12 @@ export function stepsOf(body: string): Steps {
   const lines = body.split('\n');
   const start = lines.findIndex((l) => HEADING.test(l));
   if (start < 0) return { steps: [], rest: body };
-  const level = HEADING.exec(lines[start])![1].length;
+  const mark = HEADING.exec(lines[start])![1].trim();
+  const level = mark === '**' ? 7 : mark.length; // a label ends at the next label or any heading
   let end = lines.length;
   for (let i = start + 1; i < lines.length; i++) {
     const h = /^\s{0,3}(#{1,6})\s/.exec(lines[i]);
-    if (h && h[1].length <= level) {
+    if ((h && h[1].length <= level) || (level === 7 && LABEL.test(lines[i]))) {
       end = i;
       break;
     }

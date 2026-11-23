@@ -41,8 +41,11 @@ function run(args: string[], cwd: string, extra: string[] = []): Promise<Result>
   });
 }
 
-// Many files' contents at once: `git cat-file --batch`, fed the object ids.
-function readBlobs(cwd: string, ids: string[]): Promise<string[]> {
+// Many files' contents at once: `git cat-file --batch`, fed the object ids (or
+// commit:path names). missing: null for one that isn't there, rather than failing.
+function readBlobs(cwd: string, ids: string[]): Promise<string[]>;
+function readBlobs(cwd: string, ids: string[], missing: true): Promise<(string | null)[]>;
+function readBlobs(cwd: string, ids: string[], missing = false): Promise<(string | null)[]> {
   return new Promise((resolve, reject) => {
     const p = spawn('git', [...SAFE, 'cat-file', '--batch'], { cwd, env: { ...process.env, LC_ALL: 'C', ELECTRON_RUN_AS_NODE: undefined } });
     const chunks: Buffer[] = [];
@@ -50,11 +53,17 @@ function readBlobs(cwd: string, ids: string[]): Promise<string[]> {
     p.on('error', (e) => reject(new GitError(`Couldn't run git: ${e.message}. Is git installed?`)));
     p.on('close', () => {
       const all = Buffer.concat(chunks);
-      const out: string[] = [];
+      const out: (string | null)[] = [];
       let at = 0;
       for (let i = 0; i < ids.length; i++) {
         const nl = all.indexOf(0x0a, at);
-        const head = all.subarray(at, nl).toString().split(' '); // <id> blob <size>, or <id> missing
+        const line = all.subarray(at, nl).toString(); // <id> blob <size>, or <name> missing
+        if (missing && nl >= 0 && / (missing|ambiguous)$/.test(line)) {
+          out.push(null);
+          at = nl + 1;
+          continue;
+        }
+        const head = line.split(' ');
         if (nl < 0 || head[1] !== 'blob') return reject(new GitError(`Couldn't read ${ids[i]} from git.`));
         const size = Number(head[2]);
         out.push(all.subarray(nl + 1, nl + 1 + size).toString('utf8'));
@@ -342,6 +351,8 @@ export const git = {
       .map(({ path, id }) => ({ path, id }));
   },
   blobs: (root: string, ids: string[]) => (ids.length ? readBlobs(root, ids) : Promise.resolve([])),
+  // Files as they were in commits ("<commit>:<path>"); null where one wasn't there.
+  versions: (root: string, names: string[]) => (names.length ? readBlobs(root, names, true) : Promise.resolve([])),
 
   async show(root: string, commit: string, path: string): Promise<string | null> {
     if (!/^[0-9a-f]{4,64}$/i.test(commit)) return null;
